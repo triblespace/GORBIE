@@ -8,3 +8,5 @@ gpui = { git = "https://github.com/zed-industries/zed" }
 tribles = { git = "https://github.com/triblespace/tribles-rust" }
 pulldown-cmark = "0.13.0"
 uuid = "1.15.1"
+log = "0.4.26"
+simple_logger = "5.0.0"

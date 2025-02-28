@@ -1,13 +1,16 @@
+use std::path::Path;
+
 use gpui::{
-    auto, div, prelude::*, px, rgb, size, AbsoluteLength, App, Application, Bounds, Context,
-    DefiniteLength, Div, FontWeight, Pixels, Point, Rems, SharedString, Window, WindowBounds,
-    WindowOptions,
+    auto, div, img, prelude::*, px, rgb, size, AbsoluteLength, AnyEntity, AnyView, App, Application, Bounds, Context, DefiniteLength, Div, Entity, FontWeight, Length, Pixels, Point, Rems, SharedString, SharedUri, Window, WindowBounds, WindowOptions
 };
 
 use tribles::{id_hex, prelude::*};
 
 use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd, TextMergeStream};
 use uuid::Uuid;
+
+use log::{debug, info, LevelFilter};
+use simple_logger::SimpleLogger;
 
 fn heading_size(level: HeadingLevel) -> Rems {
     match level {
@@ -20,138 +23,156 @@ fn heading_size(level: HeadingLevel) -> Rems {
     }
 }
 
-fn md(input: &str) -> Div {
-    let events = TextMergeStream::new(Parser::new(input));
+fn md(input: &str) -> MarkdownCell {
+    MarkdownCell {
+        source: SharedString::new(input),
+    }
+}
 
-    let mut stack: Vec<Div> = vec![div().flex().flex_col().w_full()];
+struct MarkdownCell {
+    source: SharedString,
+}
 
-    for event in events {
-        match event {
-            Event::Start(Tag::Paragraph) => {
-                stack.push(div().flex().flex_row().flex_wrap().whitespace_normal().max_w_full().border_color(rgb(0x0000ff)));
-            }
-            Event::Start(Tag::Heading {
-                level,
-                id: _,
-                classes: _,
-                attrs: _,
-            }) => {
-                stack.push(
-                    div()
-                        .max_w_full()
-                        .text_size(heading_size(level))
-                        .text_color(rgb(0x111827)),
-                );
-            }
-            Event::Start(Tag::BlockQuote(block_quote_kind)) => {
-                stack.push(div().flex().flex_row().flex_wrap());
-            }
-            Event::Start(Tag::CodeBlock(code_block_kind)) => {
-                stack.push(div().flex().flex_row().flex_wrap());
-            }
-            Event::Start(Tag::HtmlBlock) => {
-                stack.push(div().flex().flex_row().flex_wrap());
-            }
-            Event::Start(Tag::List(_)) => {
-                stack.push(div().flex().flex_col());
-            }
-            Event::Start(Tag::Item) => {
-                stack.push(div().flex().flex_row().flex_wrap());
-            }
-            Event::Start(Tag::FootnoteDefinition(cow_str)) => {
-                stack.push(div().flex().flex_row().flex_wrap());
-            }
-            Event::Start(Tag::DefinitionList) => {
-                stack.push(div().flex().flex_col());
-            }
-            Event::Start(Tag::DefinitionListTitle) => {
-                stack.push(div().flex().flex_row().flex_wrap());
-            }
-            Event::Start(Tag::DefinitionListDefinition) => {
-                stack.push(div().flex().flex_row().flex_wrap());
-            }
-            Event::Start(Tag::Table(alignments)) => {
-                stack.push(div().flex().flex_col());
-            }
-            Event::Start(Tag::TableHead) => {
-                stack.push(div().flex().flex_row().flex_wrap());
-            }
-            Event::Start(Tag::TableRow) => {
-                stack.push(div().flex().flex_row().flex_wrap());
-            }
-            Event::Start(Tag::TableCell) => {
-                stack.push(div().flex().flex_row().flex_wrap());
-            }
-            Event::Start(Tag::Emphasis) => {
-                stack.push(div().italic());
-            }
-            Event::Start(Tag::Strong) => {
-                stack.push(div().font_weight(FontWeight::BOLD));
-            }
-            Event::Start(Tag::Strikethrough) => {
-                stack.push(div().line_through());
-            }
-            Event::Start(Tag::Superscript) => {
-                stack.push(div().flex().flex_row().flex_wrap());
-            }
-            Event::Start(Tag::Subscript) => {
-                stack.push(div().flex().flex_row().flex_wrap());
-            }
-            Event::Start(Tag::Link {
-                link_type: _,
-                dest_url: _,
-                title: _,
-                id: _,
-            }) => {
-                stack.push(div().flex().flex_row().flex_wrap());
-            }
-            Event::Start(Tag::Image {
-                link_type: _,
-                dest_url: _,
-                title: _,
-                id: _,
-            }) => {
-                stack.push(div().flex().flex_row().flex_wrap());
-            }
-            Event::Start(Tag::MetadataBlock(_metadata_block_kind)) => {
-                stack.push(div().flex().flex_row().flex_wrap());
-            }
-            Event::End(_tag) => {
-                if let Some(child) = stack.pop() {
-                    if let Some(parent) = stack.pop() {
-                        stack.push(parent.child(child));
-                    } else {
-                        return child;
+impl Render for MarkdownCell {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let events = TextMergeStream::new(Parser::new(&self.source));
+
+        let mut stack: Vec<Div> = vec![div().flex().flex_col().w_full()];
+    
+        for event in events {
+            match event {
+                Event::Start(Tag::Paragraph) => {
+                    stack.push(div().flex().flex_row().flex_wrap().whitespace_normal().max_w_full().border_color(rgb(0x0000ff)));
+                }
+                Event::Start(Tag::Heading {
+                    level,
+                    id: _,
+                    classes: _,
+                    attrs: _,
+                }) => {
+                    stack.push(
+                        div()
+                            .max_w_full()
+                            .text_size(heading_size(level))
+                            .text_color(rgb(0x111827)),
+                    );
+                }
+                Event::Start(Tag::BlockQuote(block_quote_kind)) => {
+                    stack.push(div().flex().flex_row().flex_wrap());
+                }
+                Event::Start(Tag::CodeBlock(code_block_kind)) => {
+                    stack.push(div().flex().flex_row().flex_wrap());
+                }
+                Event::Start(Tag::HtmlBlock) => {
+                    stack.push(div().flex().flex_row().flex_wrap());
+                }
+                Event::Start(Tag::List(_)) => {
+                    stack.push(div().flex().flex_col());
+                }
+                Event::Start(Tag::Item) => {
+                    stack.push(div().flex().flex_row().flex_wrap());
+                }
+                Event::Start(Tag::FootnoteDefinition(cow_str)) => {
+                    stack.push(div().flex().flex_row().flex_wrap());
+                }
+                Event::Start(Tag::DefinitionList) => {
+                    stack.push(div().flex().flex_col());
+                }
+                Event::Start(Tag::DefinitionListTitle) => {
+                    stack.push(div().flex().flex_row().flex_wrap());
+                }
+                Event::Start(Tag::DefinitionListDefinition) => {
+                    stack.push(div().flex().flex_row().flex_wrap());
+                }
+                Event::Start(Tag::Table(alignments)) => {
+                    stack.push(div().flex().flex_col());
+                }
+                Event::Start(Tag::TableHead) => {
+                    stack.push(div().flex().flex_row().flex_wrap());
+                }
+                Event::Start(Tag::TableRow) => {
+                    stack.push(div().flex().flex_row().flex_wrap());
+                }
+                Event::Start(Tag::TableCell) => {
+                    stack.push(div().flex().flex_row().flex_wrap());
+                }
+                Event::Start(Tag::Emphasis) => {
+                    stack.push(div().italic());
+                }
+                Event::Start(Tag::Strong) => {
+                    stack.push(div().font_weight(FontWeight::BOLD));
+                }
+                Event::Start(Tag::Strikethrough) => {
+                    stack.push(div().line_through());
+                }
+                Event::Start(Tag::Superscript) => {
+                    stack.push(div().flex().flex_row().flex_wrap());
+                }
+                Event::Start(Tag::Subscript) => {
+                    stack.push(div().flex().flex_row().flex_wrap());
+                }
+                Event::Start(Tag::Link {
+                    link_type: _,
+                    dest_url: _,
+                    title: _,
+                    id: _,
+                }) => {
+                    stack.push(div().flex().flex_row().flex_wrap());
+                }
+                Event::Start(Tag::Image {
+                    link_type: _,
+                    dest_url,
+                    title: _,
+                    id: _,
+                }) => {
+                    debug!("Image: {:?}", dest_url);
+                    let path: &str = &dest_url;
+                    let path: &Path  = Path::new(path);
+                    let img = img(path).max_w(Length::Definite(DefiniteLength::Fraction(0.8))).max_h(px(400.)).object_fit(gpui::ObjectFit::Contain);
+                    stack.push(div().flex().flex_col().gap_4().w_full().h_auto().items_center().justify_end().text_color(rgb(0x0000ff)).child(img));
+                }
+                Event::Start(Tag::MetadataBlock(_metadata_block_kind)) => {
+                    stack.push(div().flex().flex_row().flex_wrap());
+                }
+                Event::End(_tag) => {
+                    if let Some(child) = stack.pop() {
+                        if let Some(parent) = stack.pop() {
+                            stack.push(parent.child(child));
+                        } else {
+                            return child;
+                        }
                     }
                 }
+                Event::Text(cow_str) => {
+                    let parent = stack.pop().unwrap().child(div().max_w_full().child(cow_str.to_string()));
+                    stack.push(parent);
+                }
+                Event::Code(cow_str) => {}
+                Event::InlineMath(cow_str) => {}
+                Event::DisplayMath(cow_str) => {}
+                Event::Html(cow_str) => {}
+                Event::InlineHtml(cow_str) => {}
+                Event::FootnoteReference(cow_str) => {}
+                Event::SoftBreak => {}
+                Event::HardBreak => {}
+                Event::Rule => {}
+                Event::TaskListMarker(_) => {}
             }
-            Event::Text(cow_str) => {
-                let parent = stack.pop().unwrap().child(div().max_w_full().child(cow_str.to_string()));
-                stack.push(parent);
-            }
-            Event::Code(cow_str) => {}
-            Event::InlineMath(cow_str) => {}
-            Event::DisplayMath(cow_str) => {}
-            Event::Html(cow_str) => {}
-            Event::InlineHtml(cow_str) => {}
-            Event::FootnoteReference(cow_str) => {}
-            Event::SoftBreak => {}
-            Event::HardBreak => {}
-            Event::Rule => {}
-            Event::TaskListMarker(_) => {}
         }
+    
+        stack
+            .pop()
+            .unwrap_or(div().child("Failed to parse markdown."))
     }
-
-    stack
-        .pop()
-        .unwrap_or(div().child("Failed to parse markdown."))
 }
-struct Notebook {}
+
+struct Notebook {
+    cells: Vec<AnyView>,
+}
 
 impl Render for Notebook {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .debug_below()
+        div().debug_below()
             .w_full()
             .h_full()
             .flex()
@@ -168,8 +189,26 @@ impl Render for Notebook {
             .items_center()
             .max_w(px(740.))
             .min_h_full()
-            .child(md(
-"# GORBIE!
+            .child(self.cells[0].clone()))
+    }
+}
+
+fn main() {
+    SimpleLogger::new().init().unwrap();
+
+    Application::new().run(|cx: &mut App| {
+        let upper_left = Point {
+            x: Pixels(0.),
+            y: Pixels(0.),
+        };
+        let bottom_right = Point {
+            x: Pixels(600.),
+            y: Pixels(800.),
+        };
+        let bounds = Bounds::from_corners(upper_left, bottom_right);
+        
+        let cell = cx.new(|_| md(
+            "# GORBIE!
 This is **GORBIE!**, a _minimalist_ notebook environment for Rust!
 
 Part of the [trible.space](https://trible.space) project.
@@ -212,27 +251,16 @@ tempus turpis quis, blandit felis. Nunc feugiat lacinia nisi a tempus.\
 Praesent dictum aliquam ligula. Vestibulum et sapien nisi.\
 Aenean pretium turpis a velit tristique rutrum.
 "
-            )))
-    }
-}
+        ));
 
-fn main() {
-    Application::new().run(|cx: &mut App| {
-        let upper_left = Point {
-            x: Pixels(0.),
-            y: Pixels(0.),
-        };
-        let bottom_right = Point {
-            x: Pixels(600.),
-            y: Pixels(800.),
-        };
-        let bounds = Bounds::from_corners(upper_left, bottom_right);
+        let notebook = cx.new(|_| Notebook { cells: vec![cell.into()] });
+
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            |_, cx| cx.new(|_| Notebook {}),
+            |_, cx| notebook,
         )
         .unwrap();
     });
