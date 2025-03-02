@@ -53,7 +53,7 @@ impl Render for MarkdownCell {
                             .flex_wrap()
                             .whitespace_normal()
                             .max_w_full()
-                            .font_family("Atkinson Hyperlegible Next")
+                            .font_family("Atkinson Hyperlegible Next"),
                     );
                 }
                 Event::Start(Tag::Heading {
@@ -74,7 +74,14 @@ impl Render for MarkdownCell {
                     stack.push(div().flex().flex_row().flex_wrap());
                 }
                 Event::Start(Tag::CodeBlock(code_block_kind)) => {
-                    stack.push(div().flex().flex_row().flex_wrap());
+                    stack.push(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .flex_wrap()
+                            .bg(rgb(0xd9d4da))
+                            .font_family("Atkinson Hyperlegible Mono"),
+                    );
                 }
                 Event::Start(Tag::HtmlBlock) => {
                     stack.push(div().flex().flex_row().flex_wrap());
@@ -130,7 +137,14 @@ impl Render for MarkdownCell {
                     title: _,
                     id: _,
                 }) => {
-                    stack.push(div().flex().flex_row().flex_wrap());
+                    stack.push(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .flex_wrap()
+                            .text_color(rgb(0x8b00c9))
+                            .underline(),
+                    );
                 }
                 Event::Start(Tag::Image {
                     link_type: _,
@@ -174,7 +188,17 @@ impl Render for MarkdownCell {
                         .child(div().max_w_full().min_w_auto().child(cow_str.to_string()));
                     stack.push(parent);
                 }
-                Event::Code(cow_str) => {}
+                Event::Code(cow_str) => {
+                    let parent = stack.pop().unwrap().child(
+                        div()
+                            .max_w_full()
+                            .min_w_auto()
+                            .text_bg(rgb(0xd9d4da))
+                            .font_family("Atkinson Hyperlegible Mono")
+                            .child(cow_str.to_string()),
+                    );
+                    stack.push(parent)
+                }
                 Event::InlineMath(cow_str) => {}
                 Event::DisplayMath(cow_str) => {}
                 Event::Html(cow_str) => {}
@@ -239,6 +263,16 @@ Part of the [trible.space](https://trible.space) project.
 # Intro
 
 Hello Vanja!
+
+```
+// This is the main function.
+fn main() {
+    // Statements here are executed when the compiled binary is called.
+
+    // Print text to the console.
+    println!(\"Hello World!\");
+}
+```
 
 Lorem ipsum dolor sit amet, consectetur adipiscing elit.\
 Vestibulum commodo purus ac arcu dapibus, quis scelerisque lacus pretium.\
