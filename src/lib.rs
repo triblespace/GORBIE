@@ -2,46 +2,49 @@ use crate::egui::{FontData, FontDefinitions, FontFamily, FontId, TextStyle};
 use ctrlc;
 use eframe::egui::{self, CollapsingHeader};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
-use std::{collections::BTreeMap, sync::{Arc, RwLock}};
+use parking_lot::{RwLock, RwLockReadGuard};
+use std::{collections::BTreeMap, sync::Arc};
 use tribles::prelude::*;
 
+pub struct CardCtx<'a> {
+    pub ui: &'a mut egui::Ui,
+    id: Id,
+}
+
+impl CardCtx<'_> {
+    pub fn id(&self) -> Id {
+        self.id
+    }
+}
+
 pub trait Card {
-    fn update(&mut self, ui: &mut egui::Ui) -> ();
-    fn id(&self) -> Id;
+    fn update(&mut self, ctx: &mut CardCtx) -> ();
 }
 
 pub struct MarkdownCard {
-    id: Id,
     markdown: String,
     cache: CommonMarkCache,
 }
 
 impl Card for MarkdownCard {
-    fn update(&mut self, ui: &mut egui::Ui) -> () {
-        CommonMarkViewer::new().show(ui, &mut self.cache, &self.markdown);
-    }
-
-    fn id(&self) -> Id {
-        self.id
+    fn update(&mut self, ctx: &mut CardCtx) -> () {
+        CommonMarkViewer::new().show(ctx.ui, &mut self.cache, &self.markdown);
     }
 }
 
 pub struct StatelessCard {
-    id: Id,
-    function: Box<dyn FnMut(&mut egui::Ui) -> ()>,
+    function: Box<dyn FnMut(&mut CardCtx) -> ()>,
     code: Option<String>,
 }
 
 impl Card for StatelessCard {
-    fn update(&mut self, ui: &mut egui::Ui) -> () {
-        let id = self.id();
-
-        (self.function)(ui);
+    fn update(&mut self, ctx: &mut CardCtx) -> () {
+        (self.function)(ctx);
 
         if let Some(code) = &mut self.code {
             CollapsingHeader::new("Code")
-                .id_salt(format!("{:x}/code", id))
-                .show(ui, |ui| {
+                .id_salt(format!("{:x}/code", ctx.id))
+                .show(ctx.ui, |ui| {
                     let language = "rs";
                     let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
                         ui.ctx(),
@@ -51,19 +54,14 @@ impl Card for StatelessCard {
                 });
         }
     }
-
-    fn id(&self) -> Id {
-        self.id
-    }
 }
 
 pub fn stateless_card(
     nb: &mut Notebook,
-    function: impl FnMut(&mut egui::Ui) -> () + 'static,
+    function: impl FnMut(&mut CardCtx) -> () + 'static,
     code: Option<&str>,
 ) {
     nb.push_card(Box::new(StatelessCard {
-        id: *fucid(),
         function: Box::new(function),
         code: code.map(|s| s.to_owned()),
     }));
@@ -77,24 +75,23 @@ macro_rules! stateless {
 }
 
 pub struct StatefulCard<T> {
-    id: Id,
     current: Arc<RwLock<Option<T>>>,
-    function: Box<dyn FnMut(&mut egui::Ui, Option<T>) -> T>,
+    function: Box<dyn FnMut(&mut CardCtx, Option<T>) -> T>,
     code: Option<String>,
 }
 
 impl<T: std::fmt::Debug> Card for StatefulCard<T> {
-    fn update(&mut self, ui: &mut egui::Ui) -> () {
-        let id = self.id();
+    fn update(&mut self, ctx: &mut CardCtx) -> () {
+        let id = ctx.id;
 
-        let mut current = self.current.write().unwrap();
-        let new = (self.function)(ui, current.take());
+        let mut current = self.current.write();
+        let new = (self.function)(ctx, current.take());
         current.replace(new);
 
         if let Some(current) = current.as_ref() {
             CollapsingHeader::new("Current")
                 .id_salt(format!("{:x}/current", id))
-                .show(ui, |ui| {
+                .show(ctx.ui, |ui| {
                     ui.monospace(format!("{:?}", current));
                 });
         }
@@ -102,7 +99,7 @@ impl<T: std::fmt::Debug> Card for StatefulCard<T> {
         if let Some(code) = &mut self.code {
             CollapsingHeader::new("Code")
                 .id_salt(format!("{:x}/code", id))
-                .show(ui, |ui| {
+                .show(ctx.ui, |ui| {
                     let language = "rs";
                     let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
                         ui.ctx(),
@@ -112,26 +109,34 @@ impl<T: std::fmt::Debug> Card for StatefulCard<T> {
                 });
         }
     }
+}
 
-    fn id(&self) -> Id {
-        self.id
+pub struct CardState<T> {
+    current: Arc<RwLock<Option<T>>>,
+}
+
+type CardStateGuard<'a, T> =
+    parking_lot::lock_api::MappedRwLockReadGuard<'a, parking_lot::RawRwLock, T>;
+
+impl<T> CardState<T> {
+    pub fn read(&self) -> CardStateGuard<'_, T> {
+        RwLockReadGuard::map(self.current.read(), |v| v.as_ref().unwrap())
     }
 }
 
 pub fn stateful_card<T: std::fmt::Debug + 'static>(
     nb: &mut Notebook,
-    function: impl FnMut(&mut egui::Ui, Option<T>) -> T + 'static,
+    function: impl FnMut(&mut CardCtx, Option<T>) -> T + 'static,
     code: Option<&str>,
-) -> Arc<RwLock<Option<T>>>{
+) -> CardState<T> {
     let current = Arc::new(RwLock::new(None));
     nb.push_card(Box::new(StatefulCard {
-        id: *fucid(),
         current: current.clone(),
         function: Box::new(function),
         code: code.map(|s| s.to_owned()),
     }));
 
-    current
+    CardState { current }
 }
 
 #[macro_export]
@@ -142,12 +147,11 @@ macro_rules! stateful {
 }
 
 pub struct Notebook {
-    pub cards: Vec<Box<dyn Card>>,
+    pub cards: Vec<(Id, Box<dyn Card>)>,
 }
 
 pub fn md(nb: &mut Notebook, markdown: &str) {
     nb.push_card(Box::new(MarkdownCard {
-        id: *fucid(),
         markdown: markdown.to_owned(),
         cache: CommonMarkCache::default(),
     }));
@@ -159,7 +163,7 @@ impl Notebook {
     }
 
     pub fn push_card(&mut self, card: Box<dyn Card>) {
-        self.cards.push(card);
+        self.cards.push((*fucid(), card));
     }
 
     pub fn run(self, name: &str) -> eframe::Result {
@@ -256,8 +260,9 @@ impl eframe::App for Notebook {
                 .show(ui, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.set_max_width(740.0);
-                        for card in &mut self.cards {
-                            card.update(ui);
+                        for (id, card) in &mut self.cards {
+                            let mut ctx = CardCtx { ui, id: *id };
+                            card.update(&mut ctx);
                             ui.separator();
                         }
                     });
@@ -269,17 +274,15 @@ impl eframe::App for Notebook {
 #[macro_export]
 macro_rules! notebook {
     ($setup:ident) => {
-        pub fn main() {
-            let mut notebook = Notebook::new();
-            $setup(&mut notebook);
+        let mut notebook = Notebook::new();
+        $setup(&mut notebook);
 
-            let this_file = file!();
-            let filename = std::path::Path::new(this_file)
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap();
+        let this_file = file!();
+        let filename = std::path::Path::new(this_file)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap();
 
-            notebook.run(filename).unwrap();
-        }
+        notebook.run(filename).unwrap();
     };
 }

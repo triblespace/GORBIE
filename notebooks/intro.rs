@@ -12,7 +12,11 @@ fn intro(nb: &mut Notebook) {
         "# GORBIE!
 This is **GORBIE!**, a _minimalist_ notebook environment for **Rust**!
 
-Part of the [trible.space](https://trible.space) project.
+It's much closer to a library and a shell script than the heavy environemnts
+that notebooks typically provide. Which makes it much easier to integrate
+into your existing projects and workflows.
+
+Development is part of the [trible.space](https://trible.space) project.
 
 ![an image of 'GORBIE!' the cute alien blob and mascot of this project](./assets/gorbie.png)
 
@@ -49,23 +53,24 @@ Aliquam sodales dui arcu, sed egestas ex eleifend eu. Donec eu tellus erat.\
 Proin tincidunt felis metus, sit amet tempus eros semper at.\
 Aenean in turpis tortor. Integer ut nibh a massa maximus bibendum.\
 Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
-",
-    );
+");
 
-    stateless!(nb, |ui| {
-        ui.ctx().clone().style_ui(ui, egui::Theme::Light);
+    stateless!(nb, |ctx| {
+        ctx.ui.ctx().clone().style_ui(ctx.ui, egui::Theme::Light);
     });
 
-    let slider = stateful!(nb, |ui, prev| {
+    let slider = stateful!(nb, |ctx, prev| {
         let mut value = prev.unwrap_or(0.5);
-        let result = ui.add(egui::Slider::new(&mut value, 0.0..=1.0).text("input"));
+        let result = ctx.ui.add(egui::Slider::new(&mut value, 0.0..=1.0).text("input"));
 
         value
     });
 
-    stateless!(nb, move |ui| {
-        ui.add(egui::ProgressBar::new(slider.read().unwrap().unwrap()).text("output"));
+    stateless!(nb, move |ctx| {
+        ctx.ui.add(egui::ProgressBar::new(*slider.read()).text("output"));
     });
 }
 
-notebook!(intro);
+fn main() {
+    notebook!(intro);
+}
