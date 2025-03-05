@@ -5,18 +5,18 @@ use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use std::{collections::BTreeMap, sync::{Arc, RwLock}};
 use tribles::prelude::*;
 
-pub trait Cell {
+pub trait Card {
     fn update(&mut self, ui: &mut egui::Ui) -> ();
     fn id(&self) -> Id;
 }
 
-pub struct MarkdownCell {
+pub struct MarkdownCard {
     id: Id,
     markdown: String,
     cache: CommonMarkCache,
 }
 
-impl Cell for MarkdownCell {
+impl Card for MarkdownCard {
     fn update(&mut self, ui: &mut egui::Ui) -> () {
         CommonMarkViewer::new().show(ui, &mut self.cache, &self.markdown);
     }
@@ -26,13 +26,13 @@ impl Cell for MarkdownCell {
     }
 }
 
-pub struct StatelessCell {
+pub struct StatelessCard {
     id: Id,
     function: Box<dyn FnMut(&mut egui::Ui) -> ()>,
     code: Option<String>,
 }
 
-impl Cell for StatelessCell {
+impl Card for StatelessCard {
     fn update(&mut self, ui: &mut egui::Ui) -> () {
         let id = self.id();
 
@@ -57,12 +57,12 @@ impl Cell for StatelessCell {
     }
 }
 
-pub fn stateless_cell(
+pub fn stateless_card(
     nb: &mut Notebook,
     function: impl FnMut(&mut egui::Ui) -> () + 'static,
     code: Option<&str>,
 ) {
-    nb.push_cell(Box::new(StatelessCell {
+    nb.push_card(Box::new(StatelessCard {
         id: *fucid(),
         function: Box::new(function),
         code: code.map(|s| s.to_owned()),
@@ -72,18 +72,18 @@ pub fn stateless_cell(
 #[macro_export]
 macro_rules! stateless {
     ($nb:expr, $code:expr) => {
-        $crate::stateless_cell($nb, $code, Some(stringify!($code)))
+        $crate::stateless_card($nb, $code, Some(stringify!($code)))
     };
 }
 
-pub struct StatefulCell<T> {
+pub struct StatefulCard<T> {
     id: Id,
     current: Arc<RwLock<Option<T>>>,
     function: Box<dyn FnMut(&mut egui::Ui, Option<T>) -> T>,
     code: Option<String>,
 }
 
-impl<T: std::fmt::Debug> Cell for StatefulCell<T> {
+impl<T: std::fmt::Debug> Card for StatefulCard<T> {
     fn update(&mut self, ui: &mut egui::Ui) -> () {
         let id = self.id();
 
@@ -118,13 +118,13 @@ impl<T: std::fmt::Debug> Cell for StatefulCell<T> {
     }
 }
 
-pub fn stateful_cell<T: std::fmt::Debug + 'static>(
+pub fn stateful_card<T: std::fmt::Debug + 'static>(
     nb: &mut Notebook,
     function: impl FnMut(&mut egui::Ui, Option<T>) -> T + 'static,
     code: Option<&str>,
 ) -> Arc<RwLock<Option<T>>>{
     let current = Arc::new(RwLock::new(None));
-    nb.push_cell(Box::new(StatefulCell {
+    nb.push_card(Box::new(StatefulCard {
         id: *fucid(),
         current: current.clone(),
         function: Box::new(function),
@@ -137,16 +137,16 @@ pub fn stateful_cell<T: std::fmt::Debug + 'static>(
 #[macro_export]
 macro_rules! stateful {
     ($nb:expr, $code:expr) => {
-        $crate::stateful_cell($nb, $code, Some(stringify!($code)))
+        $crate::stateful_card($nb, $code, Some(stringify!($code)))
     };
 }
 
 pub struct Notebook {
-    pub cells: Vec<Box<dyn Cell>>,
+    pub cards: Vec<Box<dyn Card>>,
 }
 
 pub fn md(nb: &mut Notebook, markdown: &str) {
-    nb.push_cell(Box::new(MarkdownCell {
+    nb.push_card(Box::new(MarkdownCard {
         id: *fucid(),
         markdown: markdown.to_owned(),
         cache: CommonMarkCache::default(),
@@ -155,11 +155,11 @@ pub fn md(nb: &mut Notebook, markdown: &str) {
 
 impl Notebook {
     pub fn new() -> Self {
-        Self { cells: Vec::new() }
+        Self { cards: Vec::new() }
     }
 
-    pub fn push_cell(&mut self, cell: Box<dyn Cell>) {
-        self.cells.push(cell);
+    pub fn push_card(&mut self, card: Box<dyn Card>) {
+        self.cards.push(card);
     }
 
     pub fn run(self, name: &str) -> eframe::Result {
@@ -256,8 +256,8 @@ impl eframe::App for Notebook {
                 .show(ui, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.set_max_width(740.0);
-                        for cell in &mut self.cells {
-                            cell.update(ui);
+                        for card in &mut self.cards {
+                            card.update(ui);
                             ui.separator();
                         }
                     });
