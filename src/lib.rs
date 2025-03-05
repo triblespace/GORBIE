@@ -2,11 +2,11 @@ use crate::egui::{FontData, FontDefinitions, FontFamily, FontId, TextStyle};
 use ctrlc;
 use eframe::egui::{self, CollapsingHeader};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::{Arc, RwLock}};
 use tribles::prelude::*;
 
 pub trait Cell {
-    fn view(&mut self, ui: &mut egui::Ui) -> ();
+    fn update(&mut self, ui: &mut egui::Ui) -> ();
     fn id(&self) -> Id;
 }
 
@@ -17,7 +17,7 @@ pub struct MarkdownCell {
 }
 
 impl Cell for MarkdownCell {
-    fn view(&mut self, ui: &mut egui::Ui) -> () {
+    fn update(&mut self, ui: &mut egui::Ui) -> () {
         CommonMarkViewer::new().show(ui, &mut self.cache, &self.markdown);
     }
 
@@ -26,14 +26,14 @@ impl Cell for MarkdownCell {
     }
 }
 
-pub struct CodeCell {
+pub struct StatelessCell {
     id: Id,
     function: Box<dyn FnMut(&mut egui::Ui) -> ()>,
     code: Option<String>,
 }
 
-impl Cell for CodeCell {
-    fn view(&mut self, ui: &mut egui::Ui) -> () {
+impl Cell for StatelessCell {
+    fn update(&mut self, ui: &mut egui::Ui) -> () {
         let id = self.id();
 
         (self.function)(ui);
@@ -57,37 +57,47 @@ impl Cell for CodeCell {
     }
 }
 
-pub fn code_cell(
+pub fn stateless_cell(
+    nb: &mut Notebook,
     function: impl FnMut(&mut egui::Ui) -> () + 'static,
     code: Option<&str>,
-) -> Box<dyn Cell> {
-    Box::new(CodeCell {
+) {
+    nb.push_cell(Box::new(StatelessCell {
         id: *fucid(),
         function: Box::new(function),
         code: code.map(|s| s.to_owned()),
-    })
+    }));
 }
 
 #[macro_export]
-macro_rules! code {
-    ($code:expr) => {
-        $crate::code_cell($code, Some(stringify!($code)))
+macro_rules! stateless {
+    ($nb:expr, $code:expr) => {
+        $crate::stateless_cell($nb, $code, Some(stringify!($code)))
     };
 }
 
-pub struct ReactiveCell<T> {
+pub struct StatefulCell<T> {
     id: Id,
-    current: Option<T>,
+    current: Arc<RwLock<Option<T>>>,
     function: Box<dyn FnMut(&mut egui::Ui, Option<T>) -> T>,
     code: Option<String>,
 }
 
-impl<T: std::fmt::Debug> Cell for ReactiveCell<T> {
-    fn view(&mut self, ui: &mut egui::Ui) -> () {
+impl<T: std::fmt::Debug> Cell for StatefulCell<T> {
+    fn update(&mut self, ui: &mut egui::Ui) -> () {
         let id = self.id();
 
-        let new = (self.function)(ui, self.current.take());
-        self.current = Some(new);
+        let mut current = self.current.write().unwrap();
+        let new = (self.function)(ui, current.take());
+        current.replace(new);
+
+        if let Some(current) = current.as_ref() {
+            CollapsingHeader::new("Current")
+                .id_salt(format!("{:x}/current", id))
+                .show(ui, |ui| {
+                    ui.monospace(format!("{:?}", current));
+                });
+        }
 
         if let Some(code) = &mut self.code {
             CollapsingHeader::new("Code")
@@ -101,14 +111,6 @@ impl<T: std::fmt::Debug> Cell for ReactiveCell<T> {
                     egui_extras::syntax_highlighting::code_view_ui(ui, &theme, code, language);
                 });
         }
-
-        if let Some(current) = &self.current {
-            CollapsingHeader::new("Current")
-                .id_salt(format!("{:x}/current", id))
-                .show(ui, |ui| {
-                    ui.monospace(format!("{:?}", current));
-            });
-        }
     }
 
     fn id(&self) -> Id {
@@ -116,22 +118,26 @@ impl<T: std::fmt::Debug> Cell for ReactiveCell<T> {
     }
 }
 
-pub fn reactive_cell<T: std::fmt::Debug + 'static>(
+pub fn stateful_cell<T: std::fmt::Debug + 'static>(
+    nb: &mut Notebook,
     function: impl FnMut(&mut egui::Ui, Option<T>) -> T + 'static,
     code: Option<&str>,
-) -> Box<dyn Cell> {
-    Box::new(ReactiveCell {
+) -> Arc<RwLock<Option<T>>>{
+    let current = Arc::new(RwLock::new(None));
+    nb.push_cell(Box::new(StatefulCell {
         id: *fucid(),
-        current: None,
+        current: current.clone(),
         function: Box::new(function),
         code: code.map(|s| s.to_owned()),
-    })
+    }));
+
+    current
 }
 
 #[macro_export]
-macro_rules! reactive {
-    ($code:expr) => {
-        $crate::reactive_cell($code, Some(stringify!($code)))
+macro_rules! stateful {
+    ($nb:expr, $code:expr) => {
+        $crate::stateful_cell($nb, $code, Some(stringify!($code)))
     };
 }
 
@@ -139,12 +145,12 @@ pub struct Notebook {
     pub cells: Vec<Box<dyn Cell>>,
 }
 
-pub fn md(markdown: &str) -> Box<dyn Cell> {
-    Box::new(MarkdownCell {
+pub fn md(nb: &mut Notebook, markdown: &str) {
+    nb.push_cell(Box::new(MarkdownCell {
         id: *fucid(),
         markdown: markdown.to_owned(),
         cache: CommonMarkCache::default(),
-    })
+    }));
 }
 
 impl Notebook {
@@ -152,7 +158,7 @@ impl Notebook {
         Self { cells: Vec::new() }
     }
 
-    pub fn cell(&mut self, cell: Box<dyn Cell>) {
+    pub fn push_cell(&mut self, cell: Box<dyn Cell>) {
         self.cells.push(cell);
     }
 
@@ -251,7 +257,7 @@ impl eframe::App for Notebook {
                     ui.vertical_centered(|ui| {
                         ui.set_max_width(740.0);
                         for cell in &mut self.cells {
-                            cell.view(ui);
+                            cell.update(ui);
                             ui.separator();
                         }
                     });

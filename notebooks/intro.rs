@@ -5,11 +5,11 @@
 //! egui = "0.31"
 //! ```
 
-use gorbie::{notebook, Notebook, md, code, reactive};
+use gorbie::{md, notebook, stateful, stateless, Notebook};
 
 fn intro(nb: &mut Notebook) {
-    nb.cell(md("
-# GORBIE!
+    md(nb,
+        "# GORBIE!
 This is **GORBIE!**, a _minimalist_ notebook environment for **Rust**!
 
 Part of the [trible.space](https://trible.space) project.
@@ -49,30 +49,23 @@ Aliquam sodales dui arcu, sed egestas ex eleifend eu. Donec eu tellus erat.\
 Proin tincidunt felis metus, sit amet tempus eros semper at.\
 Aenean in turpis tortor. Integer ut nibh a massa maximus bibendum.\
 Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
-"));
+",
+    );
 
-    nb.cell(code!(|ui| {    
+    stateless!(nb, |ui| {
         ui.ctx().clone().style_ui(ui, egui::Theme::Light);
-    }));
+    });
 
-    nb.cell(reactive!(|ui, prev| {
+    let slider = stateful!(nb, |ui, prev| {
         let mut value = prev.unwrap_or(0.5);
         let result = ui.add(egui::Slider::new(&mut value, 0.0..=1.0).text("input"));
-        
-        ui.add(egui::ProgressBar::new(value).text("output"));
-    
-        value
-    }));
 
-
-    nb.cell(reactive!(|ui, prev| {
-        let mut value = prev.unwrap_or(0.5);
-        let result = ui.add(egui::Slider::new(&mut value, 0.0..=1.0).text("input"));
-        
-        ui.add(egui::ProgressBar::new(value).text("output"));
-    
         value
-    }));
+    });
+
+    stateless!(nb, move |ui| {
+        ui.add(egui::ProgressBar::new(slider.read().unwrap().unwrap()).text("output"));
+    });
 }
 
 notebook!(intro);
