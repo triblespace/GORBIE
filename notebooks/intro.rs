@@ -1,11 +1,11 @@
 #!/usr/bin/env watchexec -r rust-script
 //! ```cargo
 //! [dependencies]
-//! gorbie = { path = ".." }
+//! GORBIE = { path = ".." }
 //! egui = "0.31"
 //! ```
 
-use gorbie::{md, notebook, stateful, stateless, Notebook};
+use GORBIE::{md, notebook, state, view, Notebook};
 
 fn intro(nb: &mut Notebook) {
     md(nb,
@@ -55,19 +55,16 @@ Aenean in turpis tortor. Integer ut nibh a massa maximus bibendum.\
 Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
 ");
 
-    stateless!(nb, |ctx| {
+    view!(nb, |ctx| {
         ctx.ui.ctx().clone().style_ui(ctx.ui, egui::Theme::Light);
     });
 
-    let slider = stateful!(nb, |ctx, prev| {
-        let mut value = prev.unwrap_or(0.5);
-        let result = ctx.ui.add(egui::Slider::new(&mut value, 0.0..=1.0).text("input"));
-
-        value
+    let slider = state!(nb, |ctx, value: &mut Option<_>| {
+        let result = ctx.ui.add(egui::Slider::new(value.get_or_insert(0.5), 0.0..=1.0).text("input"));
     });
 
-    stateless!(nb, move |ctx| {
-        ctx.ui.add(egui::ProgressBar::new(*slider.read()).text("output"));
+    view!(nb, move |ctx| {
+        ctx.ui.add(egui::ProgressBar::new(slider.read().unwrap_or(0.)).text("output"));
     });
 }
 

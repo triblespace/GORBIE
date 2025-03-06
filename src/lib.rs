@@ -1,8 +1,9 @@
+#![allow(non_snake_case)]
 use crate::egui::{FontData, FontDefinitions, FontFamily, FontId, TextStyle};
 use ctrlc;
 use eframe::egui::{self, CollapsingHeader};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
-use parking_lot::{RwLock, RwLockReadGuard};
+use parking_lot::RwLock;
 use std::{collections::BTreeMap, sync::Arc};
 use tribles::prelude::*;
 
@@ -68,33 +69,30 @@ pub fn stateless_card(
 }
 
 #[macro_export]
-macro_rules! stateless {
+macro_rules! view {
     ($nb:expr, $code:expr) => {
         $crate::stateless_card($nb, $code, Some(stringify!($code)))
     };
 }
 
-pub struct StatefulCard<T> {
-    current: Arc<RwLock<Option<T>>>,
-    function: Box<dyn FnMut(&mut CardCtx, Option<T>) -> T>,
+pub struct StatefulCard<T: std::default::Default> {
+    current: Arc<RwLock<T>>,
+    function: Box<dyn FnMut(&mut CardCtx, &mut T)>,
     code: Option<String>,
 }
 
-impl<T: std::fmt::Debug> Card for StatefulCard<T> {
+impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
     fn update(&mut self, ctx: &mut CardCtx) -> () {
         let id = ctx.id;
 
         let mut current = self.current.write();
-        let new = (self.function)(ctx, current.take());
-        current.replace(new);
+        (self.function)(ctx, &mut current);
 
-        if let Some(current) = current.as_ref() {
-            CollapsingHeader::new("Current")
-                .id_salt(format!("{:x}/current", id))
-                .show(ctx.ui, |ui| {
-                    ui.monospace(format!("{:?}", current));
-                });
-        }
+        CollapsingHeader::new("Current")
+        .id_salt(format!("{:x}/current", id))
+        .show(ctx.ui, |ui| {
+            ui.monospace(format!("{:?}", current));
+        });
 
         if let Some(code) = &mut self.code {
             CollapsingHeader::new("Code")
@@ -112,24 +110,24 @@ impl<T: std::fmt::Debug> Card for StatefulCard<T> {
 }
 
 pub struct CardState<T> {
-    current: Arc<RwLock<Option<T>>>,
+    current: Arc<RwLock<T>>,
 }
 
 type CardStateGuard<'a, T> =
-    parking_lot::lock_api::MappedRwLockReadGuard<'a, parking_lot::RawRwLock, T>;
+    parking_lot::lock_api::RwLockReadGuard<'a, parking_lot::RawRwLock, T>;
 
 impl<T> CardState<T> {
     pub fn read(&self) -> CardStateGuard<'_, T> {
-        RwLockReadGuard::map(self.current.read(), |v| v.as_ref().unwrap())
+        self.current.read()
     }
 }
 
-pub fn stateful_card<T: std::fmt::Debug + 'static>(
+pub fn stateful_card<T: std::fmt::Debug + std::default::Default + 'static>(
     nb: &mut Notebook,
-    function: impl FnMut(&mut CardCtx, Option<T>) -> T + 'static,
+    function: impl FnMut(&mut CardCtx, &mut T) + 'static,
     code: Option<&str>,
 ) -> CardState<T> {
-    let current = Arc::new(RwLock::new(None));
+    let current = Arc::new(RwLock::new(Default::default()));
     nb.push_card(Box::new(StatefulCard {
         current: current.clone(),
         function: Box::new(function),
@@ -140,7 +138,7 @@ pub fn stateful_card<T: std::fmt::Debug + 'static>(
 }
 
 #[macro_export]
-macro_rules! stateful {
+macro_rules! state {
     ($nb:expr, $code:expr) => {
         $crate::stateful_card($nb, $code, Some(stringify!($code)))
     };
