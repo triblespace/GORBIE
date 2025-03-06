@@ -109,6 +109,7 @@ impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct CardState<T> {
     current: Arc<RwLock<T>>,
 }
