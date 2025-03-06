@@ -1,11 +1,11 @@
 #!/usr/bin/env watchexec -r rust-script
 //! ```cargo
 //! [dependencies]
-//! gorbie = { path = ".." }
+//! GORBIE = { path = ".." }
 //! egui = "0.31"
 //! ```
 
-use gorbie::{md, notebook, stateful, stateless, Notebook};
+use GORBIE::{md, notebook, stateful, stateless, Notebook};
 
 fn candle(nb: &mut Notebook) {
     md(nb,

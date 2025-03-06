@@ -3,6 +3,20 @@
 version = 4
 
 [[package]]
+name = "GORBIE"
+version = "0.1.0"
+dependencies = [
+ "ctrlc",
+ "eframe",
+ "egui_commonmark",
+ "egui_extras",
+ "image",
+ "log",
+ "parking_lot",
+ "tribles",
+]
+
+[[package]]
 name = "ab_glyph"
 version = "0.2.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1480,20 +1494,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c4ee00b289aba7a9e5306d57c2d05499b2e5dc427f84ac708bd2c090212cf3e"
 dependencies = [
  "gl_generator",
-]
-
-[[package]]
-name = "gorbie"
-version = "0.1.0"
-dependencies = [
- "ctrlc",
- "eframe",
- "egui_commonmark",
- "egui_extras",
- "image",
- "log",
- "parking_lot",
- "tribles",
 ]
 
 [[package]]
