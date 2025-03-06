@@ -124,10 +124,11 @@ impl<T> CardState<T> {
 
 pub fn stateful_card<T: std::fmt::Debug + std::default::Default + 'static>(
     nb: &mut Notebook,
+    init: T,
     function: impl FnMut(&mut CardCtx, &mut T) + 'static,
     code: Option<&str>,
 ) -> CardState<T> {
-    let current = Arc::new(RwLock::new(Default::default()));
+    let current = Arc::new(RwLock::new(init));
     nb.push_card(Box::new(StatefulCard {
         current: current.clone(),
         function: Box::new(function),
@@ -140,7 +141,10 @@ pub fn stateful_card<T: std::fmt::Debug + std::default::Default + 'static>(
 #[macro_export]
 macro_rules! state {
     ($nb:expr, $code:expr) => {
-        $crate::stateful_card($nb, $code, Some(stringify!($code)))
+        $crate::stateful_card($nb, Default::default(), $code, Some(stringify!($code)))
+    };
+    ($nb:expr, $init:expr, $code:expr) => {
+        $crate::stateful_card($nb, $init, $code, Some(stringify!($code)))
     };
 }
 

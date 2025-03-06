@@ -59,12 +59,12 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         ctx.ui.ctx().clone().style_ui(ctx.ui, egui::Theme::Light);
     });
 
-    let slider = state!(nb, |ctx, value: &mut Option<_>| {
-        let result = ctx.ui.add(egui::Slider::new(value.get_or_insert(0.5), 0.0..=1.0).text("input"));
+    let slider = state!(nb, 0.5, |ctx, value| {
+        let result = ctx.ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
     });
 
     view!(nb, move |ctx| {
-        ctx.ui.add(egui::ProgressBar::new(slider.read().unwrap_or(0.)).text("output"));
+        ctx.ui.add(egui::ProgressBar::new(*slider.read()).text("output"));
     });
 }
 
