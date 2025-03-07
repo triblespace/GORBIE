@@ -112,18 +112,7 @@ impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct CardState<T> {
-    current: Arc<RwLock<T>>,
-}
-
-type CardStateGuard<'a, T> = parking_lot::lock_api::RwLockReadGuard<'a, parking_lot::RawRwLock, T>;
-
-impl<T> CardState<T> {
-    pub fn read(&self) -> CardStateGuard<'_, T> {
-        self.current.read()
-    }
-}
+type CardState<T> = Arc<RwLock<T>>;
 
 pub fn stateful_card<T: std::fmt::Debug + std::default::Default + 'static>(
     nb: &mut Notebook,
@@ -138,7 +127,7 @@ pub fn stateful_card<T: std::fmt::Debug + std::default::Default + 'static>(
         code: code.map(|s| s.to_owned()),
     }));
 
-    CardState { current }
+    current
 }
 
 #[macro_export]
