@@ -30,12 +30,11 @@ pub fn button_spawn<'a, T: Send + 'static>(
     action: impl FnMut() -> T + Send + 'static,
 ) -> Option<&'a mut T> {
     match value {
-        LoadState::Undefined => {
-            if ui.button(label_init).clicked() {
-                *value = LoadState::Loading(std::thread::spawn(action));
-            }
+        LoadState::Undefined if ui.button(label_init).clicked() => {
+            *value = LoadState::Loading(std::thread::spawn(action));
             None
         }
+        LoadState::Undefined => None,
         LoadState::Loading(handle) => {
             ui.add(egui::widgets::Spinner::new());
             if handle.is_finished() {
