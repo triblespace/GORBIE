@@ -6,6 +6,15 @@ pub enum LoadState<T> {
     Ready(T),
 }
 
+impl<T> LoadState<T> {
+    pub fn ready(&self) -> Option<&T> {
+        match self {
+            LoadState::Ready(inner) => Some(inner),
+            _ => None,
+        }
+    }
+}
+
 impl<T> std::default::Default for LoadState<T> {
     fn default() -> Self {
         LoadState::Undefined
@@ -49,7 +58,7 @@ pub fn button_spawn<'a, T: Send + 'static>(
             *value = LoadState::Loading(std::thread::spawn(action));
             None
         }
-        LoadState::Ready(inner) => Some(inner)
+        LoadState::Ready(inner) => Some(inner),
     }
 }
 
