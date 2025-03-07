@@ -1,4 +1,7 @@
 #![allow(non_snake_case)]
+
+pub mod widgets;
+
 use crate::egui::{FontData, FontDefinitions, FontFamily, FontId, TextStyle};
 use ctrlc;
 use eframe::egui::{self, CollapsingHeader};
@@ -89,10 +92,10 @@ impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
         (self.function)(ctx, &mut current);
 
         CollapsingHeader::new("Current")
-        .id_salt(format!("{:x}/current", id))
-        .show(ctx.ui, |ui| {
-            ui.monospace(format!("{:?}", current));
-        });
+            .id_salt(format!("{:x}/current", id))
+            .show(ctx.ui, |ui| {
+                ui.monospace(format!("{:?}", current));
+            });
 
         if let Some(code) = &mut self.code {
             CollapsingHeader::new("Code")
@@ -114,8 +117,7 @@ pub struct CardState<T> {
     current: Arc<RwLock<T>>,
 }
 
-type CardStateGuard<'a, T> =
-    parking_lot::lock_api::RwLockReadGuard<'a, parking_lot::RawRwLock, T>;
+type CardStateGuard<'a, T> = parking_lot::lock_api::RwLockReadGuard<'a, parking_lot::RawRwLock, T>;
 
 impl<T> CardState<T> {
     pub fn read(&self) -> CardStateGuard<'_, T> {
