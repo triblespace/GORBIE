@@ -1,21 +1,89 @@
 use eframe::egui;
 
-pub fn spawn_button<T: Send + 'static>(
-    ui: &mut egui::Ui,
-    value: &mut Option<std::thread::JoinHandle<T>>,
-    label: &str,
-    action: impl FnMut() -> T + Send + 'static,
-) -> Option<T> {
-    if let Some(handle) = value {
-        ui.add(egui::widgets::Spinner::new());
+pub enum LoadState<T> {
+    Undefined,
+    Loading(std::thread::JoinHandle<T>),
+    Ready(T),
+}
 
-        if handle.is_finished() {
-            return Some(value.take().unwrap().join().unwrap());
+impl<T> std::default::Default for LoadState<T> {
+    fn default() -> Self {
+        LoadState::Undefined
+    }
+}
+
+impl<T> std::fmt::Debug for LoadState<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoadState::Undefined => write!(f, "Undefined"),
+            LoadState::Loading(_) => write!(f, "Loading"),
+            LoadState::Ready(_) => write!(f, "Ready"),
         }
-    } else {
-        if ui.button(label).clicked() {
-            value.get_or_insert_with(|| std::thread::spawn(action));
+    }
+}
+
+pub fn button_spawn<'a, T: Send + 'static>(
+    ui: &mut egui::Ui,
+    value: &'a mut LoadState<T>,
+    label_init: &str,
+    label_reinit: &str,
+    action: impl FnMut() -> T + Send + 'static,
+) -> Option<&'a mut T> {
+    match value {
+        LoadState::Undefined => {
+            if ui.button(label_init).clicked() {
+                *value = LoadState::Loading(std::thread::spawn(action));
+            }
         }
+        LoadState::Loading(handle) => {
+            ui.add(egui::widgets::Spinner::new());
+            if handle.is_finished() {
+                let old_value = std::mem::replace(value, LoadState::Undefined);
+                if let LoadState::Loading(handle) = old_value {
+                    *value = LoadState::Ready(handle.join().unwrap());
+                }
+            }
+        }
+        LoadState::Ready(_) => {
+            if ui.button(label_reinit).clicked() {
+                *value = LoadState::Loading(std::thread::spawn(action));
+            }
+        }
+    }
+
+    // Now that we're done mutating, return a reference if we ended up in Ready.
+    match value {
+        LoadState::Ready(inner) => Some(inner),
+        _ => None,
+    }
+}
+
+pub fn auto_spawn<'a, T: Send + 'static>(
+    ui: &mut egui::Ui,
+    value: &'a mut LoadState<T>,
+    action: impl FnMut() -> T + Send + 'static,
+) -> Option<&'a mut T> {
+    match value {
+        LoadState::Undefined => {
+            *value = LoadState::Loading(std::thread::spawn(action));
+        }
+        LoadState::Loading(handle) => {
+            ui.add(egui::widgets::Spinner::new());
+
+            if handle.is_finished() {
+                let LoadState::Loading(handle) = std::mem::replace(value, LoadState::Undefined)
+                else {
+                    unreachable!();
+                };
+                *value = LoadState::Ready(handle.join().unwrap());
+
+                let LoadState::Ready(ref mut inner) = value else {
+                    unreachable!()
+                };
+                return Some(inner);
+            }
+        }
+        LoadState::Ready(inner) => return Some(inner),
     }
     None
 }
