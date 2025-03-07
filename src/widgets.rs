@@ -34,6 +34,7 @@ pub fn button_spawn<'a, T: Send + 'static>(
             if ui.button(label_init).clicked() {
                 *value = LoadState::Loading(std::thread::spawn(action));
             }
+            None
         }
         LoadState::Loading(handle) => {
             ui.add(egui::widgets::Spinner::new());
@@ -43,18 +44,13 @@ pub fn button_spawn<'a, T: Send + 'static>(
                     *value = LoadState::Ready(handle.join().unwrap());
                 }
             }
+            None
         }
-        LoadState::Ready(_) => {
-            if ui.button(label_reinit).clicked() {
-                *value = LoadState::Loading(std::thread::spawn(action));
-            }
+        LoadState::Ready(_) if ui.button(label_reinit).clicked() => {
+            *value = LoadState::Loading(std::thread::spawn(action));
+            None
         }
-    }
-
-    // Now that we're done mutating, return a reference if we ended up in Ready.
-    match value {
-        LoadState::Ready(inner) => Some(inner),
-        _ => None,
+        LoadState::Ready(inner) => Some(inner)
     }
 }
 
