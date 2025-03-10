@@ -237,7 +237,22 @@ impl Notebook {
 
                 cc.egui_ctx.all_styles_mut(move |style| {
                     style.text_styles = text_styles.clone();
-                    style.visuals.panel_fill = egui::Color32::from_hex("#FFFFFF").unwrap();
+
+                    // Base color: #130496
+                    // Fade to white:
+                    // #130496 #5032a8 #7858ba #9b80cc #bda9dd #ded3ee #ffffff
+                    // Fade to black:
+                    // #130496 #1a087b #1c0b62 #1a0c4a #170b32 #12051d #000000
+                    style.visuals.window_fill = egui::Color32::from_hex("#ffffff").unwrap();
+                    style.visuals.panel_fill = egui::Color32::from_hex("#ffffff").unwrap();
+                    style.visuals.faint_bg_color = egui::Color32::from_hex("#ded3ee").unwrap();
+                    style.visuals.extreme_bg_color = egui::Color32::from_hex("#9b80cc").unwrap();
+                    style.visuals.code_bg_color = egui::Color32::from_hex("#ded3ee").unwrap();
+                    style.visuals.selection.bg_fill = egui::Color32::from_hex("#bda9dd").unwrap();
+                    style.visuals.hyperlink_color = egui::Color32::from_hex("#130496").unwrap();
+                    style.visuals.warn_fg_color = egui::Color32::from_hex("#1a087b").unwrap();
+                    style.visuals.error_fg_color = egui::Color32::from_hex("#1c0b62").unwrap();
+                    style.visuals.override_text_color = Some(egui::Color32::from_hex("#12051d").unwrap());
                 });
 
                 Ok(Box::new(self))
