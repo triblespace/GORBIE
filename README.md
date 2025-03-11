@@ -13,11 +13,11 @@ In such a setup, the `notebook.rs` script would look something like this:
 
 ```rust
 #!/usr/bin/env watchexec -r rust-script
-//! \`\`\`cargo
+//! ```cargo
 //! [dependencies]
 //! GORBIE = { path = ".." }
 //! egui = "0.31"
-//! \`\`\`
+//! ```
 
 use GORBIE::{md, notebook, state, view, Notebook};
 
