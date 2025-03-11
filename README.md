@@ -1,11 +1,11 @@
-# Getting Started
-
+# GORBIE! (Introduction)
 Unlike other notebook environments GORBIE! doesn't really come with its own
 notebook server or runtime environment. Instead, it is designed to be used as
 a library and can be used in any Rust project.
 
+# Getting Started
 To get the typical interactive notebook experience, it's recommended to use
-GORBIE! together with watchexec and rust-script.
+GORBIE! together with `watchexec`[https://github.com/watchexec/watchexec] and `rust-script`[https://github.com/fornwall/rust-script].
 This way you can write your code as a simple `notebook.rs` script and have it
 automatically run and update the notebook whenever you save the file.
 
