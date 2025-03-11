@@ -86,20 +86,18 @@ pub struct StatefulCard<T: std::default::Default> {
 
 impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
     fn update(&mut self, ctx: &mut CardCtx) -> () {
-        let id = ctx.id;
-
         let mut current = self.current.write();
         (self.function)(ctx, &mut current);
 
         CollapsingHeader::new("Current")
-            .id_salt(format!("{:x}/current", id))
+            .id_salt("__current")
             .show(ctx.ui, |ui| {
                 ui.monospace(format!("{:?}", current));
             });
 
         if let Some(code) = &mut self.code {
             CollapsingHeader::new("Code")
-                .id_salt(format!("{:x}/code", id))
+                .id_salt("__code")
                 .show(ctx.ui, |ui| {
                     let language = "rs";
                     let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
@@ -252,6 +250,7 @@ impl Notebook {
                     style.visuals.hyperlink_color = egui::Color32::from_hex("#130496").unwrap();
                     style.visuals.warn_fg_color = egui::Color32::from_hex("#1a087b").unwrap();
                     style.visuals.error_fg_color = egui::Color32::from_hex("#1c0b62").unwrap();
+                    style.visuals.widgets.active.fg_stroke.color = egui::Color32::from_hex("#170b32").unwrap();
                     style.visuals.override_text_color = Some(egui::Color32::from_hex("#12051d").unwrap());
                 });
 
@@ -270,9 +269,11 @@ impl eframe::App for Notebook {
                     ui.vertical_centered(|ui| {
                         ui.set_max_width(740.0);
                         for (id, card) in &mut self.cards {
-                            let mut ctx = CardCtx { ui, id: *id };
-                            card.update(&mut ctx);
-                            ui.separator();
+                            ui.push_id(&id, |ui| {
+                                let mut ctx = CardCtx { ui, id: *id };
+                                card.update(&mut ctx);
+                                ui.separator();
+                            });
                         }
                     });
                 });

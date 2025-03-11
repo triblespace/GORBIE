@@ -55,9 +55,9 @@ Aenean in turpis tortor. Integer ut nibh a massa maximus bibendum.\
 Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
 ");
 
-    view!(nb, |ctx| {
-        ctx.ui.ctx().clone().style_ui(ctx.ui, egui::Theme::Light);
-    });
+    //view!(nb, |ctx| {
+    //    ctx.ui.ctx().clone().style_ui(ctx.ui, egui::Theme::Light);
+    //});
 
     let slider = state!(nb, 0.5, |ctx, value| {
         let result = ctx.ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
