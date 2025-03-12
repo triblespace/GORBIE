@@ -63,7 +63,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         ctx.ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
     });
 
-    view!(nb, move |ctx| {
+    view!(nb, (), move |ctx| {
         ctx.ui.add(egui::ProgressBar::new(*slider.read()).text("output"));
     });
 }

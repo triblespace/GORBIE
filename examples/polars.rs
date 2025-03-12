@@ -30,11 +30,13 @@ let df = state!(nb, |ctx, value| {
     }
 });
 
-view!(nb, move |ctx| {
+view!(nb, (df), move |ctx| {
     if let Some(df) = &df.read().ready() {
         dataframe(ctx.ui, df);
     }
 });
+
+println!("{:?}", df);
 }
 
 fn main() {
