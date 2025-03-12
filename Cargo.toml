@@ -5,7 +5,7 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-tribles = { git = "https://github.com/triblespace/tribles-rust" }
+tribles = { version = "0.5.1" }
 eframe = {version = "0.31 ", features = ["persistence", "wgpu"], default-features = false}
 egui = "0.31"
 egui_extras = "0.31.0"
