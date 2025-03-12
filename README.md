@@ -15,7 +15,7 @@ In such a setup, the `notebook.rs` script would look something like this:
 #!/usr/bin/env watchexec -r rust-script
 //! ```cargo
 //! [dependencies]
-//! GORBIE = { path = ".." }
+//! GORBIE = "0.1.0"
 //! egui = "0.31"
 //! ```
 
