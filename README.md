@@ -32,7 +32,7 @@ Development is part of the [trible.space](https://trible.space) project.
 ");
 
     let slider = state!(nb, 0.5, |ctx, value| {
-        let result = ctx.ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
+        ctx.ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
     });
 
     view!(nb, move |ctx| {

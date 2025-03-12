@@ -60,7 +60,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
     //});
 
     let slider = state!(nb, 0.5, |ctx, value| {
-        let result = ctx.ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
+        ctx.ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
     });
 
     view!(nb, move |ctx| {
