@@ -1,21 +1,5 @@
 use eframe::egui;
 
-impl<T> std::default::Default for Computed<T> {
-    fn default() -> Self {
-        Computed::Undefined
-    }
-}
-
-impl<T> std::fmt::Debug for Computed<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Computed::Undefined => write!(f, "Undefined"),
-            Computed::Running(_) => write!(f, "Loading"),
-            Computed::Ready(_) => write!(f, "Ready"),
-        }
-    }
-}
-
 pub fn load_button<'a, T: Send + 'static>(
     ui: &mut egui::Ui,
     value: &'a mut Computed<T>,
@@ -23,28 +7,34 @@ pub fn load_button<'a, T: Send + 'static>(
     label_reinit: &str,
     action: impl FnMut() -> T + Send + 'static,
 ) -> Option<&'a mut T> {
-    match value {
+    *value = match std::mem::replace(value, Computed::Undefined) {
         Computed::Undefined if ui.button(label_init).clicked() => {
-            *value = Computed::Running(std::thread::spawn(action));
-            None
+            Computed::Init(std::thread::spawn(action))
         }
-        Computed::Undefined => None,
-        Computed::Running(handle) => {
+        Computed::Undefined => Computed::Undefined,
+        Computed::Init(handle) if handle.is_finished() => {
+            Computed::Ready(handle.join().unwrap(), 0)
+        }
+        Computed::Init(handle) => {
             ui.add(egui::widgets::Spinner::new());
-            if handle.is_finished() {
-                let old_value = std::mem::replace(value, Computed::Undefined);
-                if let Computed::Running(handle) = old_value {
-                    *value = Computed::Ready(handle.join().unwrap());
-                }
-            }
-            None
+            Computed::Init(handle)
         }
-        Computed::Ready(_) if ui.button(label_reinit).clicked() => {
-            *value = Computed::Running(std::thread::spawn(action));
-            None
+        Computed::Ready(current, generation) if ui.button(label_reinit).clicked() => {
+            ui.ctx().request_repaint();
+            Computed::Stale(current, generation + 1, std::thread::spawn(action))
         }
-        Computed::Ready(inner) => Some(inner),
-    }
+        Computed::Ready(inner, generation) => Computed::Ready(inner, generation),
+        Computed::Stale(_, generation, join_handle) if join_handle.is_finished() => {
+            ui.ctx().request_repaint();
+            Computed::Ready(join_handle.join().unwrap(), generation + 1)
+        }
+        Computed::Stale(inner, join_handle, generation) => {
+            ui.add(egui::widgets::Spinner::new());
+            Computed::Stale(inner, join_handle, generation)
+        }
+    };
+
+    return value.ready_mut();
 }
 
 pub fn load_auto<'a, T: Send + 'static>(
@@ -52,29 +42,22 @@ pub fn load_auto<'a, T: Send + 'static>(
     value: &'a mut Computed<T>,
     action: impl FnMut() -> T + Send + 'static,
 ) -> Option<&'a mut T> {
-    match value {
-        Computed::Undefined => {
-            *value = Computed::Running(std::thread::spawn(action));
+    *value = match std::mem::replace(value, Computed::Undefined) {
+        Computed::Undefined => Computed::Init(std::thread::spawn(action)),
+        Computed::Init(handle) if handle.is_finished() => {
+            Computed::Ready(handle.join().unwrap(), 0)
         }
-        Computed::Running(handle) => {
+        Computed::Init(handle) => {
             ui.add(egui::widgets::Spinner::new());
-
-            if handle.is_finished() {
-                let Computed::Running(handle) = std::mem::replace(value, Computed::Undefined)
-                else {
-                    unreachable!();
-                };
-                *value = Computed::Ready(handle.join().unwrap());
-
-                let Computed::Ready(ref mut inner) = value else {
-                    unreachable!()
-                };
-                return Some(inner);
-            }
+            Computed::Init(handle)
         }
-        Computed::Ready(inner) => return Some(inner),
-    }
-    None
+        Computed::Ready(inner, generation) => Computed::Ready(inner, generation),
+        Computed::Stale(_, _, _) => {
+            unreachable!();
+        }
+    };
+
+    return value.ready_mut();
 }
 
 use egui_extras::{Column, TableBuilder};

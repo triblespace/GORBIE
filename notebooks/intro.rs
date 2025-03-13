@@ -5,7 +5,7 @@
 //! egui = "0.31"
 //! ```
 
-use GORBIE::{md, notebook, state, react, view, Notebook};
+use GORBIE::{md, notebook, react, state, view, Notebook};
 
 fn intro(nb: &mut Notebook) {
     md(
@@ -66,15 +66,14 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
             .add(egui::Slider::new(value, 0.0..=1.0).text("input"));
     });
 
-    let progress = react!(nb, (slider), move |(slider,)| {
-        *slider * 0.5
-    });
+    let progress = react!(nb, (slider), move |(slider,)| { *slider * 0.5 });
 
     view!(nb, (progress), move |ctx| {
         let progress = progress.read();
-        let Some(progress) = progress.ready() else {return;};
-        ctx.ui
-            .add(egui::ProgressBar::new(*progress).text("output"));
+        let Some(progress) = progress.ready() else {
+            return;
+        };
+        ctx.ui.add(egui::ProgressBar::new(*progress).text("output"));
     });
 }
 
