@@ -5,10 +5,11 @@
 //! egui = "0.31"
 //! ```
 
-use GORBIE::{md, notebook, state, view, Notebook};
+use GORBIE::{md, notebook, state, react, view, Notebook};
 
 fn intro(nb: &mut Notebook) {
-    md(nb,
+    md(
+        nb,
         "# GORBIE!
 This is **GORBIE!**, a _minimalist_ notebook environment for **Rust**!
 
@@ -53,18 +54,27 @@ Aliquam sodales dui arcu, sed egestas ex eleifend eu. Donec eu tellus erat.\
 Proin tincidunt felis metus, sit amet tempus eros semper at.\
 Aenean in turpis tortor. Integer ut nibh a massa maximus bibendum.\
 Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
-");
+",
+    );
 
     //view!(nb, |ctx| {
     //    ctx.ui.ctx().clone().style_ui(ctx.ui, egui::Theme::Light);
     //});
 
     let slider = state!(nb, 0.5, |ctx, value| {
-        ctx.ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
+        ctx.ui
+            .add(egui::Slider::new(value, 0.0..=1.0).text("input"));
     });
 
-    view!(nb, (), move |ctx| {
-        ctx.ui.add(egui::ProgressBar::new(*slider.read()).text("output"));
+    let progress = react!(nb, (slider), move |(slider,)| {
+        *slider * 0.5
+    });
+
+    view!(nb, (progress), move |ctx| {
+        let progress = progress.read();
+        let Some(progress) = progress.ready() else {return;};
+        ctx.ui
+            .add(egui::ProgressBar::new(*progress).text("output"));
     });
 }
 

@@ -1,100 +1,86 @@
 use eframe::egui;
 
-pub enum LoadState<T> {
-    Undefined,
-    Loading(std::thread::JoinHandle<T>),
-    Ready(T),
-}
-
-impl<T> LoadState<T> {
-    pub fn ready(&self) -> Option<&T> {
-        match self {
-            LoadState::Ready(inner) => Some(inner),
-            _ => None,
-        }
-    }
-}
-
-impl<T> std::default::Default for LoadState<T> {
+impl<T> std::default::Default for Computed<T> {
     fn default() -> Self {
-        LoadState::Undefined
+        Computed::Undefined
     }
 }
 
-impl<T> std::fmt::Debug for LoadState<T> {
+impl<T> std::fmt::Debug for Computed<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LoadState::Undefined => write!(f, "Undefined"),
-            LoadState::Loading(_) => write!(f, "Loading"),
-            LoadState::Ready(_) => write!(f, "Ready"),
+            Computed::Undefined => write!(f, "Undefined"),
+            Computed::Running(_) => write!(f, "Loading"),
+            Computed::Ready(_) => write!(f, "Ready"),
         }
     }
 }
 
 pub fn load_button<'a, T: Send + 'static>(
     ui: &mut egui::Ui,
-    value: &'a mut LoadState<T>,
+    value: &'a mut Computed<T>,
     label_init: &str,
     label_reinit: &str,
     action: impl FnMut() -> T + Send + 'static,
 ) -> Option<&'a mut T> {
     match value {
-        LoadState::Undefined if ui.button(label_init).clicked() => {
-            *value = LoadState::Loading(std::thread::spawn(action));
+        Computed::Undefined if ui.button(label_init).clicked() => {
+            *value = Computed::Running(std::thread::spawn(action));
             None
         }
-        LoadState::Undefined => None,
-        LoadState::Loading(handle) => {
+        Computed::Undefined => None,
+        Computed::Running(handle) => {
             ui.add(egui::widgets::Spinner::new());
             if handle.is_finished() {
-                let old_value = std::mem::replace(value, LoadState::Undefined);
-                if let LoadState::Loading(handle) = old_value {
-                    *value = LoadState::Ready(handle.join().unwrap());
+                let old_value = std::mem::replace(value, Computed::Undefined);
+                if let Computed::Running(handle) = old_value {
+                    *value = Computed::Ready(handle.join().unwrap());
                 }
             }
             None
         }
-        LoadState::Ready(_) if ui.button(label_reinit).clicked() => {
-            *value = LoadState::Loading(std::thread::spawn(action));
+        Computed::Ready(_) if ui.button(label_reinit).clicked() => {
+            *value = Computed::Running(std::thread::spawn(action));
             None
         }
-        LoadState::Ready(inner) => Some(inner),
+        Computed::Ready(inner) => Some(inner),
     }
 }
 
 pub fn load_auto<'a, T: Send + 'static>(
     ui: &mut egui::Ui,
-    value: &'a mut LoadState<T>,
+    value: &'a mut Computed<T>,
     action: impl FnMut() -> T + Send + 'static,
 ) -> Option<&'a mut T> {
     match value {
-        LoadState::Undefined => {
-            *value = LoadState::Loading(std::thread::spawn(action));
+        Computed::Undefined => {
+            *value = Computed::Running(std::thread::spawn(action));
         }
-        LoadState::Loading(handle) => {
+        Computed::Running(handle) => {
             ui.add(egui::widgets::Spinner::new());
 
             if handle.is_finished() {
-                let LoadState::Loading(handle) = std::mem::replace(value, LoadState::Undefined)
+                let Computed::Running(handle) = std::mem::replace(value, Computed::Undefined)
                 else {
                     unreachable!();
                 };
-                *value = LoadState::Ready(handle.join().unwrap());
+                *value = Computed::Ready(handle.join().unwrap());
 
-                let LoadState::Ready(ref mut inner) = value else {
+                let Computed::Ready(ref mut inner) = value else {
                     unreachable!()
                 };
                 return Some(inner);
             }
         }
-        LoadState::Ready(inner) => return Some(inner),
+        Computed::Ready(inner) => return Some(inner),
     }
     None
 }
 
-
-use egui_extras::{TableBuilder, Column};
+use egui_extras::{Column, TableBuilder};
 use polars::prelude::DataFrame;
+
+use crate::Computed;
 
 pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
     let nr_cols = df.width();
@@ -107,7 +93,11 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
         .header(30.0, |mut header| {
             for head in cols {
                 header.col(|ui| {
-                    ui.label(egui::RichText::new(format!("{}", head)).heading().size(16.0));
+                    ui.label(
+                        egui::RichText::new(format!("{}", head))
+                            .heading()
+                            .size(16.0),
+                    );
                 });
             }
         })
