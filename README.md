@@ -1,5 +1,5 @@
 # GORBIE! (Introduction)
-Every other notebook environment tries to make notebooks easier, we try to make it simpler.
+Every other notebook environment tries to make notebooks easier, we try to make them simpler.
 
 Unlike other notebook environments GORBIE! doesn't really come with its own
 notebook server or runtime environment. Instead, it is designed to be used as
