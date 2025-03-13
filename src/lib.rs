@@ -147,189 +147,270 @@ macro_rules! state {
     };
 }
 
-pub enum Computed<T> {
+pub trait Dependency {
+    type Item;
+    
+    fn generation(&self) -> Option<usize>;
+    fn ready(&self) -> Option<&Self::Item>;
+}
+
+pub enum ComputedState<T> {
     Undefined,
     Init(std::thread::JoinHandle<T>),
     Ready(T, usize),
     Stale(T, usize, std::thread::JoinHandle<T>),
 }
 
-impl<T> Computed<T> {
+impl<T> ComputedState<T> {
     pub fn ready(&self) -> Option<&T> {
         match self {
-            Computed::Ready(inner, _) => Some(inner),
-            Computed::Stale(inner, _, _) => Some(inner),
+            ComputedState::Ready(inner, _) => Some(inner),
+            ComputedState::Stale(inner, _, _) => Some(inner),
             _ => None,
         }
     }
 
     pub fn ready_mut(&mut self) -> Option<&mut T> {
         match self {
-            Computed::Ready(inner, _) => Some(inner),
-            Computed::Stale(inner, _, _) => Some(inner),
+            ComputedState::Ready(inner, _) => Some(inner),
+            ComputedState::Stale(inner, _, _) => Some(inner),
             _ => None,
         }
     }
 }
 
-impl<T> std::default::Default for Computed<T> {
-    fn default() -> Self {
-        Computed::Undefined
-    }
-}
+impl<T> Dependency for ComputedState<T> {
+    type Item = T;
 
-impl<T> std::fmt::Debug for Computed<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Computed::Undefined => write!(f, "Undefined"),
-            Computed::Init(_) => write!(f, "Loading"),
-            Computed::Ready(_, _) => write!(f, "Ready"),
-            Computed::Stale(_, _, _) => write!(f, "Refresh"),
-        }
-    }
-}
-
-pub trait Dependency<T> {
-    fn generation(&self) -> Option<usize>;
-    fn try_read(&self) -> Option<&T>;
-}
-
-impl<T> Dependency<T> for Computed<T> {
     fn generation(&self) -> Option<usize> {
         match self {
-            Computed::Ready(_, generation) => Some(*generation),
-            Computed::Stale(_, generation, _) => Some(*generation),
+            ComputedState::Ready(_, generation) => Some(*generation),
+            ComputedState::Stale(_, generation, _) => Some(*generation),
             _ => None,
         }
     }
     
-    fn try_read(&self) -> Option<&T> {
+    fn ready(&self) -> Option<&T> {
+        self.ready()
+    }
+}
+
+impl<T> std::default::Default for ComputedState<T> {
+    fn default() -> Self {
+        ComputedState::Undefined
+    }
+}
+
+impl<T> std::fmt::Debug for ComputedState<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Computed::Ready(inner, _) => Some(inner),
-            Computed::Stale(inner, _, _) => Some(inner),
-            _ => None,
+            ComputedState::Undefined => write!(f, "Undefined"),
+            ComputedState::Init(_) => write!(f, "Loading"),
+            ComputedState::Ready(_, _) => write!(f, "Ready"),
+            ComputedState::Stale(_, _, _) => write!(f, "Refresh"),
         }
     }
-    
 }
 
-pub trait Dependencies<'a> {
-    type Guard;
-    fn read(&'a self) -> Self::Guard;
+pub struct NotifiedState<T> {
+    value: T,
+    generation: usize,
 }
 
-impl<'a> Dependencies<'a> for () {
-    type Guard = ();
-    fn read(&'a self) -> Self::Guard {
+impl<T> Dependency for NotifiedState<T> {
+    type Item = T;
+
+    fn generation(&self) -> Option<usize> {
+        Some(self.generation)
+    }
+
+    fn ready(&self) -> Option<&T> {
+        Some(&self.value)
+    }
+}
+
+impl<T> NotifiedState<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            value,
+            generation: 0,
+        }
+    }
+
+    pub fn notify(&mut self) {
+        self.generation += 1;
+    }
+}
+
+impl<T> std::default::Default for NotifiedState<T>
+where
+    T: std::default::Default,
+{
+    fn default() -> Self {
+        Self {
+            value: T::default(),
+            generation: 0,
+        }
+    }
+}
+
+impl<T> std::ops::Deref for NotifiedState<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl<T> std::ops::DerefMut for NotifiedState<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
+}
+
+pub trait Dependencies {
+    type Guards<'a> where Self: 'a;
+    type Generations: PartialEq;
+    fn read<'a>(&'a self) -> Self::Guards<'a>;
+    fn try_read<'a>(&'a self) -> Option<Self::Guards<'a>>;
+    fn try_generations(&self) -> Option<Self::Generations>;
+}
+
+impl Dependencies for () {
+    type Guards<'a> = ();
+    fn read<'a>(&'a self) -> Self::Guards<'a> {
         ()
     }
+    fn try_read(&self) -> Option<Self::Guards<'static>> {
+        Some(())
+    }
+    
+    type Generations = ();
+    fn try_generations(&self) -> Option<Self::Generations> {
+        Some(())
+    }
 }
 
-impl<'a, A: Send + 'static> Dependencies<'a> for (Arc<RwLock<A>>,) {
-    type Guard = (parking_lot::RwLockReadGuard<'a, A>,);
-    fn read(&'a self) -> Self::Guard {
+impl<A: Dependency + 'static> Dependencies for (Arc<RwLock<A>>,) {
+    type Guards<'a> = (parking_lot::RwLockReadGuard<'a, A>,);
+    fn read<'a>(&'a self) -> Self::Guards<'a> {
         (self.0.read(),)
     }
+    fn try_read<'a>(&'a self) -> Option<Self::Guards<'a>> {
+        Some((self.0.try_read()?,))
+    }
+    
+    type Generations = (usize,);
+    fn try_generations(&self) -> Option<Self::Generations> {
+        Some((self.0.try_read()?.generation()?,))
+    }
 }
 
-impl<'a, A: Send + 'static, B: Send + 'static> Dependencies<'a>
+impl<A: Dependency + 'static, B: Dependency + 'static> Dependencies
     for (Arc<RwLock<A>>, Arc<RwLock<B>>)
 {
-    type Guard = (
+    type Guards<'a> = (
         parking_lot::RwLockReadGuard<'a, A>,
         parking_lot::RwLockReadGuard<'a, B>,
     );
-    fn read(&'a self) -> Self::Guard {
+    fn read<'a>(&'a self) -> Self::Guards<'a> {
         (self.0.read(), self.1.read())
     }
+    fn try_read<'a>(&'a self) -> Option<Self::Guards<'a>> {
+        Some((self.0.try_read()?, self.1.try_read()?))
+    }
+    
+    type Generations = (usize, usize);
+    fn try_generations(&self) -> Option<Self::Generations> {
+        Some((self.0.try_read()?.generation()?, self.1.try_read()?.generation()?))
+    }
 }
 
-impl<'a, A: Send + 'static, B: Send + 'static, C: Send + 'static> Dependencies<'a>
+impl<A: Dependency + 'static, B: Dependency + 'static, C: Dependency + 'static> Dependencies
     for (Arc<RwLock<A>>, Arc<RwLock<B>>, Arc<RwLock<C>>)
 {
-    type Guard = (
+    type Guards<'a> = (
         parking_lot::RwLockReadGuard<'a, A>,
         parking_lot::RwLockReadGuard<'a, B>,
         parking_lot::RwLockReadGuard<'a, C>,
     );
-    fn read(&'a self) -> Self::Guard {
+    fn read<'a>(&'a self) -> Self::Guards<'a> {
         (self.0.read(), self.1.read(), self.2.read())
     }
+    fn try_read<'a>(&'a self) -> Option<Self::Guards<'a>> {
+        Some((self.0.try_read()?, self.1.try_read()?, self.2.try_read()?))
+    }
+    
+    type Generations = (usize, usize, usize);
+    fn try_generations(&self) -> Option<Self::Generations> {
+        Some((
+            self.0.try_read()?.generation()?,
+            self.1.try_read()?.generation()?,
+            self.2.try_read()?.generation()?,
+        ))
+    }
 }
 
-impl<'a, A: Send + 'static, B: Send + 'static, C: Send + 'static, D: Send + 'static>
-    Dependencies<'a>
-    for (
-        Arc<RwLock<A>>,
-        Arc<RwLock<B>>,
-        Arc<RwLock<C>>,
-        Arc<RwLock<D>>,
-    )
+impl<A: Dependency + 'static, B: Dependency + 'static, C: Dependency + 'static, D: Dependency + 'static>
+    Dependencies for (Arc<RwLock<A>>, Arc<RwLock<B>>, Arc<RwLock<C>>, Arc<RwLock<D>>)
 {
-    type Guard = (
+    type Guards<'a> = (
         parking_lot::RwLockReadGuard<'a, A>,
         parking_lot::RwLockReadGuard<'a, B>,
         parking_lot::RwLockReadGuard<'a, C>,
         parking_lot::RwLockReadGuard<'a, D>,
     );
-    fn read(&'a self) -> Self::Guard {
+    fn read<'a>(&'a self) -> Self::Guards<'a> {
         (self.0.read(), self.1.read(), self.2.read(), self.3.read())
     }
+    fn try_read<'a>(&'a self) -> Option<Self::Guards<'a>> {
+        Some((self.0.try_read()?, self.1.try_read()?, self.2.try_read()?, self.3.try_read()?))
+    }
+    
+    type Generations = (usize, usize, usize, usize);
+    fn try_generations(&self) -> Option<Self::Generations> {
+        Some((
+            self.0.try_read()?.generation()?,
+            self.1.try_read()?.generation()?,
+            self.2.try_read()?.generation()?,
+            self.3.try_read()?.generation()?,
+        ))
+    }
 }
 
-impl<
-        'a,
-        A: Send + 'static,
-        B: Send + 'static,
-        C: Send + 'static,
-        D: Send + 'static,
-        E: Send + 'static,
-    > Dependencies<'a>
-    for (
-        Arc<RwLock<A>>,
-        Arc<RwLock<B>>,
-        Arc<RwLock<C>>,
-        Arc<RwLock<D>>,
-        Arc<RwLock<E>>,
-    )
+impl<A: Dependency + 'static, B: Dependency + 'static, C: Dependency + 'static, D: Dependency + 'static, E: Dependency + 'static>
+    Dependencies for (Arc<RwLock<A>>, Arc<RwLock<B>>, Arc<RwLock<C>>, Arc<RwLock<D>>, Arc<RwLock<E>>)
 {
-    type Guard = (
+    type Guards<'a> = (
         parking_lot::RwLockReadGuard<'a, A>,
         parking_lot::RwLockReadGuard<'a, B>,
         parking_lot::RwLockReadGuard<'a, C>,
         parking_lot::RwLockReadGuard<'a, D>,
         parking_lot::RwLockReadGuard<'a, E>,
     );
-    fn read(&'a self) -> Self::Guard {
-        (
-            self.0.read(),
-            self.1.read(),
-            self.2.read(),
-            self.3.read(),
-            self.4.read(),
-        )
+    fn read<'a>(&'a self) -> Self::Guards<'a> {
+        (self.0.read(), self.1.read(), self.2.read(), self.3.read(), self.4.read())
+    }
+    fn try_read<'a>(&'a self) -> Option<Self::Guards<'a>> {
+        Some((self.0.try_read()?, self.1.try_read()?, self.2.try_read()?, self.3.try_read()?, self.4.try_read()?))
+    }
+    
+    type Generations = (usize, usize, usize, usize, usize);
+    fn try_generations(&self) -> Option<Self::Generations> {
+        Some((
+            self.0.try_read()?.generation()?,
+            self.1.try_read()?.generation()?,
+            self.2.try_read()?.generation()?,
+            self.3.try_read()?.generation()?,
+            self.4.try_read()?.generation()?,
+        ))
     }
 }
 
-impl<
-        'a,
-        A: Send + 'static,
-        B: Send + 'static,
-        C: Send + 'static,
-        D: Send + 'static,
-        E: Send + 'static,
-        F: Send + 'static,
-    > Dependencies<'a>
-    for (
-        Arc<RwLock<A>>,
-        Arc<RwLock<B>>,
-        Arc<RwLock<C>>,
-        Arc<RwLock<D>>,
-        Arc<RwLock<E>>,
-        Arc<RwLock<F>>,
-    )
+impl<A: Dependency + 'static, B: Dependency + 'static, C: Dependency + 'static, D: Dependency + 'static, E: Dependency + 'static, F: Dependency + 'static>
+    Dependencies for (Arc<RwLock<A>>, Arc<RwLock<B>>, Arc<RwLock<C>>, Arc<RwLock<D>>, Arc<RwLock<E>>, Arc<RwLock<F>>)
 {
-    type Guard = (
+    type Guards<'a> = (
         parking_lot::RwLockReadGuard<'a, A>,
         parking_lot::RwLockReadGuard<'a, B>,
         parking_lot::RwLockReadGuard<'a, C>,
@@ -337,39 +418,30 @@ impl<
         parking_lot::RwLockReadGuard<'a, E>,
         parking_lot::RwLockReadGuard<'a, F>,
     );
-    fn read(&'a self) -> Self::Guard {
-        (
-            self.0.read(),
-            self.1.read(),
-            self.2.read(),
-            self.3.read(),
-            self.4.read(),
-            self.5.read(),
-        )
+    fn read<'a>(&'a self) -> Self::Guards<'a> {
+        (self.0.read(), self.1.read(), self.2.read(), self.3.read(), self.4.read(), self.5.read())
+    }
+    fn try_read<'a>(&'a self) -> Option<Self::Guards<'a>> {
+        Some((self.0.try_read()?, self.1.try_read()?, self.2.try_read()?, self.3.try_read()?, self.4.try_read()?, self.5.try_read()?))
+    }
+    
+    type Generations = (usize, usize, usize, usize, usize, usize);
+    fn try_generations(&self) -> Option<Self::Generations> {
+        Some((
+            self.0.try_read()?.generation()?,
+            self.1.try_read()?.generation()?,
+            self.2.try_read()?.generation()?,
+            self.3.try_read()?.generation()?,
+            self.4.try_read()?.generation()?,
+            self.5.try_read()?.generation()?,
+        ))
     }
 }
 
-impl<
-        'a,
-        A: Send + 'static,
-        B: Send + 'static,
-        C: Send + 'static,
-        D: Send + 'static,
-        E: Send + 'static,
-        F: Send + 'static,
-        G: Send + 'static,
-    > Dependencies<'a>
-    for (
-        Arc<RwLock<A>>,
-        Arc<RwLock<B>>,
-        Arc<RwLock<C>>,
-        Arc<RwLock<D>>,
-        Arc<RwLock<E>>,
-        Arc<RwLock<F>>,
-        Arc<RwLock<G>>,
-    )
+impl<A: Dependency + 'static, B: Dependency + 'static, C: Dependency + 'static, D: Dependency + 'static, E: Dependency + 'static, F: Dependency + 'static, G: Dependency + 'static>
+    Dependencies for (Arc<RwLock<A>>, Arc<RwLock<B>>, Arc<RwLock<C>>, Arc<RwLock<D>>, Arc<RwLock<E>>, Arc<RwLock<F>>, Arc<RwLock<G>>)
 {
-    type Guard = (
+    type Guards<'a> = (
         parking_lot::RwLockReadGuard<'a, A>,
         parking_lot::RwLockReadGuard<'a, B>,
         parking_lot::RwLockReadGuard<'a, C>,
@@ -378,42 +450,31 @@ impl<
         parking_lot::RwLockReadGuard<'a, F>,
         parking_lot::RwLockReadGuard<'a, G>,
     );
-    fn read(&'a self) -> Self::Guard {
-        (
-            self.0.read(),
-            self.1.read(),
-            self.2.read(),
-            self.3.read(),
-            self.4.read(),
-            self.5.read(),
-            self.6.read(),
-        )
+    fn read<'a>(&'a self) -> Self::Guards<'a> {
+        (self.0.read(), self.1.read(), self.2.read(), self.3.read(), self.4.read(), self.5.read(), self.6.read())
+    }
+    fn try_read<'a>(&'a self) -> Option<Self::Guards<'a>> {
+        Some((self.0.try_read()?, self.1.try_read()?, self.2.try_read()?, self.3.try_read()?, self.4.try_read()?, self.5.try_read()?, self.6.try_read()?))
+    }
+    
+    type Generations = (usize, usize, usize, usize, usize, usize, usize);
+    fn try_generations(&self) -> Option<Self::Generations> {
+        Some((
+            self.0.try_read()?.generation()?,
+            self.1.try_read()?.generation()?,
+            self.2.try_read()?.generation()?,
+            self.3.try_read()?.generation()?,
+            self.4.try_read()?.generation()?,
+            self.5.try_read()?.generation()?,
+            self.6.try_read()?.generation()?,
+        ))
     }
 }
 
-impl<
-        'a,
-        A: Send + 'static,
-        B: Send + 'static,
-        C: Send + 'static,
-        D: Send + 'static,
-        E: Send + 'static,
-        F: Send + 'static,
-        G: Send + 'static,
-        H: Send + 'static,
-    > Dependencies<'a>
-    for (
-        Arc<RwLock<A>>,
-        Arc<RwLock<B>>,
-        Arc<RwLock<C>>,
-        Arc<RwLock<D>>,
-        Arc<RwLock<E>>,
-        Arc<RwLock<F>>,
-        Arc<RwLock<G>>,
-        Arc<RwLock<H>>,
-    )
+impl<A: Dependency + 'static, B: Dependency + 'static, C: Dependency + 'static, D: Dependency + 'static, E: Dependency + 'static, F: Dependency + 'static, G: Dependency + 'static, H: Dependency + 'static>
+    Dependencies for (Arc<RwLock<A>>, Arc<RwLock<B>>, Arc<RwLock<C>>, Arc<RwLock<D>>, Arc<RwLock<E>>, Arc<RwLock<F>>, Arc<RwLock<G>>, Arc<RwLock<H>>)
 {
-    type Guard = (
+    type Guards<'a> = (
         parking_lot::RwLockReadGuard<'a, A>,
         parking_lot::RwLockReadGuard<'a, B>,
         parking_lot::RwLockReadGuard<'a, C>,
@@ -423,45 +484,32 @@ impl<
         parking_lot::RwLockReadGuard<'a, G>,
         parking_lot::RwLockReadGuard<'a, H>,
     );
-    fn read(&'a self) -> Self::Guard {
-        (
-            self.0.read(),
-            self.1.read(),
-            self.2.read(),
-            self.3.read(),
-            self.4.read(),
-            self.5.read(),
-            self.6.read(),
-            self.7.read(),
-        )
+    fn read<'a>(&'a self) -> Self::Guards<'a> {
+        (self.0.read(), self.1.read(), self.2.read(), self.3.read(), self.4.read(), self.5.read(), self.6.read(), self.7.read())
+    }
+    fn try_read<'a>(&'a self) -> Option<Self::Guards<'a>> {
+        Some((self.0.try_read()?, self.1.try_read()?, self.2.try_read()?, self.3.try_read()?, self.4.try_read()?, self.5.try_read()?, self.6.try_read()?, self.7.try_read()?))
+    }
+    
+    type Generations = (usize, usize, usize, usize, usize, usize, usize, usize);
+    fn try_generations(&self) -> Option<Self::Generations> {
+        Some((
+            self.0.try_read()?.generation()?,
+            self.1.try_read()?.generation()?,
+            self.2.try_read()?.generation()?,
+            self.3.try_read()?.generation()?,
+            self.4.try_read()?.generation()?,
+            self.5.try_read()?.generation()?,
+            self.6.try_read()?.generation()?,
+            self.7.try_read()?.generation()?,
+        ))
     }
 }
 
-impl<
-        'a,
-        A: Send + 'static,
-        B: Send + 'static,
-        C: Send + 'static,
-        D: Send + 'static,
-        E: Send + 'static,
-        F: Send + 'static,
-        G: Send + 'static,
-        H: Send + 'static,
-        I: Send + 'static,
-    > Dependencies<'a>
-    for (
-        Arc<RwLock<A>>,
-        Arc<RwLock<B>>,
-        Arc<RwLock<C>>,
-        Arc<RwLock<D>>,
-        Arc<RwLock<E>>,
-        Arc<RwLock<F>>,
-        Arc<RwLock<G>>,
-        Arc<RwLock<H>>,
-        Arc<RwLock<I>>,
-    )
+impl<A: Dependency + 'static, B: Dependency + 'static, C: Dependency + 'static, D: Dependency + 'static, E: Dependency + 'static, F: Dependency + 'static, G: Dependency + 'static, H: Dependency + 'static, I: Dependency + 'static>
+    Dependencies for (Arc<RwLock<A>>, Arc<RwLock<B>>, Arc<RwLock<C>>, Arc<RwLock<D>>, Arc<RwLock<E>>, Arc<RwLock<F>>, Arc<RwLock<G>>, Arc<RwLock<H>>, Arc<RwLock<I>>)
 {
-    type Guard = (
+    type Guards<'a> = (
         parking_lot::RwLockReadGuard<'a, A>,
         parking_lot::RwLockReadGuard<'a, B>,
         parking_lot::RwLockReadGuard<'a, C>,
@@ -472,48 +520,33 @@ impl<
         parking_lot::RwLockReadGuard<'a, H>,
         parking_lot::RwLockReadGuard<'a, I>,
     );
-    fn read(&'a self) -> Self::Guard {
-        (
-            self.0.read(),
-            self.1.read(),
-            self.2.read(),
-            self.3.read(),
-            self.4.read(),
-            self.5.read(),
-            self.6.read(),
-            self.7.read(),
-            self.8.read(),
-        )
+    fn read<'a>(&'a self) -> Self::Guards<'a> {
+        (self.0.read(), self.1.read(), self.2.read(), self.3.read(), self.4.read(), self.5.read(), self.6.read(), self.7.read(), self.8.read())
+    }
+    fn try_read<'a>(&'a self) -> Option<Self::Guards<'a>> {
+        Some((self.0.try_read()?, self.1.try_read()?, self.2.try_read()?, self.3.try_read()?, self.4.try_read()?, self.5.try_read()?, self.6.try_read()?, self.7.try_read()?, self.8.try_read()?))
+    }
+    
+    type Generations = (usize, usize, usize, usize, usize, usize, usize, usize, usize);
+    fn try_generations(&self) -> Option<Self::Generations> {
+        Some((
+            self.0.try_read()?.generation()?,
+            self.1.try_read()?.generation()?,
+            self.2.try_read()?.generation()?,
+            self.3.try_read()?.generation()?,
+            self.4.try_read()?.generation()?,
+            self.5.try_read()?.generation()?,
+            self.6.try_read()?.generation()?,
+            self.7.try_read()?.generation()?,
+            self.8.try_read()?.generation()?,
+        ))
     }
 }
 
-impl<
-        'a,
-        A: Send + 'static,
-        B: Send + 'static,
-        C: Send + 'static,
-        D: Send + 'static,
-        E: Send + 'static,
-        F: Send + 'static,
-        G: Send + 'static,
-        H: Send + 'static,
-        I: Send + 'static,
-        J: Send + 'static,
-    > Dependencies<'a>
-    for (
-        Arc<RwLock<A>>,
-        Arc<RwLock<B>>,
-        Arc<RwLock<C>>,
-        Arc<RwLock<D>>,
-        Arc<RwLock<E>>,
-        Arc<RwLock<F>>,
-        Arc<RwLock<G>>,
-        Arc<RwLock<H>>,
-        Arc<RwLock<I>>,
-        Arc<RwLock<J>>,
-    )
+impl<A: Dependency + 'static, B: Dependency + 'static, C: Dependency + 'static, D: Dependency + 'static, E: Dependency + 'static, F: Dependency + 'static, G: Dependency + 'static, H: Dependency + 'static, I: Dependency + 'static, J: Dependency + 'static>
+    Dependencies for (Arc<RwLock<A>>, Arc<RwLock<B>>, Arc<RwLock<C>>, Arc<RwLock<D>>, Arc<RwLock<E>>, Arc<RwLock<F>>, Arc<RwLock<G>>, Arc<RwLock<H>>, Arc<RwLock<I>>, Arc<RwLock<J>>)
 {
-    type Guard = (
+    type Guards<'a> = (
         parking_lot::RwLockReadGuard<'a, A>,
         parking_lot::RwLockReadGuard<'a, B>,
         parking_lot::RwLockReadGuard<'a, C>,
@@ -525,51 +558,34 @@ impl<
         parking_lot::RwLockReadGuard<'a, I>,
         parking_lot::RwLockReadGuard<'a, J>,
     );
-    fn read(&'a self) -> Self::Guard {
-        (
-            self.0.read(),
-            self.1.read(),
-            self.2.read(),
-            self.3.read(),
-            self.4.read(),
-            self.5.read(),
-            self.6.read(),
-            self.7.read(),
-            self.8.read(),
-            self.9.read(),
-        )
+    fn read<'a>(&'a self) -> Self::Guards<'a> {
+        (self.0.read(), self.1.read(), self.2.read(), self.3.read(), self.4.read(), self.5.read(), self.6.read(), self.7.read(), self.8.read(), self.9.read())
+    }
+    fn try_read<'a>(&'a self) -> Option<Self::Guards<'a>> {
+        Some((self.0.try_read()?, self.1.try_read()?, self.2.try_read()?, self.3.try_read()?, self.4.try_read()?, self.5.try_read()?, self.6.try_read()?, self.7.try_read()?, self.8.try_read()?, self.9.try_read()?))
+    }
+    
+    type Generations = (usize, usize, usize, usize, usize, usize, usize, usize, usize, usize);
+    fn try_generations(&self) -> Option<Self::Generations> {
+        Some((
+            self.0.try_read()?.generation()?,
+            self.1.try_read()?.generation()?,
+            self.2.try_read()?.generation()?,
+            self.3.try_read()?.generation()?,
+            self.4.try_read()?.generation()?,
+            self.5.try_read()?.generation()?,
+            self.6.try_read()?.generation()?,
+            self.7.try_read()?.generation()?,
+            self.8.try_read()?.generation()?,
+            self.9.try_read()?.generation()?,
+        ))
     }
 }
 
-impl<
-        'a,
-        A: Send + 'static,
-        B: Send + 'static,
-        C: Send + 'static,
-        D: Send + 'static,
-        E: Send + 'static,
-        F: Send + 'static,
-        G: Send + 'static,
-        H: Send + 'static,
-        I: Send + 'static,
-        J: Send + 'static,
-        K: Send + 'static,
-    > Dependencies<'a>
-    for (
-        Arc<RwLock<A>>,
-        Arc<RwLock<B>>,
-        Arc<RwLock<C>>,
-        Arc<RwLock<D>>,
-        Arc<RwLock<E>>,
-        Arc<RwLock<F>>,
-        Arc<RwLock<G>>,
-        Arc<RwLock<H>>,
-        Arc<RwLock<I>>,
-        Arc<RwLock<J>>,
-        Arc<RwLock<K>>,
-    )
+impl<A: Dependency + 'static, B: Dependency + 'static, C: Dependency + 'static, D: Dependency + 'static, E: Dependency + 'static, F: Dependency + 'static, G: Dependency + 'static, H: Dependency + 'static, I: Dependency + 'static, J: Dependency + 'static, K: Dependency + 'static>
+    Dependencies for (Arc<RwLock<A>>, Arc<RwLock<B>>, Arc<RwLock<C>>, Arc<RwLock<D>>, Arc<RwLock<E>>, Arc<RwLock<F>>, Arc<RwLock<G>>, Arc<RwLock<H>>, Arc<RwLock<I>>, Arc<RwLock<J>>, Arc<RwLock<K>>)
 {
-    type Guard = (
+    type Guards<'a> = (
         parking_lot::RwLockReadGuard<'a, A>,
         parking_lot::RwLockReadGuard<'a, B>,
         parking_lot::RwLockReadGuard<'a, C>,
@@ -582,54 +598,35 @@ impl<
         parking_lot::RwLockReadGuard<'a, J>,
         parking_lot::RwLockReadGuard<'a, K>,
     );
-    fn read(&'a self) -> Self::Guard {
-        (
-            self.0.read(),
-            self.1.read(),
-            self.2.read(),
-            self.3.read(),
-            self.4.read(),
-            self.5.read(),
-            self.6.read(),
-            self.7.read(),
-            self.8.read(),
-            self.9.read(),
-            self.10.read(),
-        )
+    fn read<'a>(&'a self) -> Self::Guards<'a> {
+        (self.0.read(), self.1.read(), self.2.read(), self.3.read(), self.4.read(), self.5.read(), self.6.read(), self.7.read(), self.8.read(), self.9.read(), self.10.read())
+    }
+    fn try_read<'a>(&'a self) -> Option<Self::Guards<'a>> {
+        Some((self.0.try_read()?, self.1.try_read()?, self.2.try_read()?, self.3.try_read()?, self.4.try_read()?, self.5.try_read()?, self.6.try_read()?, self.7.try_read()?, self.8.try_read()?, self.9.try_read()?, self.10.try_read()?))
+    }
+    
+    type Generations = (usize, usize, usize, usize, usize, usize, usize, usize, usize, usize, usize);
+    fn try_generations(&self) -> Option<Self::Generations> {
+        Some((
+            self.0.try_read()?.generation()?,
+            self.1.try_read()?.generation()?,
+            self.2.try_read()?.generation()?,
+            self.3.try_read()?.generation()?,
+            self.4.try_read()?.generation()?,
+            self.5.try_read()?.generation()?,
+            self.6.try_read()?.generation()?,
+            self.7.try_read()?.generation()?,
+            self.8.try_read()?.generation()?,
+            self.9.try_read()?.generation()?,
+            self.10.try_read()?.generation()?,
+        ))
     }
 }
 
-impl<
-        'a,
-        A: Send + 'static,
-        B: Send + 'static,
-        C: Send + 'static,
-        D: Send + 'static,
-        E: Send + 'static,
-        F: Send + 'static,
-        G: Send + 'static,
-        H: Send + 'static,
-        I: Send + 'static,
-        J: Send + 'static,
-        K: Send + 'static,
-        L: Send + 'static,
-    > Dependencies<'a>
-    for (
-        Arc<RwLock<A>>,
-        Arc<RwLock<B>>,
-        Arc<RwLock<C>>,
-        Arc<RwLock<D>>,
-        Arc<RwLock<E>>,
-        Arc<RwLock<F>>,
-        Arc<RwLock<G>>,
-        Arc<RwLock<H>>,
-        Arc<RwLock<I>>,
-        Arc<RwLock<J>>,
-        Arc<RwLock<K>>,
-        Arc<RwLock<L>>,
-    )
+impl<A: Dependency + 'static, B: Dependency + 'static, C: Dependency + 'static, D: Dependency + 'static, E: Dependency + 'static, F: Dependency + 'static, G: Dependency + 'static, H: Dependency + 'static, I: Dependency + 'static, J: Dependency + 'static, K: Dependency + 'static, L: Dependency + 'static>
+    Dependencies for (Arc<RwLock<A>>, Arc<RwLock<B>>, Arc<RwLock<C>>, Arc<RwLock<D>>, Arc<RwLock<E>>, Arc<RwLock<F>>, Arc<RwLock<G>>, Arc<RwLock<H>>, Arc<RwLock<I>>, Arc<RwLock<J>>, Arc<RwLock<K>>, Arc<RwLock<L>>)
 {
-    type Guard = (
+    type Guards<'a> = (
         parking_lot::RwLockReadGuard<'a, A>,
         parking_lot::RwLockReadGuard<'a, B>,
         parking_lot::RwLockReadGuard<'a, C>,
@@ -643,413 +640,53 @@ impl<
         parking_lot::RwLockReadGuard<'a, K>,
         parking_lot::RwLockReadGuard<'a, L>,
     );
-    fn read(&'a self) -> Self::Guard {
-        (
-            self.0.read(),
-            self.1.read(),
-            self.2.read(),
-            self.3.read(),
-            self.4.read(),
-            self.5.read(),
-            self.6.read(),
-            self.7.read(),
-            self.8.read(),
-            self.9.read(),
-            self.10.read(),
-            self.11.read(),
-        )
+    fn read<'a>(&'a self) -> Self::Guards<'a> {
+        (self.0.read(), self.1.read(), self.2.read(), self.3.read(), self.4.read(), self.5.read(), self.6.read(), self.7.read(), self.8.read(), self.9.read(), self.10.read(), self.11.read())
+    }
+    fn try_read<'a>(&'a self) -> Option<Self::Guards<'a>> {
+        Some((self.0.try_read()?, self.1.try_read()?, self.2.try_read()?, self.3.try_read()?, self.4.try_read()?, self.5.try_read()?, self.6.try_read()?, self.7.try_read()?, self.8.try_read()?, self.9.try_read()?, self.10.try_read()?, self.11.try_read()?))
+    }
+    
+    type Generations = (usize, usize, usize, usize, usize, usize, usize, usize, usize, usize, usize, usize);
+    fn try_generations(&self) -> Option<Self::Generations> {
+        Some((
+            self.0.try_read()?.generation()?,
+            self.1.try_read()?.generation()?,
+            self.2.try_read()?.generation()?,
+            self.3.try_read()?.generation()?,
+            self.4.try_read()?.generation()?,
+            self.5.try_read()?.generation()?,
+            self.6.try_read()?.generation()?,
+            self.7.try_read()?.generation()?,
+            self.8.try_read()?.generation()?,
+            self.9.try_read()?.generation()?,
+            self.10.try_read()?.generation()?,
+            self.11.try_read()?.generation()?,
+        ))
     }
 }
 
-impl<
-        'a,
-        A: Send + 'static,
-        B: Send + 'static,
-        C: Send + 'static,
-        D: Send + 'static,
-        E: Send + 'static,
-        F: Send + 'static,
-        G: Send + 'static,
-        H: Send + 'static,
-        I: Send + 'static,
-        J: Send + 'static,
-        K: Send + 'static,
-        L: Send + 'static,
-        M: Send + 'static,
-    > Dependencies<'a>
-    for (
-        Arc<RwLock<A>>,
-        Arc<RwLock<B>>,
-        Arc<RwLock<C>>,
-        Arc<RwLock<D>>,
-        Arc<RwLock<E>>,
-        Arc<RwLock<F>>,
-        Arc<RwLock<G>>,
-        Arc<RwLock<H>>,
-        Arc<RwLock<I>>,
-        Arc<RwLock<J>>,
-        Arc<RwLock<K>>,
-        Arc<RwLock<L>>,
-        Arc<RwLock<M>>,
-    )
-{
-    type Guard = (
-        parking_lot::RwLockReadGuard<'a, A>,
-        parking_lot::RwLockReadGuard<'a, B>,
-        parking_lot::RwLockReadGuard<'a, C>,
-        parking_lot::RwLockReadGuard<'a, D>,
-        parking_lot::RwLockReadGuard<'a, E>,
-        parking_lot::RwLockReadGuard<'a, F>,
-        parking_lot::RwLockReadGuard<'a, G>,
-        parking_lot::RwLockReadGuard<'a, H>,
-        parking_lot::RwLockReadGuard<'a, I>,
-        parking_lot::RwLockReadGuard<'a, J>,
-        parking_lot::RwLockReadGuard<'a, K>,
-        parking_lot::RwLockReadGuard<'a, L>,
-        parking_lot::RwLockReadGuard<'a, M>,
-    );
-    fn read(&'a self) -> Self::Guard {
-        (
-            self.0.read(),
-            self.1.read(),
-            self.2.read(),
-            self.3.read(),
-            self.4.read(),
-            self.5.read(),
-            self.6.read(),
-            self.7.read(),
-            self.8.read(),
-            self.9.read(),
-            self.10.read(),
-            self.11.read(),
-            self.12.read(),
-        )
-    }
-}
-
-impl<
-        'a,
-        A: Send + 'static,
-        B: Send + 'static,
-        C: Send + 'static,
-        D: Send + 'static,
-        E: Send + 'static,
-        F: Send + 'static,
-        G: Send + 'static,
-        H: Send + 'static,
-        I: Send + 'static,
-        J: Send + 'static,
-        K: Send + 'static,
-        L: Send + 'static,
-        M: Send + 'static,
-        N: Send + 'static,
-    > Dependencies<'a>
-    for (
-        Arc<RwLock<A>>,
-        Arc<RwLock<B>>,
-        Arc<RwLock<C>>,
-        Arc<RwLock<D>>,
-        Arc<RwLock<E>>,
-        Arc<RwLock<F>>,
-        Arc<RwLock<G>>,
-        Arc<RwLock<H>>,
-        Arc<RwLock<I>>,
-        Arc<RwLock<J>>,
-        Arc<RwLock<K>>,
-        Arc<RwLock<L>>,
-        Arc<RwLock<M>>,
-        Arc<RwLock<N>>,
-    )
-{
-    type Guard = (
-        parking_lot::RwLockReadGuard<'a, A>,
-        parking_lot::RwLockReadGuard<'a, B>,
-        parking_lot::RwLockReadGuard<'a, C>,
-        parking_lot::RwLockReadGuard<'a, D>,
-        parking_lot::RwLockReadGuard<'a, E>,
-        parking_lot::RwLockReadGuard<'a, F>,
-        parking_lot::RwLockReadGuard<'a, G>,
-        parking_lot::RwLockReadGuard<'a, H>,
-        parking_lot::RwLockReadGuard<'a, I>,
-        parking_lot::RwLockReadGuard<'a, J>,
-        parking_lot::RwLockReadGuard<'a, K>,
-        parking_lot::RwLockReadGuard<'a, L>,
-        parking_lot::RwLockReadGuard<'a, M>,
-        parking_lot::RwLockReadGuard<'a, N>,
-    );
-    fn read(&'a self) -> Self::Guard {
-        (
-            self.0.read(),
-            self.1.read(),
-            self.2.read(),
-            self.3.read(),
-            self.4.read(),
-            self.5.read(),
-            self.6.read(),
-            self.7.read(),
-            self.8.read(),
-            self.9.read(),
-            self.10.read(),
-            self.11.read(),
-            self.12.read(),
-            self.13.read(),
-        )
-    }
-}
-
-impl<
-        'a,
-        A: Send + 'static,
-        B: Send + 'static,
-        C: Send + 'static,
-        D: Send + 'static,
-        E: Send + 'static,
-        F: Send + 'static,
-        G: Send + 'static,
-        H: Send + 'static,
-        I: Send + 'static,
-        J: Send + 'static,
-        K: Send + 'static,
-        L: Send + 'static,
-        M: Send + 'static,
-        N: Send + 'static,
-        O: Send + 'static,
-    > Dependencies<'a>
-    for (
-        Arc<RwLock<A>>,
-        Arc<RwLock<B>>,
-        Arc<RwLock<C>>,
-        Arc<RwLock<D>>,
-        Arc<RwLock<E>>,
-        Arc<RwLock<F>>,
-        Arc<RwLock<G>>,
-        Arc<RwLock<H>>,
-        Arc<RwLock<I>>,
-        Arc<RwLock<J>>,
-        Arc<RwLock<K>>,
-        Arc<RwLock<L>>,
-        Arc<RwLock<M>>,
-        Arc<RwLock<N>>,
-        Arc<RwLock<O>>,
-    )
-{
-    type Guard = (
-        parking_lot::RwLockReadGuard<'a, A>,
-        parking_lot::RwLockReadGuard<'a, B>,
-        parking_lot::RwLockReadGuard<'a, C>,
-        parking_lot::RwLockReadGuard<'a, D>,
-        parking_lot::RwLockReadGuard<'a, E>,
-        parking_lot::RwLockReadGuard<'a, F>,
-        parking_lot::RwLockReadGuard<'a, G>,
-        parking_lot::RwLockReadGuard<'a, H>,
-        parking_lot::RwLockReadGuard<'a, I>,
-        parking_lot::RwLockReadGuard<'a, J>,
-        parking_lot::RwLockReadGuard<'a, K>,
-        parking_lot::RwLockReadGuard<'a, L>,
-        parking_lot::RwLockReadGuard<'a, M>,
-        parking_lot::RwLockReadGuard<'a, N>,
-        parking_lot::RwLockReadGuard<'a, O>,
-    );
-    fn read(&'a self) -> Self::Guard {
-        (
-            self.0.read(),
-            self.1.read(),
-            self.2.read(),
-            self.3.read(),
-            self.4.read(),
-            self.5.read(),
-            self.6.read(),
-            self.7.read(),
-            self.8.read(),
-            self.9.read(),
-            self.10.read(),
-            self.11.read(),
-            self.12.read(),
-            self.13.read(),
-            self.14.read(),
-        )
-    }
-}
-
-impl<
-        'a,
-        A: Send + 'static,
-        B: Send + 'static,
-        C: Send + 'static,
-        D: Send + 'static,
-        E: Send + 'static,
-        F: Send + 'static,
-        G: Send + 'static,
-        H: Send + 'static,
-        I: Send + 'static,
-        J: Send + 'static,
-        K: Send + 'static,
-        L: Send + 'static,
-        M: Send + 'static,
-        N: Send + 'static,
-        O: Send + 'static,
-        P: Send + 'static,
-    > Dependencies<'a>
-    for (
-        Arc<RwLock<A>>,
-        Arc<RwLock<B>>,
-        Arc<RwLock<C>>,
-        Arc<RwLock<D>>,
-        Arc<RwLock<E>>,
-        Arc<RwLock<F>>,
-        Arc<RwLock<G>>,
-        Arc<RwLock<H>>,
-        Arc<RwLock<I>>,
-        Arc<RwLock<J>>,
-        Arc<RwLock<K>>,
-        Arc<RwLock<L>>,
-        Arc<RwLock<M>>,
-        Arc<RwLock<N>>,
-        Arc<RwLock<O>>,
-        Arc<RwLock<P>>,
-    )
-{
-    type Guard = (
-        parking_lot::RwLockReadGuard<'a, A>,
-        parking_lot::RwLockReadGuard<'a, B>,
-        parking_lot::RwLockReadGuard<'a, C>,
-        parking_lot::RwLockReadGuard<'a, D>,
-        parking_lot::RwLockReadGuard<'a, E>,
-        parking_lot::RwLockReadGuard<'a, F>,
-        parking_lot::RwLockReadGuard<'a, G>,
-        parking_lot::RwLockReadGuard<'a, H>,
-        parking_lot::RwLockReadGuard<'a, I>,
-        parking_lot::RwLockReadGuard<'a, J>,
-        parking_lot::RwLockReadGuard<'a, K>,
-        parking_lot::RwLockReadGuard<'a, L>,
-        parking_lot::RwLockReadGuard<'a, M>,
-        parking_lot::RwLockReadGuard<'a, N>,
-        parking_lot::RwLockReadGuard<'a, O>,
-        parking_lot::RwLockReadGuard<'a, P>,
-    );
-    fn read(&'a self) -> Self::Guard {
-        (
-            self.0.read(),
-            self.1.read(),
-            self.2.read(),
-            self.3.read(),
-            self.4.read(),
-            self.5.read(),
-            self.6.read(),
-            self.7.read(),
-            self.8.read(),
-            self.9.read(),
-            self.10.read(),
-            self.11.read(),
-            self.12.read(),
-            self.13.read(),
-            self.14.read(),
-            self.15.read(),
-        )
-    }
-}
-
-impl<
-        'a,
-        A: Send + 'static,
-        B: Send + 'static,
-        C: Send + 'static,
-        D: Send + 'static,
-        E: Send + 'static,
-        F: Send + 'static,
-        G: Send + 'static,
-        H: Send + 'static,
-        I: Send + 'static,
-        J: Send + 'static,
-        K: Send + 'static,
-        L: Send + 'static,
-        M: Send + 'static,
-        N: Send + 'static,
-        O: Send + 'static,
-        P: Send + 'static,
-        Q: Send + 'static,
-    > Dependencies<'a>
-    for (
-        Arc<RwLock<A>>,
-        Arc<RwLock<B>>,
-        Arc<RwLock<C>>,
-        Arc<RwLock<D>>,
-        Arc<RwLock<E>>,
-        Arc<RwLock<F>>,
-        Arc<RwLock<G>>,
-        Arc<RwLock<H>>,
-        Arc<RwLock<I>>,
-        Arc<RwLock<J>>,
-        Arc<RwLock<K>>,
-        Arc<RwLock<L>>,
-        Arc<RwLock<M>>,
-        Arc<RwLock<N>>,
-        Arc<RwLock<O>>,
-        Arc<RwLock<P>>,
-        Arc<RwLock<Q>>,
-    )
-{
-    type Guard = (
-        parking_lot::RwLockReadGuard<'a, A>,
-        parking_lot::RwLockReadGuard<'a, B>,
-        parking_lot::RwLockReadGuard<'a, C>,
-        parking_lot::RwLockReadGuard<'a, D>,
-        parking_lot::RwLockReadGuard<'a, E>,
-        parking_lot::RwLockReadGuard<'a, F>,
-        parking_lot::RwLockReadGuard<'a, G>,
-        parking_lot::RwLockReadGuard<'a, H>,
-        parking_lot::RwLockReadGuard<'a, I>,
-        parking_lot::RwLockReadGuard<'a, J>,
-        parking_lot::RwLockReadGuard<'a, K>,
-        parking_lot::RwLockReadGuard<'a, L>,
-        parking_lot::RwLockReadGuard<'a, M>,
-        parking_lot::RwLockReadGuard<'a, N>,
-        parking_lot::RwLockReadGuard<'a, O>,
-        parking_lot::RwLockReadGuard<'a, P>,
-        parking_lot::RwLockReadGuard<'a, Q>,
-    );
-    fn read(&'a self) -> Self::Guard {
-        (
-            self.0.read(),
-            self.1.read(),
-            self.2.read(),
-            self.3.read(),
-            self.4.read(),
-            self.5.read(),
-            self.6.read(),
-            self.7.read(),
-            self.8.read(),
-            self.9.read(),
-            self.10.read(),
-            self.11.read(),
-            self.12.read(),
-            self.13.read(),
-            self.14.read(),
-            self.15.read(),
-            self.16.read(),
-        )
-    }
-}
-
-pub struct ReactiveCard<T: Send, D: for<'a> Dependencies<'a> + Send> {
-    value: Arc<RwLock<Computed<T>>>,
+pub struct ReactiveCard<T: Send, D: for<'a> Dependencies + Send> {
+    value: Arc<RwLock<ComputedState<T>>>,
+    generations: Option<<D as Dependencies>::Generations>,
     dependencies: D,
-    function: Arc<dyn Fn(<D as Dependencies<'_>>::Guard) -> T + Send + Sync>,
+    function: Arc<dyn Fn(<D as Dependencies>::Guards<'_>) -> T + Send + Sync>,
     code: Option<String>,
 }
 
 pub fn reactive_card<
     T: Send + PartialEq + std::fmt::Debug + std::default::Default + 'static,
-    D: for<'a> Dependencies<'a> + Send + Clone + 'static,
+    D: for<'a> Dependencies + Send + Clone + 'static,
 >(
     nb: &mut Notebook,
     dependencies: D,
-    function: impl Fn(<D as Dependencies<'_>>::Guard) -> T + Send + Sync + 'static,
+    function: impl Fn(<D as Dependencies>::Guards<'_>) -> T + Send + Sync + 'static,
     code: Option<&str>,
-) -> Arc<RwLock<Computed<T>>> {
-    let current = Arc::new(RwLock::new(Computed::Undefined));
+) -> Arc<RwLock<ComputedState<T>>> {
+    let current = Arc::new(RwLock::new(ComputedState::Undefined));
     nb.push_card(Box::new(ReactiveCard {
         value: current.clone(),
+        generations: None,
         dependencies,
         function: Arc::new(function),
         code: code.map(|s| s.to_owned()),
@@ -1060,33 +697,38 @@ pub fn reactive_card<
 
 impl<
         T: Send + std::fmt::Debug + PartialEq + 'static,
-        D: for<'a> Dependencies<'a> + Send + Clone + 'static,
+        D: Dependencies + Send + Clone + 'static,
     > Card for ReactiveCard<T, D>
 {
     fn update(&mut self, ctx: &mut CardCtx) -> () {
         let mut current = self.value.write();
 
-        *current = match std::mem::replace(&mut *current, Computed::Undefined) {
-            Computed::Undefined => {
+        *current = match std::mem::replace(&mut *current, ComputedState::Undefined) {
+            ComputedState::Undefined => {
                 let dependencies = self.dependencies.clone();
                 let function = self.function.clone();
-                Computed::Init(std::thread::spawn(move || {
-                    let dependencies = dependencies.read();
-                    (function)(dependencies)
-                }))
+                let generations = dependencies.try_generations();
+                if generations.is_some() && generations != self.generations {
+                    ComputedState::Init(std::thread::spawn(move || {
+                        let dependencies = dependencies.read();
+                        (function)(dependencies)
+                    }))
+                } else {
+                    ComputedState::Undefined
+                }
             }
 
-            Computed::Init(handle) if handle.is_finished() => {
+            ComputedState::Init(handle) if handle.is_finished() => {
                 ctx.ui.ctx().request_repaint();
-                Computed::Ready(handle.join().unwrap(), 0)
+                ComputedState::Ready(handle.join().unwrap(), 0)
             }
 
-            Computed::Init(handle) => {
+            ComputedState::Init(handle) => {
                 ctx.ui.add(egui::widgets::Spinner::new());
-                Computed::Init(handle)
+                ComputedState::Init(handle)
             }
 
-            Computed::Ready(current, generation) => {
+            ComputedState::Ready(current, generation) => {
                 ctx.ui.label(format!("Generation: {}", generation));
 
                 CollapsingHeader::new("Current")
@@ -1110,19 +752,29 @@ impl<
                         });
                 }
 
-                Computed::Ready(current, generation)
+                let dependencies = self.dependencies.clone();
+                let function = self.function.clone();
+                let generations = dependencies.try_generations();
+                if generations.is_some() && generations != self.generations {
+                    ComputedState::Init(std::thread::spawn(move || {
+                        let dependencies = dependencies.read();
+                        (function)(dependencies)
+                    }))
+                } else {
+                    ComputedState::Ready(current, generation)
+                }
             }
-            Computed::Stale(previous, generation, join_handle) if join_handle.is_finished() => {
+            ComputedState::Stale(previous, generation, join_handle) if join_handle.is_finished() => {
                 let result = join_handle.join().unwrap();
                 if result != previous {
                     ctx.ui.ctx().request_repaint();
-                    Computed::Ready(result, generation + 1)
+                    ComputedState::Ready(result, generation + 1)
                 } else {
-                    Computed::Ready(result, generation)
+                    ComputedState::Ready(result, generation)
                 }
             }
 
-            Computed::Stale(current, generation, join_handle) => {
+            ComputedState::Stale(current, generation, join_handle) => {
                 ctx.ui.add(egui::widgets::Spinner::new());
 
                 ctx.ui.label(format!("Generation: {}", generation));
@@ -1148,7 +800,7 @@ impl<
                         });
                 }
 
-                Computed::Stale(current, generation, join_handle)
+                ComputedState::Stale(current, generation, join_handle)
             }
         }
     }

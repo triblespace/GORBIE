@@ -2,35 +2,35 @@ use eframe::egui;
 
 pub fn load_button<'a, T: Send + 'static>(
     ui: &mut egui::Ui,
-    value: &'a mut Computed<T>,
+    value: &'a mut ComputedState<T>,
     label_init: &str,
     label_reinit: &str,
     action: impl FnMut() -> T + Send + 'static,
 ) -> Option<&'a mut T> {
-    *value = match std::mem::replace(value, Computed::Undefined) {
-        Computed::Undefined if ui.button(label_init).clicked() => {
-            Computed::Init(std::thread::spawn(action))
+    *value = match std::mem::replace(value, ComputedState::Undefined) {
+        ComputedState::Undefined if ui.button(label_init).clicked() => {
+            ComputedState::Init(std::thread::spawn(action))
         }
-        Computed::Undefined => Computed::Undefined,
-        Computed::Init(handle) if handle.is_finished() => {
-            Computed::Ready(handle.join().unwrap(), 0)
+        ComputedState::Undefined => ComputedState::Undefined,
+        ComputedState::Init(handle) if handle.is_finished() => {
+            ComputedState::Ready(handle.join().unwrap(), 0)
         }
-        Computed::Init(handle) => {
+        ComputedState::Init(handle) => {
             ui.add(egui::widgets::Spinner::new());
-            Computed::Init(handle)
+            ComputedState::Init(handle)
         }
-        Computed::Ready(current, generation) if ui.button(label_reinit).clicked() => {
+        ComputedState::Ready(current, generation) if ui.button(label_reinit).clicked() => {
             ui.ctx().request_repaint();
-            Computed::Stale(current, generation + 1, std::thread::spawn(action))
+            ComputedState::Stale(current, generation + 1, std::thread::spawn(action))
         }
-        Computed::Ready(inner, generation) => Computed::Ready(inner, generation),
-        Computed::Stale(_, generation, join_handle) if join_handle.is_finished() => {
+        ComputedState::Ready(inner, generation) => ComputedState::Ready(inner, generation),
+        ComputedState::Stale(_, generation, join_handle) if join_handle.is_finished() => {
             ui.ctx().request_repaint();
-            Computed::Ready(join_handle.join().unwrap(), generation + 1)
+            ComputedState::Ready(join_handle.join().unwrap(), generation + 1)
         }
-        Computed::Stale(inner, join_handle, generation) => {
+        ComputedState::Stale(inner, join_handle, generation) => {
             ui.add(egui::widgets::Spinner::new());
-            Computed::Stale(inner, join_handle, generation)
+            ComputedState::Stale(inner, join_handle, generation)
         }
     };
 
@@ -39,20 +39,20 @@ pub fn load_button<'a, T: Send + 'static>(
 
 pub fn load_auto<'a, T: Send + 'static>(
     ui: &mut egui::Ui,
-    value: &'a mut Computed<T>,
+    value: &'a mut ComputedState<T>,
     action: impl FnMut() -> T + Send + 'static,
 ) -> Option<&'a mut T> {
-    *value = match std::mem::replace(value, Computed::Undefined) {
-        Computed::Undefined => Computed::Init(std::thread::spawn(action)),
-        Computed::Init(handle) if handle.is_finished() => {
-            Computed::Ready(handle.join().unwrap(), 0)
+    *value = match std::mem::replace(value, ComputedState::Undefined) {
+        ComputedState::Undefined => ComputedState::Init(std::thread::spawn(action)),
+        ComputedState::Init(handle) if handle.is_finished() => {
+            ComputedState::Ready(handle.join().unwrap(), 0)
         }
-        Computed::Init(handle) => {
+        ComputedState::Init(handle) => {
             ui.add(egui::widgets::Spinner::new());
-            Computed::Init(handle)
+            ComputedState::Init(handle)
         }
-        Computed::Ready(inner, generation) => Computed::Ready(inner, generation),
-        Computed::Stale(_, _, _) => {
+        ComputedState::Ready(inner, generation) => ComputedState::Ready(inner, generation),
+        ComputedState::Stale(_, _, _) => {
             unreachable!();
         }
     };
@@ -63,7 +63,7 @@ pub fn load_auto<'a, T: Send + 'static>(
 use egui_extras::{Column, TableBuilder};
 use polars::prelude::DataFrame;
 
-use crate::Computed;
+use crate::ComputedState;
 
 pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
     let nr_cols = df.width();
