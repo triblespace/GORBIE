@@ -5,7 +5,9 @@
 //! egui = "0.31"
 //! ```
 
-use GORBIE::{md, notebook, react, state, view, Notebook};
+use std::ops::DerefMut;
+
+use GORBIE::{md, notebook, derive, state, view, CardCtx, Notebook, NotifiedState};
 
 fn intro(nb: &mut Notebook) {
     md(
@@ -61,18 +63,20 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
     //    ctx.ui.ctx().clone().style_ui(ctx.ui, egui::Theme::Light);
     //});
 
-    let slider = state!(nb, 0.5, |ctx, value| {
-        ctx.ui
-            .add(egui::Slider::new(value, 0.0..=1.0).text("input"));
+    let slider = state!(nb, (0.5).into(), |ctx: &mut CardCtx, value: &mut NotifiedState<_>| {
+        if ctx.ui.add(egui::Slider::new(value.deref_mut(), 0.0..=1.0).text("input")).dragged() {
+            value.notify();
+        }
     });
 
-    let progress = react!(nb, (slider), move |(slider,)| { *slider * 0.5 });
+    let progress = derive!(nb, (slider), move |(slider,)| {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        slider * 0.5
+    });
 
     view!(nb, (progress), move |ctx| {
-        let progress = progress.read();
-        let Some(progress) = progress.ready() else {
-            return;
-        };
+        let Some(progress) = progress.try_read() else {return;};
+        let Some(progress) = progress.ready() else {return;};
         ctx.ui.add(egui::ProgressBar::new(*progress).text("output"));
     });
 }
