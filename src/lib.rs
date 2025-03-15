@@ -12,6 +12,9 @@ use eframe::egui::{self};
 use std::collections::BTreeMap;
 use tribles::prelude::*;
 
+/// A notebook is a collection of cards.
+/// Each card is a piece of content that can be displayed in the notebook.
+/// Cards can be stateless, stateful, or reactively derived from other cards.
 pub struct Notebook {
     pub cards: Vec<(Id, Box<dyn Card>)>,
 }
