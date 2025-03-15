@@ -64,7 +64,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
     //});
 
     let slider = state!(nb, (0.5).into(), |ctx: &mut CardCtx, value: &mut NotifiedState<_>| {
-        if ctx.ui.add(egui::Slider::new(value.deref_mut(), 0.0..=1.0).text("input")).dragged() {
+        if ctx.ui().add(egui::Slider::new(value.deref_mut(), 0.0..=1.0).text("input")).changed() {
             value.notify();
         }
     });
@@ -77,7 +77,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
     view!(nb, (progress), move |ctx| {
         let Some(progress) = progress.try_read() else {return;};
         let Some(progress) = progress.ready() else {return;};
-        ctx.ui.add(egui::ProgressBar::new(*progress).text("output"));
+        ctx.ui().add(egui::ProgressBar::new(*progress).text("output"));
     });
 }
 
