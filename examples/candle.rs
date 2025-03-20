@@ -1,4 +1,4 @@
-#!/usr/bin/env watchexec -r rust-script
+#!/usr/bin/env -S watchexec -r rust-script
 //! ```cargo
 //! [dependencies]
 //! GORBIE = { path = ".." }

@@ -14,7 +14,7 @@ automatically run and update the notebook whenever you save the file.
 In such a setup, the `notebook.rs` script would look something like this:
 
 ```rust
-#!/usr/bin/env watchexec -r rust-script
+#!/usr/bin/env -S watchexec -r rust-script
 //! ```cargo
 //! [dependencies]
 //! GORBIE = "0.1.0"
