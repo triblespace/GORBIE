@@ -7,12 +7,12 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 tribles = { version = "0.5.1" }
-eframe = {version = "0.31 ", features = ["persistence", "wgpu"], default-features = false}
+eframe = {version = "0.31 ", features = ["persistence", "wgpu"]}
 egui = "0.31"
 egui_extras = "0.31.0"
 parking_lot = { version = "0.12.3", features = ["arc_lock"] }
 log = "0.4.26"
 ctrlc = {version="3.4", features=["termination"]}
 egui_commonmark = {version = "0.20", features = ["macros", "better_syntax_highlighting", "svg", "fetch"]}
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", features = ["png", "jpeg"] }
 polars = "0.46.0"

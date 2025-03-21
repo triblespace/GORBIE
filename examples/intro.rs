@@ -70,7 +70,9 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
     });
 
     let progress = derive!(nb, (slider), move |(slider,)| {
-        std::thread::sleep(std::time::Duration::from_secs(2));
+        //Derives are executed on a new thread, so we can sleep or perform heavy computations here.
+        //Uncomment the line below to see waiting in action.
+        //std::thread::sleep(std::time::Duration::from_secs(2));
         slider * 0.5
     });
 
