@@ -6,24 +6,26 @@
 //!
 //! - This is also why we compare explicit generations instead of return values,
 //! to broaden the range of types that can be used with `derive!`. -
-//! 
+//!
 //! But sometimes that isn't enough, e.g. when you want to display some application
 //! global state. This is why `state!` and `view!` are carefully designed to not
 //! rely on the dataflow mechanisms introduced by `derive`. Instead they can be
 //! used, like any other mutable rust type, modulo the `CardState` wrapper.
-//! 
+//!
 
 #![allow(non_snake_case)]
 
 pub mod cards;
-pub mod widgets;
 pub mod dataflow;
+pub mod widgets;
 
-pub use cards::*;
-pub use dataflow::*;
 use crate::egui::{FontData, FontDefinitions, FontFamily, FontId, TextStyle};
+pub use cards::*;
 use ctrlc;
+pub use dataflow::*;
 use eframe::egui::{self};
+use egui_theme_switch::global_theme_switch;
+
 use tribles::prelude::*;
 
 /// A notebook is a collection of cards.
@@ -114,11 +116,33 @@ pub fn gorbie_theme_light() -> egui::Style {
     style.visuals.hyperlink_color = egui::Color32::from_hex("#130496").unwrap();
     style.visuals.warn_fg_color = egui::Color32::from_hex("#1a087b").unwrap();
     style.visuals.error_fg_color = egui::Color32::from_hex("#1c0b62").unwrap();
-    style.visuals.widgets.active.fg_stroke.color =
-        egui::Color32::from_hex("#170b32").unwrap();
-    style.visuals.override_text_color =
-        Some(egui::Color32::from_hex("#12051d").unwrap());
+    style.visuals.override_text_color = Some(egui::Color32::from_hex("#12051d").unwrap());
 
+    style.visuals.widgets.active.weak_bg_fill = egui::Color32::from_hex("#bda9dd").unwrap();
+    style.visuals.widgets.active.bg_fill = egui::Color32::from_hex("#9b80cc").unwrap();
+    style.visuals.widgets.active.bg_stroke.color = egui::Color32::from_hex("#7858ba").unwrap();
+    style.visuals.widgets.active.fg_stroke.color = egui::Color32::from_hex("#5032a8").unwrap();
+
+    style.visuals.widgets.inactive.weak_bg_fill = egui::Color32::from_hex("#bda9dd").unwrap();
+    style.visuals.widgets.inactive.bg_fill = egui::Color32::from_hex("#9b80cc").unwrap();
+    style.visuals.widgets.inactive.bg_stroke.color = egui::Color32::from_hex("#7858ba").unwrap();
+    style.visuals.widgets.inactive.fg_stroke.color = egui::Color32::from_hex("#5032a8").unwrap();
+
+    style.visuals.widgets.noninteractive.bg_fill = egui::Color32::from_hex("#9b80cc").unwrap();
+    style.visuals.widgets.noninteractive.weak_bg_fill = egui::Color32::from_hex("#bda9dd").unwrap();
+    style.visuals.widgets.noninteractive.bg_stroke.color = egui::Color32::from_hex("#7858ba").unwrap();
+    style.visuals.widgets.noninteractive.fg_stroke.color = egui::Color32::from_hex("#5032a8").unwrap();
+
+    style.visuals.widgets.open.weak_bg_fill = egui::Color32::from_hex("#bda9dd").unwrap();
+    style.visuals.widgets.open.bg_fill = egui::Color32::from_hex("#9b80cc").unwrap();
+    style.visuals.widgets.open.bg_stroke.color = egui::Color32::from_hex("#7858ba").unwrap();
+    style.visuals.widgets.open.fg_stroke.color = egui::Color32::from_hex("#5032a8").unwrap();
+    
+    style.visuals.widgets.hovered.weak_bg_fill = egui::Color32::from_hex("#bda9dd").unwrap();
+    style.visuals.widgets.hovered.bg_fill = egui::Color32::from_hex("#9b80cc").unwrap();
+    style.visuals.widgets.hovered.bg_stroke.color = egui::Color32::from_hex("#7858ba").unwrap();
+    style.visuals.widgets.hovered.fg_stroke.color = egui::Color32::from_hex("#5032a8").unwrap();
+    
     style
 }
 
@@ -159,10 +183,32 @@ pub fn gorbie_theme_dark() -> egui::Style {
     style.visuals.hyperlink_color = egui::Color32::from_hex("#130496").unwrap();
     style.visuals.warn_fg_color = egui::Color32::from_hex("#5032a8").unwrap();
     style.visuals.error_fg_color = egui::Color32::from_hex("#7858ba").unwrap();
-    style.visuals.widgets.active.fg_stroke.color =
-        egui::Color32::from_hex("#bda9dd").unwrap();
-    style.visuals.override_text_color =
-        Some(egui::Color32::from_hex("#ded3ee").unwrap());
+    style.visuals.override_text_color = Some(egui::Color32::from_hex("#ded3ee").unwrap());
+
+    style.visuals.widgets.active.weak_bg_fill = egui::Color32::from_hex("#170b32").unwrap();
+    style.visuals.widgets.active.bg_fill = egui::Color32::from_hex("#1a0c4a").unwrap();
+    style.visuals.widgets.active.bg_stroke.color = egui::Color32::from_hex("#1c0b62").unwrap();
+    style.visuals.widgets.active.fg_stroke.color = egui::Color32::from_hex("#1a087b").unwrap();
+    
+    style.visuals.widgets.inactive.weak_bg_fill = egui::Color32::from_hex("#170b32").unwrap();
+    style.visuals.widgets.inactive.bg_fill = egui::Color32::from_hex("#1a0c4a").unwrap();
+    style.visuals.widgets.inactive.bg_stroke.color = egui::Color32::from_hex("#1c0b62").unwrap();
+    style.visuals.widgets.inactive.fg_stroke.color = egui::Color32::from_hex("#1a087b").unwrap();
+
+    style.visuals.widgets.noninteractive.weak_bg_fill = egui::Color32::from_hex("#170b32").unwrap();
+    style.visuals.widgets.noninteractive.bg_fill = egui::Color32::from_hex("#1a0c4a").unwrap();
+    style.visuals.widgets.noninteractive.bg_stroke.color = egui::Color32::from_hex("#1c0b62").unwrap();
+    style.visuals.widgets.noninteractive.fg_stroke.color = egui::Color32::from_hex("#1a087b").unwrap();
+
+    style.visuals.widgets.open.weak_bg_fill = egui::Color32::from_hex("#170b32").unwrap();
+    style.visuals.widgets.open.bg_fill = egui::Color32::from_hex("#1a0c4a").unwrap();
+    style.visuals.widgets.open.bg_stroke.color = egui::Color32::from_hex("#1c0b62").unwrap();
+    style.visuals.widgets.open.fg_stroke.color = egui::Color32::from_hex("#1a087b").unwrap();
+
+    style.visuals.widgets.hovered.weak_bg_fill = egui::Color32::from_hex("#170b32").unwrap();
+    style.visuals.widgets.hovered.bg_fill = egui::Color32::from_hex("#1a0c4a").unwrap();
+    style.visuals.widgets.hovered.bg_stroke.color = egui::Color32::from_hex("#1c0b62").unwrap();
+    style.visuals.widgets.hovered.fg_stroke.color = egui::Color32::from_hex("#1a087b").unwrap();
 
     style
 }
@@ -189,8 +235,10 @@ impl Notebook {
                     .expect("failed to set exit signal handler");
 
                 cc.egui_ctx.set_fonts(gorbie_fonts());
-                cc.egui_ctx.set_style_of(egui::Theme::Light, gorbie_theme_light());
-                cc.egui_ctx.set_style_of(egui::Theme::Dark, gorbie_theme_dark());
+                cc.egui_ctx
+                    .set_style_of(egui::Theme::Light, gorbie_theme_light());
+                cc.egui_ctx
+                    .set_style_of(egui::Theme::Dark, gorbie_theme_dark());
 
                 Ok(Box::new(self))
             }),
@@ -204,16 +252,28 @@ impl eframe::App for Notebook {
             egui::ScrollArea::vertical()
                 .auto_shrink(false)
                 .show(ui, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.set_max_width(740.0);
-                        for (id, card) in &mut self.cards {
-                            ui.push_id(&id, |ui| {
-                                let mut ctx = CardCtx::new(ui, *id);
-                                card.update(&mut ctx);
-                                ui.separator();
-                            });
-                        }
-                    });
+                    let mut frame = egui::Frame::default().outer_margin(16.0).begin(ui);
+                    {
+                        frame.content_ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                            global_theme_switch(ui);
+                        });
+                    }
+                    frame.end(ui);
+
+                    let frame = egui::Frame::default().begin(ui);
+                    {
+                        ui.vertical_centered(|ui| {
+                            ui.set_max_width(740.0);
+                            for (id, card) in &mut self.cards {
+                                ui.push_id(&id, |ui| {
+                                    let mut ctx = CardCtx::new(ui, *id);
+                                    card.update(&mut ctx);
+                                    ui.separator();
+                                });
+                            }
+                        });
+                    }
+                    frame.end(ui);
                 });
         });
     }

@@ -16,3 +16,4 @@ ctrlc = {version="3.4", features=["termination"]}
 egui_commonmark = {version = "0.20", features = ["macros", "better_syntax_highlighting", "svg", "fetch"]}
 image = { version = "0.25", features = ["png", "jpeg"] }
 polars = "0.46.0"
+egui-theme-switch = "0.3.0"

@@ -7,7 +7,6 @@ use crate::Notebook;
 
 use super::{Card, CardCtx, CardState};
 
-
 pub struct StatefulCard<T> {
     current: CardState<T>,
     function: Box<dyn FnMut(&mut CardCtx, &mut T)>,

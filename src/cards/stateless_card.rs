@@ -1,5 +1,5 @@
-use eframe::egui::CollapsingHeader;
 use crate::{Card, CardCtx, Notebook};
+use eframe::egui::CollapsingHeader;
 
 pub struct StatelessCard {
     function: Box<dyn FnMut(&mut CardCtx) -> ()>,

@@ -1,5 +1,5 @@
-use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use crate::{Card, CardCtx, Notebook};
+use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
 pub struct MarkdownCard {
     markdown: String,

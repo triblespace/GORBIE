@@ -230,13 +230,7 @@ impl<
         B: Dependency + 'static,
         C: Dependency + 'static,
         D: Dependency + 'static,
-    > Dependencies
-    for (
-        CardState<A>,
-        CardState<B>,
-        CardState<C>,
-        CardState<D>,
-    )
+    > Dependencies for (CardState<A>, CardState<B>, CardState<C>, CardState<D>)
 {
     type Values = (A::Value, B::Value, C::Value, D::Value);
     fn read(&self) -> Option<Self::Values> {
@@ -385,7 +379,15 @@ impl<
         CardState<G>,
     )
 {
-    type Values = (A::Value, B::Value, C::Value, D::Value, E::Value, F::Value, G::Value);
+    type Values = (
+        A::Value,
+        B::Value,
+        C::Value,
+        D::Value,
+        E::Value,
+        F::Value,
+        G::Value,
+    );
     fn read(&self) -> Option<Self::Values> {
         Some((
             self.0.read().ready()?,
@@ -408,7 +410,6 @@ impl<
             self.6.try_read()?.ready()?,
         ))
     }
-
 
     type Generations = (usize, usize, usize, usize, usize, usize, usize);
     fn try_generations(&self) -> Option<Self::Generations> {

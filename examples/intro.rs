@@ -7,7 +7,7 @@
 
 use std::ops::DerefMut;
 
-use GORBIE::{md, notebook, derive, state, view, CardCtx, Notebook, NotifiedState};
+use GORBIE::{derive, md, notebook, state, view, CardCtx, Notebook, NotifiedState};
 
 fn intro(nb: &mut Notebook) {
     md(
@@ -59,15 +59,23 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
 ",
     );
 
-    //view!(nb, |ctx| {
-    //    ctx.ui.ctx().clone().style_ui(ctx.ui, egui::Theme::Light);
-    //});
-
-    let slider = state!(nb, (0.5).into(), |ctx: &mut CardCtx, value: &mut NotifiedState<_>| {
-        if ctx.ui().add(egui::Slider::new(value.deref_mut(), 0.0..=1.0).text("input")).changed() {
-            value.notify();
-        }
+    view!(nb, (), |ctx| {
+        ctx.ui().ctx().clone().style_ui(ctx.ui(), egui::Theme::Light);
     });
+
+    let slider = state!(
+        nb,
+        (0.5).into(),
+        |ctx: &mut CardCtx, value: &mut NotifiedState<_>| {
+            if ctx
+                .ui()
+                .add(egui::Slider::new(value.deref_mut(), 0.0..=1.0).text("input"))
+                .changed()
+            {
+                value.notify();
+            }
+        }
+    );
 
     let progress = derive!(nb, (slider), move |(slider,)| {
         //Derives are executed on a new thread, so we can sleep or perform heavy computations here.
@@ -77,9 +85,14 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
     });
 
     view!(nb, (progress), move |ctx| {
-        let Some(progress) = progress.try_read() else {return;};
-        let Some(progress) = progress.ready() else {return;};
-        ctx.ui().add(egui::ProgressBar::new(*progress).text("output"));
+        let Some(progress) = progress.try_read() else {
+            return;
+        };
+        let Some(progress) = progress.ready() else {
+            return;
+        };
+        ctx.ui()
+            .add(egui::ProgressBar::new(*progress).text("output"));
     });
 }
 
