@@ -33,11 +33,11 @@ Development is part of the [trible.space](https://trible.space) project.
 ![an image of 'GORBIE!' the cute alien blob and mascot of this project](./assets/gorbie.png)
 ");
 
-    let slider = state!(nb, 0.5, |ctx, value| {
+    let slider = state!(nb, (), 0.5, |ctx, value| {
         ctx.ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
     });
 
-    view!(nb, move |ctx| {
+    view!(nb, (), move |ctx| {
         ctx.ui.add(egui::ProgressBar::new(*slider.read()).text("output"));
     });
 }

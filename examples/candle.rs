@@ -13,7 +13,7 @@ fn candle(nb: &mut Notebook) {
 In this notebook we're going to use huggingfaces `candle` crate, to create a simple prompt based chatbot.
 ");
 
-    let prompt = state!(nb, "", |ctx, value| {
+    let prompt = state!(nb, (), "", |ctx, value| {
         ctx.ui().horizontal(|ui| {
             ui.label("Prompt:");
             ui.text_edit_singleline(value);

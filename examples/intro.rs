@@ -65,6 +65,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
 
     let slider = state!(
         nb,
+        (),
         (0.5).into(),
         |ctx: &mut CardCtx, value: &mut NotifiedState<_>| {
             if ctx

@@ -19,7 +19,7 @@ fn polars(nb: &mut Notebook) {
 In this notebook we're going to use the `polars` crate to create a simple dataframe.",
     );
 
-    let df = state!(nb, |ctx, value| {
+    let df = state!(nb, (), |ctx, value| {
         if let Some(df) = load_auto(ctx.ui(), value, || {
             CsvReadOptions::default()
                 .try_into_reader_with_file_path(Some("./assets/datasets/iris.csv".into()))
