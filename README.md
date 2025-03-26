@@ -37,7 +37,7 @@ Development is part of the [trible.space](https://trible.space) project.
         ctx.ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
     });
 
-    view!(nb, (), move |ctx| {
+    view!(nb, (slider), move |ctx| {
         ctx.ui.add(egui::ProgressBar::new(*slider.read()).text("output"));
     });
 }
