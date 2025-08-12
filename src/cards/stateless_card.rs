@@ -44,12 +44,6 @@ macro_rules! view {
             // Each clone gets assigned it's own let statement.
             // This makes type checking errors more readable.
             $(let $Dep = $Dep.clone();)*
-
-            // Wrap the provided closure so we provide a local markdown cache handle macro
-            // This allows us to use the markdown cache within the closure without needing to pass it explicitly.
-            let markdown_cache = $nb.commonmark_cache.clone();
-            macro_rules! __gorbie_markdown_cache { () => { & markdown_cache }; }
-
             $crate::stateless_card($nb, $code, Some(stringify!($code)))
         }
     };
