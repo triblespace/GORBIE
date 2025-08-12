@@ -1,4 +1,4 @@
-use crate::{Card, CardCtx, Notebook};
+use crate::{Card, Notebook};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
 pub struct MarkdownCard {
@@ -7,13 +7,13 @@ pub struct MarkdownCard {
 }
 
 impl Card for MarkdownCard {
-    fn update(&mut self, ctx: &mut CardCtx) -> () {
-        CommonMarkViewer::new().show(ctx.ui(), &mut self.cache, &self.markdown);
+    fn draw(&mut self, ui: &mut egui::Ui) {
+        CommonMarkViewer::new().show(ui, &mut self.cache, &self.markdown);
     }
 }
 
 pub fn md(nb: &mut Notebook, markdown: &str) {
-    nb.push_card(Box::new(MarkdownCard {
+    nb.push(Box::new(MarkdownCard {
         markdown: markdown.to_owned(),
         cache: CommonMarkCache::default(),
     }));

@@ -2,9 +2,9 @@
 //! ```cargo
 //! [dependencies]
 //! GORBIE = { path = ".." }
-//! egui = "0.31"
-//! egui_extras = "0.31.1"
-//! polars = "0.46.0"
+//! egui = "0.32"
+//! egui_extras = "0.32"
+//! polars = "0.50.0"
 //! parking_lot = "0.12.3"
 //! ```
 
@@ -19,21 +19,21 @@ fn polars(nb: &mut Notebook) {
 In this notebook we're going to use the `polars` crate to create a simple dataframe.",
     );
 
-    let df = state!(nb, (), |ctx, value| {
-        if let Some(df) = load_auto(ctx.ui(), value, || {
+    let df = state!(nb, (), |ui, value| {
+        if let Some(df) = load_auto(ui, value, || {
             CsvReadOptions::default()
                 .try_into_reader_with_file_path(Some("./assets/datasets/iris.csv".into()))
                 .unwrap()
                 .finish()
                 .unwrap()
         }) {
-            dataframe(ctx.ui(), df);
+            dataframe(ui, df);
         }
     });
 
-    view!(nb, (df), move |ctx| {
+    view!(nb, (df), move |ui| {
         if let Some(df) = &df.read().ready() {
-            dataframe(ctx.ui(), df);
+            dataframe(ui, df);
         }
     });
 }

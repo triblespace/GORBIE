@@ -1,19 +1,19 @@
-use crate::{Card, CardCtx, Notebook};
+use crate::{Card, Notebook};
 use eframe::egui::CollapsingHeader;
 
 pub struct StatelessCard {
-    function: Box<dyn FnMut(&mut CardCtx) -> ()>,
+    function: Box<dyn FnMut(&mut egui::Ui) -> ()>,
     code: Option<String>,
 }
 
 impl Card for StatelessCard {
-    fn update(&mut self, ctx: &mut CardCtx) -> () {
-        (self.function)(ctx);
+    fn draw(&mut self, ui: &mut egui::Ui) {
+        (self.function)(ui);
 
         if let Some(code) = &mut self.code {
             CollapsingHeader::new("Code")
-                .id_salt(format!("{:x}/code", ctx.id()))
-                .show(ctx.ui(), |ui| {
+                .id_salt("code")
+                .show(ui, |ui| {
                     let language = "rs";
                     let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
                         ui.ctx(),
@@ -27,10 +27,10 @@ impl Card for StatelessCard {
 
 pub fn stateless_card(
     nb: &mut Notebook,
-    function: impl FnMut(&mut CardCtx) -> () + 'static,
+    function: impl FnMut(&mut egui::Ui) -> () + 'static,
     code: Option<&str>,
 ) {
-    nb.push_card(Box::new(StatelessCard {
+    nb.push(Box::new(StatelessCard {
         function: Box::new(function),
         code: code.map(|s| s.to_owned()),
     }));

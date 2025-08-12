@@ -24,24 +24,23 @@ pub use cards::*;
 use ctrlc;
 pub use dataflow::*;
 use eframe::egui::{self};
-use egui::{style::{Selection, WidgetVisuals, Widgets}, Color32, Stroke, Style, Visuals};
+use egui::{
+    style::{Selection, WidgetVisuals, Widgets},
+    Color32, Stroke, Style, Visuals,
+};
 use egui_theme_switch::global_theme_switch;
-
-use tribles::prelude::*;
 
 /// A notebook is a collection of cards.
 /// Each card is a piece of content that can be displayed in the notebook.
 /// Cards can be stateless, stateful, or reactively derived from other cards.
 pub struct Notebook {
-    pub cards: Vec<(Id, Box<dyn Card>)>,
+    pub cards: Vec<Box<dyn Card + 'static>>,
 }
 
 pub fn cosmic_gel_light() -> Style {
     let mut style = Style::default();
 
-    style.text_styles = cosmic_gel_text_styles()
-        .into_iter()
-        .collect();
+    style.text_styles = cosmic_gel_text_styles().into_iter().collect();
 
     let visuals = Visuals {
         dark_mode: false,
@@ -113,9 +112,7 @@ pub fn cosmic_gel_light() -> Style {
 pub fn cosmic_gel_dark() -> Style {
     let mut style = Style::default();
 
-    style.text_styles = cosmic_gel_text_styles()
-        .into_iter()
-        .collect();
+    style.text_styles = cosmic_gel_text_styles().into_iter().collect();
 
     let visuals = Visuals {
         dark_mode: true,
@@ -196,12 +193,18 @@ pub fn cosmic_gel_fonts() -> FontDefinitions {
 
     fonts.font_data.insert(
         "Caprasimo".to_owned(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/Caprasimo/Caprasimo-Regular.ttf")).into(),
+        egui::FontData::from_static(include_bytes!(
+            "../assets/fonts/Caprasimo/Caprasimo-Regular.ttf"
+        ))
+        .into(),
     );
 
     fonts.font_data.insert(
         "JetBrainsMono".to_owned(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/JetBrains_Mono/static/JetBrainsMono-Regular.ttf")).into(),
+        egui::FontData::from_static(include_bytes!(
+            "../assets/fonts/JetBrains_Mono/static/JetBrainsMono-Regular.ttf"
+        ))
+        .into(),
     );
 
     // Set up font families
@@ -215,11 +218,10 @@ pub fn cosmic_gel_fonts() -> FontDefinitions {
         .get_mut(&FontFamily::Monospace)
         .unwrap()
         .insert(0, "JetBrainsMono".to_owned());
-    
-    fonts.families.insert(
-        FontFamily::Name("Lora".into()),
-        vec!["Lora".to_owned()],
-    );
+
+    fonts
+        .families
+        .insert(FontFamily::Name("Lora".into()), vec!["Lora".to_owned()]);
     fonts.families.insert(
         FontFamily::Name("Caprasimo".into()),
         vec!["Caprasimo".to_owned()],
@@ -262,8 +264,8 @@ impl Notebook {
         Self { cards: Vec::new() }
     }
 
-    pub fn push_card(&mut self, card: Box<dyn Card>) {
-        self.cards.push((*fucid(), card));
+    pub fn push(&mut self, card: Box<dyn Card>) {
+        self.cards.push(card);
     }
 
     pub fn run(self, name: &str) -> eframe::Result {
@@ -279,7 +281,7 @@ impl Notebook {
                     .expect("failed to set exit signal handler");
 
                 cc.egui_ctx.set_fonts(cosmic_gel_fonts());
-                
+
                 cc.egui_ctx
                     .set_style_of(egui::Theme::Light, cosmic_gel_light());
                 cc.egui_ctx
@@ -299,9 +301,12 @@ impl eframe::App for Notebook {
                 .show(ui, |ui| {
                     let mut frame = egui::Frame::default().outer_margin(16.0).begin(ui);
                     {
-                        frame.content_ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                            global_theme_switch(ui);
-                        });
+                        frame.content_ui.with_layout(
+                            egui::Layout::right_to_left(egui::Align::Min),
+                            |ui| {
+                                global_theme_switch(ui);
+                            },
+                        );
                     }
                     frame.end(ui);
 
@@ -309,10 +314,10 @@ impl eframe::App for Notebook {
                     {
                         ui.vertical_centered(|ui| {
                             ui.set_max_width(740.0);
-                            for (id, card) in &mut self.cards {
-                                ui.push_id(&id, |ui| {
-                                    let mut ctx = CardCtx::new(ui, *id);
-                                    card.update(&mut ctx);
+                            for (i, card) in self.cards.iter_mut().enumerate() {
+                                ui.push_id(i, |ui| {
+                                    let card: &mut (dyn Card) = card.as_mut();
+                                    ui.add(card);
                                     ui.separator();
                                 });
                             }

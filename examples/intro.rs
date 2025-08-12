@@ -2,12 +2,12 @@
 //! ```cargo
 //! [dependencies]
 //! GORBIE = { path = ".." }
-//! egui = "0.31"
+//! egui = "0.32"
 //! ```
 
 use std::ops::DerefMut;
 
-use GORBIE::{derive, md, notebook, state, view, CardCtx, Notebook, NotifiedState};
+use GORBIE::{derive, md, notebook, state, view, Notebook, NotifiedState};
 
 fn intro(nb: &mut Notebook) {
     md(
@@ -59,24 +59,18 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
 ",
     );
 
-    view!(nb, (), |ctx| {
-        ctx.ui().ctx().clone().style_ui(ctx.ui(), egui::Theme::Light);
+    view!(nb, (), |ui| {
+        ui.ctx().clone().style_ui(ui, egui::Theme::Light);
     });
 
-    let slider = state!(
-        nb,
-        (),
-        (0.5).into(),
-        |ctx: &mut CardCtx, value: &mut NotifiedState<_>| {
-            if ctx
-                .ui()
-                .add(egui::Slider::new(value.deref_mut(), 0.0..=1.0).text("input"))
-                .changed()
-            {
-                value.notify();
-            }
+    let slider = state!(nb, (), (0.5).into(), |ui, value: &mut NotifiedState<_>| {
+        if ui
+            .add(egui::Slider::new(value.deref_mut(), 0.0..=1.0).text("input"))
+            .changed()
+        {
+            value.notify();
         }
-    );
+    });
 
     let progress = derive!(nb, (slider), move |(slider,)| {
         //Derives are executed on a new thread, so we can sleep or perform heavy computations here.
@@ -85,15 +79,14 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         slider * 0.5
     });
 
-    view!(nb, (progress), move |ctx| {
+    view!(nb, (progress), move |ui| {
         let Some(progress) = progress.try_read() else {
             return;
         };
         let Some(progress) = progress.ready() else {
             return;
         };
-        ctx.ui()
-            .add(egui::ProgressBar::new(*progress).text("output"));
+        ui.add(egui::ProgressBar::new(*progress).text("output"));
     });
 }
 

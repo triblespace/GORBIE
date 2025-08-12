@@ -3,9 +3,9 @@ use std::{ops::Deref, sync::Arc};
 use egui::CollapsingHeader;
 use parking_lot::RwLock;
 
-use crate::{ComputedState, Dependencies, Notebook};
+use crate::{Card, ComputedState, Dependencies, Notebook};
 
-use super::{Card, CardCtx, CardState};
+use super::CardState;
 
 pub struct ReactiveCard<T: Send, D: for<'a> Dependencies + Send> {
     value: CardState<ComputedState<T>>,
@@ -25,7 +25,7 @@ pub fn reactive_card<
     code: Option<&str>,
 ) -> CardState<ComputedState<T>> {
     let current = Arc::new(RwLock::new(ComputedState::Undefined));
-    nb.push_card(Box::new(ReactiveCard {
+    nb.push(Box::new(ReactiveCard {
         value: current.clone(),
         generations: None,
         dependencies,
@@ -39,7 +39,7 @@ pub fn reactive_card<
 impl<T: Send + std::fmt::Debug + PartialEq + 'static, D: Dependencies + Send + Clone + 'static> Card
     for ReactiveCard<T, D>
 {
-    fn update(&mut self, ctx: &mut CardCtx) -> () {
+    fn draw(&mut self, ui: &mut egui::Ui) {
         let mut current = self.value.write();
         *current = match std::mem::replace(&mut *current, ComputedState::Undefined) {
             ComputedState::Undefined => {
@@ -60,7 +60,7 @@ impl<T: Send + std::fmt::Debug + PartialEq + 'static, D: Dependencies + Send + C
             }
 
             ComputedState::Init(handle) if handle.is_finished() => {
-                ctx.ui().ctx().request_repaint();
+                ui.ctx().request_repaint();
                 ComputedState::Ready(handle.join().unwrap(), 0)
             }
 
@@ -91,7 +91,7 @@ impl<T: Send + std::fmt::Debug + PartialEq + 'static, D: Dependencies + Send + C
             {
                 let result = join_handle.join().unwrap();
                 if result != previous {
-                    ctx.ui().ctx().request_repaint();
+                    ui.ctx().request_repaint();
                     ComputedState::Ready(result, generation + 1)
                 } else {
                     ComputedState::Ready(result, generation)
@@ -105,7 +105,7 @@ impl<T: Send + std::fmt::Debug + PartialEq + 'static, D: Dependencies + Send + C
 
         CollapsingHeader::new("Current")
             .id_salt("__current")
-            .show(ctx.ui(), |ui| match current.deref() {
+            .show(ui, |ui| match current.deref() {
                 ComputedState::Ready(value, _) => {
                     ui.monospace(format!("{:?}", value));
                 }
@@ -117,7 +117,7 @@ impl<T: Send + std::fmt::Debug + PartialEq + 'static, D: Dependencies + Send + C
         if let Some(code) = &mut self.code {
             CollapsingHeader::new("Code")
                 .id_salt("__code")
-                .show(ctx.ui(), |ui| {
+                .show(ui, |ui| {
                     let language = "rs";
                     let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
                         ui.ctx(),

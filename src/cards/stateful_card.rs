@@ -3,31 +3,31 @@ use std::sync::Arc;
 use egui::CollapsingHeader;
 use parking_lot::RwLock;
 
-use crate::Notebook;
+use crate::{Card, Notebook};
 
-use super::{Card, CardCtx, CardState};
+use super::CardState;
 
 pub struct StatefulCard<T> {
     current: CardState<T>,
-    function: Box<dyn FnMut(&mut CardCtx, &mut T)>,
+    function: Box<dyn FnMut(&mut egui::Ui, &mut T)>,
     code: Option<String>,
 }
 
 impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
-    fn update(&mut self, ctx: &mut CardCtx) -> () {
+    fn draw(&mut self, ui: &mut egui::Ui) {
         let mut current = self.current.write();
-        (self.function)(ctx, &mut current);
+        (self.function)(ui, &mut current);
 
         CollapsingHeader::new("Current")
             .id_salt("__current")
-            .show(ctx.ui(), |ui| {
+            .show(ui, |ui| {
                 ui.monospace(format!("{:?}", current));
             });
 
         if let Some(code) = &mut self.code {
             CollapsingHeader::new("Code")
                 .id_salt("__code")
-                .show(ctx.ui(), |ui| {
+                .show(ui, |ui| {
                     let language = "rs";
                     let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
                         ui.ctx(),
@@ -42,11 +42,11 @@ impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
 pub fn stateful_card<T: std::fmt::Debug + std::default::Default + 'static>(
     nb: &mut Notebook,
     init: T,
-    function: impl FnMut(&mut CardCtx, &mut T) + 'static,
+    function: impl FnMut(&mut egui::Ui, &mut T) + 'static,
     code: Option<&str>,
 ) -> CardState<T> {
     let current = Arc::new(RwLock::new(init));
-    nb.push_card(Box::new(StatefulCard {
+    nb.push(Box::new(StatefulCard {
         current: current.clone(),
         function: Box::new(function),
         code: code.map(|s| s.to_owned()),
