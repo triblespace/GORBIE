@@ -18,250 +18,31 @@
 pub mod cards;
 pub mod dataflow;
 pub mod widgets;
+pub mod themes;
 
-use crate::egui::{FontData, FontDefinitions, FontFamily, FontId, TextStyle};
 pub use cards::*;
 use ctrlc;
 pub use dataflow::*;
 use eframe::egui::{self};
-use egui::{
-    style::{Selection, WidgetVisuals, Widgets},
-    Color32, Stroke, Style, Visuals,
-};
 use egui_theme_switch::global_theme_switch;
+
+use crate::themes::{cosmic_gel_dark, cosmic_gel_fonts, cosmic_gel_light};
+use parking_lot::Mutex;
+use std::sync::Arc;
+use egui_commonmark::CommonMarkCache;
 
 /// A notebook is a collection of cards.
 /// Each card is a piece of content that can be displayed in the notebook.
 /// Cards can be stateless, stateful, or reactively derived from other cards.
 pub struct Notebook {
     pub cards: Vec<Box<dyn Card + 'static>>,
-}
-
-pub fn cosmic_gel_light() -> Style {
-    let mut style = Style::default();
-
-    style.text_styles = cosmic_gel_text_styles().into_iter().collect();
-
-    let visuals = Visuals {
-        dark_mode: false,
-        window_fill: Color32::from_hex("#F7F3F2").unwrap(), // Warm light grey background
-        panel_fill: Color32::from_hex("#EDE9E8").unwrap(),  // Slightly darker light grey for panels
-        override_text_color: Some(Color32::from_hex("#2E2A2B").unwrap()), // Dark grey for text
-        faint_bg_color: Color32::from_hex("#E0DBDA").unwrap(), // Subtle contrast for faint backgrounds
-        extreme_bg_color: Color32::from_hex("#CFC9C8").unwrap(), // Slightly darker grey for extreme contrast
-        selection: Selection {
-            bg_fill: Color32::from_hex("#6A5ACD").unwrap(), // Muted blue for selection
-            stroke: Stroke::new(1.0, Color32::from_hex("#6A5ACD").unwrap()),
-        },
-        hyperlink_color: Color32::from_hex("#6A5ACD").unwrap(), // Muted blue for links
-        widgets: Widgets {
-            noninteractive: WidgetVisuals {
-                bg_fill: Color32::from_hex("#EDE9E8").unwrap(),
-                weak_bg_fill: Color32::from_hex("#E0DBDA").unwrap(),
-                bg_stroke: Stroke::NONE,
-                fg_stroke: Stroke::new(1.0, Color32::from_hex("#6A5ACD").unwrap()), // Muted blue for noninteractive text
-                corner_radius: 6.0.into(),
-                expansion: 0.0,
-            },
-            inactive: WidgetVisuals {
-                bg_fill: Color32::from_hex("#E0DBDA").unwrap(),
-                weak_bg_fill: Color32::from_hex("#D6D1D0").unwrap(),
-                bg_stroke: Stroke::new(1.0, Color32::from_hex("#6A5ACD").unwrap()),
-                fg_stroke: Stroke::new(1.0, Color32::from_hex("#2E2A2B").unwrap()),
-                corner_radius: 6.0.into(),
-                expansion: 2.0,
-            },
-            hovered: WidgetVisuals {
-                bg_fill: Color32::from_hex("#D6D1D0").unwrap(),
-                weak_bg_fill: Color32::from_hex("#6A5ACD").unwrap(),
-                bg_stroke: Stroke::new(1.5, Color32::from_hex("#6A5ACD").unwrap()),
-                fg_stroke: Stroke::new(1.2, Color32::BLACK),
-                corner_radius: 6.0.into(),
-                expansion: 3.0,
-            },
-            active: WidgetVisuals {
-                bg_fill: Color32::from_hex("#6A5ACD").unwrap(),
-                weak_bg_fill: Color32::from_hex("#D6D1D0").unwrap(),
-                bg_stroke: Stroke::new(1.5, Color32::BLACK),
-                fg_stroke: Stroke::new(1.5, Color32::from_hex("#2E2A2B").unwrap()),
-                corner_radius: 6.0.into(),
-                expansion: 2.0,
-            },
-            open: WidgetVisuals {
-                bg_fill: Color32::from_hex("#EDE9E8").unwrap(),
-                weak_bg_fill: Color32::from_hex("#E0DBDA").unwrap(),
-                bg_stroke: Stroke::new(1.0, Color32::from_hex("#6A5ACD").unwrap()),
-                fg_stroke: Stroke::new(1.0, Color32::from_hex("#2E2A2B").unwrap()),
-                corner_radius: 6.0.into(),
-                expansion: 2.0,
-            },
-        },
-        window_shadow: egui::epaint::Shadow {
-            offset: [0, 4],
-            blur: 8,
-            spread: 0,
-            color: Color32::from_rgba_premultiplied(0, 0, 0, 64),
-        },
-        ..Visuals::light()
-    };
-
-    style.visuals = visuals;
-    style
-}
-
-pub fn cosmic_gel_dark() -> Style {
-    let mut style = Style::default();
-
-    style.text_styles = cosmic_gel_text_styles().into_iter().collect();
-
-    let visuals = Visuals {
-        dark_mode: true,
-        window_fill: Color32::from_hex("#2E2A2B").unwrap(), // Warm grey background
-        panel_fill: Color32::from_hex("#3A3637").unwrap(),  // Slightly darker grey for panels
-        override_text_color: Some(Color32::from_hex("#EDE9E8").unwrap()), // Soft off-white for text
-        faint_bg_color: Color32::from_hex("#4A4546").unwrap(), // Subtle contrast for faint backgrounds
-        extreme_bg_color: Color32::from_hex("#1F1C1D").unwrap(), // Darker grey for extreme contrast
-        selection: Selection {
-            bg_fill: Color32::from_hex("#6A5ACD").unwrap(), // Muted blue for selection
-            stroke: Stroke::new(1.0, Color32::from_hex("#6A5ACD").unwrap()),
-        },
-        hyperlink_color: Color32::from_hex("#6A5ACD").unwrap(), // Muted blue for links
-        widgets: Widgets {
-            noninteractive: WidgetVisuals {
-                bg_fill: Color32::from_hex("#3A3637").unwrap(),
-                weak_bg_fill: Color32::from_hex("#4A4546").unwrap(),
-                bg_stroke: Stroke::NONE,
-                fg_stroke: Stroke::new(1.0, Color32::from_hex("#B0ACA9").unwrap()), // Soft grey for noninteractive text
-                corner_radius: 6.0.into(),
-                expansion: 0.0,
-            },
-            inactive: WidgetVisuals {
-                bg_fill: Color32::from_hex("#4A4546").unwrap(),
-                weak_bg_fill: Color32::from_hex("#5A5556").unwrap(),
-                bg_stroke: Stroke::new(1.0, Color32::from_hex("#6A5ACD").unwrap()),
-                fg_stroke: Stroke::new(1.0, Color32::from_hex("#EDE9E8").unwrap()),
-                corner_radius: 6.0.into(),
-                expansion: 2.0,
-            },
-            hovered: WidgetVisuals {
-                bg_fill: Color32::from_hex("#5A5556").unwrap(),
-                weak_bg_fill: Color32::from_hex("#6A5ACD").unwrap(),
-                bg_stroke: Stroke::new(1.5, Color32::from_hex("#6A5ACD").unwrap()),
-                fg_stroke: Stroke::new(1.2, Color32::WHITE),
-                corner_radius: 6.0.into(),
-                expansion: 3.0,
-            },
-            active: WidgetVisuals {
-                bg_fill: Color32::from_hex("#6A5ACD").unwrap(),
-                weak_bg_fill: Color32::from_hex("#5A5556").unwrap(),
-                bg_stroke: Stroke::new(1.5, Color32::WHITE),
-                fg_stroke: Stroke::new(1.5, Color32::from_hex("#EDE9E8").unwrap()),
-                corner_radius: 6.0.into(),
-                expansion: 2.0,
-            },
-            open: WidgetVisuals {
-                bg_fill: Color32::from_hex("#3A3637").unwrap(),
-                weak_bg_fill: Color32::from_hex("#4A4546").unwrap(),
-                bg_stroke: Stroke::new(1.0, Color32::from_hex("#B0ACA9").unwrap()),
-                fg_stroke: Stroke::new(1.0, Color32::from_hex("#EDE9E8").unwrap()),
-                corner_radius: 6.0.into(),
-                expansion: 2.0,
-            },
-        },
-        window_shadow: egui::epaint::Shadow {
-            offset: [0, 4],
-            blur: 8,
-            spread: 0,
-            color: Color32::from_rgba_premultiplied(0, 0, 0, 128),
-        },
-        ..Visuals::dark()
-    };
-
-    style.visuals = visuals;
-    style
-}
-
-pub fn cosmic_gel_fonts() -> FontDefinitions {
-    let mut fonts = FontDefinitions::default();
-
-    fonts.font_data.insert(
-        "Lora".to_owned(),
-        std::sync::Arc::new(FontData::from_static(include_bytes!(
-            "../assets/fonts/Lora/Lora-VariableFont_wght.ttf"
-        ))),
-    );
-
-    fonts.font_data.insert(
-        "Caprasimo".to_owned(),
-        egui::FontData::from_static(include_bytes!(
-            "../assets/fonts/Caprasimo/Caprasimo-Regular.ttf"
-        ))
-        .into(),
-    );
-
-    fonts.font_data.insert(
-        "JetBrainsMono".to_owned(),
-        egui::FontData::from_static(include_bytes!(
-            "../assets/fonts/JetBrains_Mono/static/JetBrainsMono-Regular.ttf"
-        ))
-        .into(),
-    );
-
-    // Set up font families
-    fonts
-        .families
-        .get_mut(&FontFamily::Proportional)
-        .unwrap()
-        .insert(0, "Lora".to_owned());
-    fonts
-        .families
-        .get_mut(&FontFamily::Monospace)
-        .unwrap()
-        .insert(0, "JetBrainsMono".to_owned());
-
-    fonts
-        .families
-        .insert(FontFamily::Name("Lora".into()), vec!["Lora".to_owned()]);
-    fonts.families.insert(
-        FontFamily::Name("Caprasimo".into()),
-        vec!["Caprasimo".to_owned()],
-    );
-    fonts.families.insert(
-        FontFamily::Name("JetBrainsMono".into()),
-        vec!["JetBrainsMono".to_owned()],
-    );
-
-    fonts
-}
-
-pub fn cosmic_gel_text_styles() -> Vec<(TextStyle, FontId)> {
-    vec![
-        (
-            TextStyle::Heading,
-            FontId::new(30.0, FontFamily::Name("Caprasimo".into())),
-        ),
-        (
-            TextStyle::Body,
-            FontId::new(16.0, FontFamily::Name("Lora".into())),
-        ),
-        (
-            TextStyle::Monospace,
-            FontId::new(14.0, FontFamily::Name("JetBrainsMono".into())),
-        ),
-        (
-            TextStyle::Button,
-            FontId::new(16.0, FontFamily::Name("Lora".into())),
-        ),
-        (
-            TextStyle::Small,
-            FontId::new(12.0, FontFamily::Name("Lora".into())),
-        ),
-    ]
+    // Shared markdown cache for inline rendering (Arc so clones are cheap)
+    pub commonmark_cache: Arc<Mutex<CommonMarkCache>>,
 }
 
 impl Notebook {
     pub fn new() -> Self {
-        Self { cards: Vec::new() }
+        Self { cards: Vec::new(), commonmark_cache: Arc::new(Mutex::new(CommonMarkCache::default())) }
     }
 
     pub fn push(&mut self, card: Box<dyn Card>) {

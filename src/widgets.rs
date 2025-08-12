@@ -99,3 +99,20 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
             });
         });
 }
+
+use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+
+/// Render CommonMark markdown inline inside the current UI using a provided cache.
+/// Example:
+/// let mut cache = CommonMarkCache::default();
+/// md_inline(ui, &mut cache, "# Hello {}", name);
+pub fn md_inline(ui: &mut egui::Ui, cache: &mut CommonMarkCache, text: &str) {
+    CommonMarkViewer::new().show(ui, cache, text);
+}
+
+#[macro_export]
+macro_rules! md_inline {
+    ($ui:expr, $cache:expr, $fmt:expr $(, $args:expr)*) => {
+        $crate::widgets::md_inline($ui, $cache, &format!($fmt $(, $args)*));
+    };
+}
