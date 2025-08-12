@@ -17,8 +17,8 @@
 
 pub mod cards;
 pub mod dataflow;
-pub mod widgets;
 pub mod themes;
+pub mod widgets;
 
 pub use cards::*;
 use ctrlc;
@@ -27,9 +27,9 @@ use eframe::egui::{self};
 use egui_theme_switch::global_theme_switch;
 
 use crate::themes::{cosmic_gel_dark, cosmic_gel_fonts, cosmic_gel_light};
+use egui_commonmark::CommonMarkCache;
 use parking_lot::Mutex;
 use std::sync::Arc;
-use egui_commonmark::CommonMarkCache;
 
 /// A notebook is a collection of cards.
 /// Each card is a piece of content that can be displayed in the notebook.
@@ -42,7 +42,10 @@ pub struct Notebook {
 
 impl Notebook {
     pub fn new() -> Self {
-        Self { cards: Vec::new(), commonmark_cache: Arc::new(Mutex::new(CommonMarkCache::default())) }
+        Self {
+            cards: Vec::new(),
+            commonmark_cache: Arc::new(Mutex::new(CommonMarkCache::default())),
+        }
     }
 
     pub fn push(&mut self, card: Box<dyn Card>) {

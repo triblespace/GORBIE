@@ -1,4 +1,7 @@
-use egui::{style::{Selection, WidgetVisuals, Widgets}, Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style, TextStyle, Visuals};
+use egui::{
+    style::{Selection, WidgetVisuals, Widgets},
+    Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style, TextStyle, Visuals,
+};
 
 pub fn cosmic_gel_light() -> Style {
     let mut style = Style::default();
@@ -19,7 +22,10 @@ pub fn cosmic_gel_light() -> Style {
         faint_bg_color: Color32::from_hex("#EFEAF6").unwrap(),
         // Visible separator color on parchment
         extreme_bg_color: Color32::from_hex("#CFC4D6").unwrap(),
-        selection: Selection { bg_fill: purple, stroke: Stroke::new(2.0, purple) },
+        selection: Selection {
+            bg_fill: purple,
+            stroke: Stroke::new(2.0, purple),
+        },
         hyperlink_color: purple,
         widgets: Widgets {
             noninteractive: WidgetVisuals {
@@ -103,7 +109,10 @@ pub fn cosmic_gel_dark() -> Style {
         faint_bg_color: Color32::from_hex("#252231").unwrap(),
         // lighter separator than background so divider is visible in dark
         extreme_bg_color: Color32::from_rgba_premultiplied(251, 246, 241, 100),
-        selection: Selection { bg_fill: purple, stroke: Stroke::new(2.0, purple) },
+        selection: Selection {
+            bg_fill: purple,
+            stroke: Stroke::new(2.0, purple),
+        },
         hyperlink_color: purple,
         widgets: Widgets {
             noninteractive: WidgetVisuals {

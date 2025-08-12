@@ -100,19 +100,28 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
         });
 }
 
-use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+use egui_commonmark::CommonMarkCache;
+use egui_commonmark::CommonMarkViewer;
+use std::cell::RefCell;
 
-/// Render CommonMark markdown inline inside the current UI using a provided cache.
-/// Example:
-/// let mut cache = CommonMarkCache::default();
-/// md_inline(ui, &mut cache, "# Hello {}", name);
-pub fn md_inline(ui: &mut egui::Ui, cache: &mut CommonMarkCache, text: &str) {
-    CommonMarkViewer::new().show(ui, cache, text);
+thread_local! {
+    static GORBIE_MD_CACHE: RefCell<CommonMarkCache> = RefCell::new(CommonMarkCache::default());
+}
+
+pub fn markdown(ui: &mut egui::Ui, text: &str) {
+    // Use a thread-local cache (no locking) and render the formatted markdown.
+    GORBIE_MD_CACHE.with(|c| {
+        let mut cache = c.borrow_mut();
+        CommonMarkViewer::new().show(ui, &mut *cache, text);
+    });
 }
 
 #[macro_export]
-macro_rules! md_inline {
-    ($ui:expr, $cache:expr, $fmt:expr $(, $args:expr)*) => {
-        $crate::widgets::md_inline($ui, $cache, &format!($fmt $(, $args)*));
+macro_rules! md {
+    ($ui:expr, $fmt:expr $(, $args:expr)*) => {
+        {
+            let text = format!($fmt $(, $args)*);
+            $crate::widgets::markdown($ui, &text);
+        }
     };
 }
