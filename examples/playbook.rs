@@ -45,7 +45,7 @@ fn playbook(nb: &mut Notebook) {
         let panel_alt = blend(parchment, brand_primary, 0.15);
 
         let hover_dark = blend(ink, contrast_accent, 0.30);
-        let panel_alt_dark = blend(Color32::from_hex("#1B1821").unwrap(), contrast_accent, 0.10);
+        let panel_alt_dark = blend(Color32::from_hex("#281E2F").unwrap(), contrast_accent, 0.10);
 
         ui.vertical(|ui| {
             ui.group(|ui| {

@@ -13,13 +13,14 @@ fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
 
 // Accessor functions for base tokens (use instead of direct consts in functions)
 pub fn base_ink() -> Color32 {
-    egui::hex_color!("#35243E")
+    // Midpoint between the warm ink (#35243E) and the old panel (#1B1821)
+    egui::hex_color!("#241C2B")
 }
 pub fn base_parchment() -> Color32 {
     egui::hex_color!("#FBF6F1")
 }
 pub fn base_purple() -> Color32 {
-    egui::hex_color!("#7D70F3")
+    egui::hex_color!("#5d2fe3")
 }
 pub fn base_teal() -> Color32 {
     egui::hex_color!("#35C9BE")
@@ -37,8 +38,8 @@ pub fn cosmic_gel_light() -> Style {
     let brand_primary = base_purple();
     let contrast_accent = base_teal();
 
-    // hover blend tokens (30% purple over base)
-    let hover_light = blend(parchment, brand_primary, 0.30);
+    // hover blend tokens (25% purple over base)
+    let hover_light = blend(parchment, brand_primary, 0.25);
 
     // additional named tones derived from base tokens
     let panel = parchment;
@@ -143,9 +144,12 @@ pub fn cosmic_gel_dark() -> Style {
     let contrast_accent = base_purple(); // PURPLE
 
     // derived dark tones
-    let hover_dark = blend(ink, brand_primary, 0.30);
-    let panel = Color32::from_hex("#1B1821").unwrap();
-    let panel_alt = blend(panel, brand_primary, 0.10);
+    let hover_dark = blend(ink, brand_primary, 0.25);
+    // Use the same "ink" color for both the window and panel so the dark theme
+    // background matches the ink tone (consistent with light theme where both
+    // window_fill and panel_fill use parchment).
+    let panel = ink;
+    let panel_alt = blend(panel, brand_primary, 0.12);
     // Keep dark blends bounded toward ink rather than pure black
     let panel_weak = blend(panel, ink, 0.08);
     let faint_bg = blend(panel, ink, 0.15);
