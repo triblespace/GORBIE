@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 tribles = { git = "https://github.com/triblespace/tribles-rust" }
 eframe = {version = "0.32 ", features = ["persistence", "wgpu"]}
-egui = "0.32"
+egui = {version = "0.32", features=["color-hex"]}
 egui_extras = "0.32.0"
 parking_lot = { version = "0.12.3", features = ["arc_lock"] }
 log = "0.4.26"

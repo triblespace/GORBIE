@@ -11,8 +11,9 @@ use GORBIE::{derive, md, notebook, state, view, Notebook, NotifiedState};
 
 fn intro(nb: &mut Notebook) {
     view!(nb, (), move |ui| {
-        md!(ui,
-"# GORBIE!
+        md!(
+            ui,
+            "# GORBIE!
 This is **GORBIE!**, a _minimalist_ notebook environment for **Rust**!
 
 It's much closer to a library and a shell script than the heavy environemnts
@@ -56,7 +57,8 @@ Aliquam sodales dui arcu, sed egestas ex eleifend eu. Donec eu tellus erat.\
 Proin tincidunt felis metus, sit amet tempus eros semper at.\
 Aenean in turpis tortor. Integer ut nibh a massa maximus bibendum.\
 Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
-");
+"
+        );
 
         ui.ctx().clone().style_ui(ui, egui::Theme::Light);
     });

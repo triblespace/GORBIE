@@ -17,8 +17,8 @@
 
 pub mod cards;
 pub mod dataflow;
-pub mod widgets;
 pub mod themes;
+pub mod widgets;
 
 pub use cards::*;
 use ctrlc;
