@@ -12,17 +12,17 @@ fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
 }
 
 // Accessor functions for base tokens (use instead of direct consts in functions)
-fn base_ink() -> Color32 {
+pub fn base_ink() -> Color32 {
     egui::hex_color!("#35243E")
 }
-fn base_parchment() -> Color32 {
+pub fn base_parchment() -> Color32 {
     egui::hex_color!("#FBF6F1")
 }
-fn base_purple() -> Color32 {
+pub fn base_purple() -> Color32 {
     egui::hex_color!("#7D70F3")
 }
-fn base_teal() -> Color32 {
-   egui::hex_color!("#35C9BE")
+pub fn base_teal() -> Color32 {
+    egui::hex_color!("#35C9BE")
 }
 
 pub fn cosmic_gel_light() -> Style {
@@ -43,7 +43,7 @@ pub fn cosmic_gel_light() -> Style {
     // additional named tones derived from base tokens
     let panel = parchment;
     let panel_alt = blend(panel, brand_primary, 0.15); // 15% brand_primary over panel
-    // Keep blends bounded between parchment and ink (no pure white/black)
+                                                       // Keep blends bounded between parchment and ink (no pure white/black)
     let panel_weak = blend(panel, parchment, 0.02); // slight tint toward purple (still <= parchment)
     let panel_alt_weak = blend(panel_alt, parchment, 0.02); // nudge back toward parchment
     let faint_bg = blend(panel, ink, 0.01); // slightly darker toward ink
