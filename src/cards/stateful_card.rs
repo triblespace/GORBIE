@@ -3,7 +3,7 @@ use std::sync::Arc;
 use egui::{Frame, Stroke};
 use parking_lot::RwLock;
 
-use crate::{md, Card, Notebook};
+use crate::{Card, Notebook};
 
 use super::CardState;
 
@@ -33,79 +33,68 @@ impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
             .corner_radius(4.0)
             .show(ui, |ui| {
                 // thin clickable header area that doesn't take much space
-                let (hdr_rect, hdr_resp) = ui.allocate_exact_size(
-                    egui::vec2(ui.available_width(), header_h),
-                    egui::Sense::click(),
-                );
+                let hdr_resp = crate::widgets::collapsing_divider(ui, header_h, |ui| {
+                    // Only show tabs and copy controls when expanded
+                    if self.show_preview {
+                        // Inner area with side margins so content and tabs align left
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            // Left margin
+                            ui.add_space(8.0);
 
-                let visuals = ui.visuals();
-                // draw a pill-shaped divider centered in the header area
-                let pill_pad = 2.0f32;
-                let pill_min = egui::pos2(hdr_rect.left() + pill_pad, hdr_rect.top() + 1.0);
-                let pill_max = egui::pos2(hdr_rect.right() - pill_pad, hdr_rect.bottom() - 1.0);
-                let pill_rect = egui::Rect::from_min_max(pill_min, pill_max);
-                ui.painter()
-                    .rect_filled(pill_rect, pill_rect.height() / 2.0, visuals.widgets.active.bg_fill);
+                            ui.vertical(|ui| {
+                                // Controls row: tabs on the left, copy on the right
+                                ui.horizontal(|ui| {
+                                    ui.selectable_value(&mut self.preview_tab, 0, "Value");
+                                    if self.code.is_some() {
+                                        ui.selectable_value(&mut self.preview_tab, 1, "Code");
+                                    }
 
-                if hdr_resp.clicked() {
-                    self.show_preview = !self.show_preview;
-                }
-
-                // Only show tabs and copy controls when expanded
-                if self.show_preview {
-                    // Inner area with side margins so content and tabs align left
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
-                        // Left margin
-                        ui.add_space(8.0);
-
-                        ui.vertical(|ui| {
-                            // Controls row: tabs on the left, copy on the right
-                            ui.horizontal(|ui| {
-                                ui.selectable_value(&mut self.preview_tab, 0, "Value");
-                                if self.code.is_some() {
-                                    ui.selectable_value(&mut self.preview_tab, 1, "Code");
-                                }
-
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        let copy_btn = egui::Button::new("Copy").frame(false);
-                                        if ui
-                                            .add(copy_btn)
-                                            .on_hover_text("Copy current preview to clipboard")
-                                            .clicked()
-                                        {
-                                            if self.preview_tab == 0 {
-                                                ui.ctx().copy_text(format!("{:?}", &*current));
-                                            } else if let Some(code) = &self.code {
-                                                ui.ctx().copy_text(code.clone());
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            let copy_btn = egui::Button::new("Copy").frame(false);
+                                            if ui
+                                                .add(copy_btn)
+                                                .on_hover_text("Copy current preview to clipboard")
+                                                .clicked()
+                                            {
+                                                if self.preview_tab == 0 {
+                                                    ui.ctx().copy_text(format!("{:?}", &*current));
+                                                } else if let Some(code) = &self.code {
+                                                    ui.ctx().copy_text(code.clone());
+                                                }
                                             }
-                                        }
-                                    },
-                                );
+                                        },
+                                    );
+                                });
+
+                                // Content (left-aligned within the vertical column)
+                                ui.add_space(6.0);
+                                if self.preview_tab == 0 {
+                                    ui.monospace(format!("{:?}", &*current));
+                                } else if let Some(code) = &mut self.code {
+                                    let language = "rs";
+                                    let theme =
+                                        egui_extras::syntax_highlighting::CodeTheme::from_memory(
+                                            ui.ctx(),
+                                            ui.style(),
+                                        );
+                                    egui_extras::syntax_highlighting::code_view_ui(
+                                        ui, &theme, code, language,
+                                    );
+                                }
                             });
 
-                            // Content (left-aligned within the vertical column)
-                            ui.add_space(6.0);
-                            if self.preview_tab == 0 {
-                                ui.monospace(format!("{:?}", &*current));
-                            } else if let Some(code) = &mut self.code {
-                                let language = "rs";
-                                let theme =
-                                    egui_extras::syntax_highlighting::CodeTheme::from_memory(
-                                        ui.ctx(),
-                                        ui.style(),
-                                    );
-                                egui_extras::syntax_highlighting::code_view_ui(
-                                    ui, &theme, code, language,
-                                );
-                            }
+                            // Right margin filler
+                            ui.add_space(8.0);
                         });
+                    }
+                });
 
-                        // Right margin filler
-                        ui.add_space(8.0);
-                    });
+                // Click handling is performed by the caller using the returned response
+                if hdr_resp.clicked() {
+                    self.show_preview = !self.show_preview;
                 }
             });
     }
