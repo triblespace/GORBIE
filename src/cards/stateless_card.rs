@@ -1,9 +1,10 @@
 use crate::{Card, Notebook};
-use eframe::egui::CollapsingHeader;
+use eframe::egui::{Frame, Stroke};
 
 pub struct StatelessCard {
     function: Box<dyn FnMut(&mut egui::Ui) -> ()>,
     code: Option<String>,
+    show_preview: bool,
 }
 
 impl Card for StatelessCard {
@@ -11,15 +12,41 @@ impl Card for StatelessCard {
         (self.function)(ui);
 
         if let Some(code) = &mut self.code {
-            CollapsingHeader::new("Code")
-                .id_salt("code")
+            ui.add_space(8.0);
+            let header_h = 4.0;
+            let frame_fill = ui.style().visuals.widgets.inactive.bg_fill;
+            Frame::group(ui.style())
+                .stroke(Stroke::NONE)
+                .fill(frame_fill)
+                .inner_margin(2.0)
+                .corner_radius(4.0)
                 .show(ui, |ui| {
-                    let language = "rs";
-                    let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
-                        ui.ctx(),
-                        ui.style(),
-                    );
-                    egui_extras::syntax_highlighting::code_view_ui(ui, &theme, code, language);
+                    let hdr_resp = crate::widgets::collapsing_divider(ui, header_h, |ui| {
+                        if self.show_preview {
+                            // Inner area with side margins so content aligns left
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                // Left margin
+                                ui.add_space(8.0);
+
+                                ui.vertical(|ui| {
+                                    let language = "rs";
+                                    let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
+                                        ui.ctx(),
+                                        ui.style(),
+                                    );
+                                    egui_extras::syntax_highlighting::code_view_ui(ui, &theme, code, language);
+                                });
+
+                                // Right margin filler
+                                ui.add_space(8.0);
+                            });
+                        }
+                    });
+
+                    if hdr_resp.clicked() {
+                        self.show_preview = !self.show_preview;
+                    }
                 });
         }
     }
@@ -33,6 +60,7 @@ pub fn stateless_card(
     nb.push(Box::new(StatelessCard {
         function: Box::new(function),
         code: code.map(|s| s.to_owned()),
+        show_preview: false,
     }));
 }
 

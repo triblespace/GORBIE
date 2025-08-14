@@ -1,6 +1,6 @@
 use std::{ops::Deref, sync::Arc};
 
-use egui::CollapsingHeader;
+use egui::{CollapsingHeader, Frame, Stroke};
 use parking_lot::RwLock;
 
 use crate::{Card, ComputedState, Dependencies, Notebook};
@@ -13,6 +13,8 @@ pub struct ReactiveCard<T: Send, D: for<'a> Dependencies + Send> {
     dependencies: D,
     function: Arc<dyn Fn(<D as Dependencies>::Values) -> T + Send + Sync>,
     code: Option<String>,
+    // UI state for the card preview
+    show_preview: bool,
 }
 
 pub fn reactive_card<
@@ -31,6 +33,7 @@ pub fn reactive_card<
         dependencies,
         function: Arc::new(function),
         code: code.map(|s| s.to_owned()),
+        show_preview: false,
     }));
 
     current
@@ -114,16 +117,43 @@ impl<T: Send + std::fmt::Debug + PartialEq + 'static, D: Dependencies + Send + C
                 }
             });
 
+        // Code preview panel using collapsing divider
         if let Some(code) = &mut self.code {
-            CollapsingHeader::new("Code")
-                .id_salt("__code")
+            ui.add_space(8.0);
+            let header_h = 4.0;
+            let frame_fill = ui.style().visuals.widgets.inactive.bg_fill;
+            Frame::group(ui.style())
+                .stroke(Stroke::NONE)
+                .fill(frame_fill)
+                .inner_margin(2.0)
+                .corner_radius(4.0)
                 .show(ui, |ui| {
-                    let language = "rs";
-                    let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
-                        ui.ctx(),
-                        ui.style(),
-                    );
-                    egui_extras::syntax_highlighting::code_view_ui(ui, &theme, code, language);
+                    let hdr_resp = crate::widgets::collapsing_divider(ui, header_h, |ui| {
+                        if self.show_preview {
+                            // Inner area with side margins so content and tabs align left
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                // Left margin
+                                ui.add_space(8.0);
+
+                                ui.vertical(|ui| {
+                                    let language = "rs";
+                                    let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
+                                        ui.ctx(),
+                                        ui.style(),
+                                    );
+                                    egui_extras::syntax_highlighting::code_view_ui(ui, &theme, code, language);
+                                });
+
+                                // Right margin filler
+                                ui.add_space(8.0);
+                            });
+                        }
+                    });
+
+                    if hdr_resp.clicked() {
+                        self.show_preview = !self.show_preview;
+                    }
                 });
         }
     }
