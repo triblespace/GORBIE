@@ -1,10 +1,56 @@
 use egui::{
     style::{Selection, WidgetVisuals, Widgets},
     Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style, TextStyle, Visuals,
+    Vec2,
 };
 
+mod style;
+pub use style::{FromTheme, Styled};
+
+/// Gorbie-specific semantic style for the custom slider widget.
+#[derive(Clone, Debug)]
+pub struct GorbieSliderStyle {
+    pub rail_bg: Color32,
+    pub rail_fill: Color32,
+    pub knob: Color32,
+    pub shadow: Color32,
+    pub shadow_offset: Vec2,
+    pub knob_extra_radius: f32,
+}
+
+/// Return a `GorbieSliderStyle` preset for light/dark mode based on our base tokens.
+pub fn slider_style(dark_mode: bool) -> GorbieSliderStyle {
+    if dark_mode {
+        let background = base_ink();
+        let accent_foreground = base_teal();
+        let accent_background = base_purple();
+
+        GorbieSliderStyle {
+            rail_bg: blend(background, accent_background, 0.10),
+            rail_fill: accent_foreground,
+            knob: accent_foreground,
+            shadow: accent_background,
+            shadow_offset: egui::vec2(-3.0, 0.0),
+            knob_extra_radius: 0.0,
+        }
+    } else {
+        let background = base_parchment();
+        let accent_foreground = base_purple();
+        let accent_background = base_teal();
+
+        GorbieSliderStyle {
+            rail_bg: blend(background, accent_background, 0.10),
+            rail_fill: accent_foreground,
+            knob: accent_foreground,
+            shadow: accent_background,
+            shadow_offset: egui::vec2(-3.0, 0.0),
+            knob_extra_radius: 0.0,
+        }
+    }
+}
+
 // Color utilities: simple sRGB linear interpolation for quick palette derivation
-fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
+pub fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
     let r = (a.r() as f32 * (1.0 - t) + b.r() as f32 * t).round() as u8;
     let g = (a.g() as f32 * (1.0 - t) + b.g() as f32 * t).round() as u8;
     let bch = (a.b() as f32 * (1.0 - t) + b.b() as f32 * t).round() as u8;
@@ -13,7 +59,6 @@ fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
 
 // Accessor functions for base tokens (use instead of direct consts in functions)
 pub fn base_ink() -> Color32 {
-    // Midpoint between the warm ink (#35243E) and the old panel (#1B1821)
     egui::hex_color!("#1B1821")
 }
 pub fn base_parchment() -> Color32 {

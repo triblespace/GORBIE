@@ -8,6 +8,10 @@ use eframe::egui::{
     TextStyle, TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText,
 };
 
+use crate::themes::GorbieSliderStyle;
+use crate::themes::FromTheme;
+use egui::Style as EguiStyle;
+
 // Local helper: clamp value to range (originally in egui::widgets::drag_value)
 fn clamp_value_to_range(value: f64, range: RangeInclusive<f64>) -> f64 {
     let start = *range.start();
@@ -17,6 +21,14 @@ fn clamp_value_to_range(value: f64, range: RangeInclusive<f64>) -> f64 {
     } else {
         value.clamp(end, start)
     }
+}
+
+// Local helper: simple sRGB linear interpolation for colors (same algorithm as in themes)
+fn blend_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    let r = (a.r() as f32 * (1.0 - t) + b.r() as f32 * t).round() as u8;
+    let g = (a.g() as f32 * (1.0 - t) + b.g() as f32 * t).round() as u8;
+    let bch = (a.b() as f32 * (1.0 - t) + b.b() as f32 * t).round() as u8;
+    Color32::from_rgb(r, g, bch)
 }
 
 // ----------------------------------------------------------------------------
@@ -126,6 +138,8 @@ pub struct Slider<'a> {
     custom_parser: Option<NumParser<'a>>,
     trailing_fill: Option<bool>,
     handle_shape: Option<HandleShape>,
+    /// Optional gorbie-specific style override for this widget
+    gorbie_style: Option<crate::themes::GorbieSliderStyle>,
     update_while_editing: bool,
 }
 
@@ -177,6 +191,7 @@ impl<'a> Slider<'a> {
             custom_parser: None,
             trailing_fill: None,
             handle_shape: None,
+            gorbie_style: None,
             update_while_editing: true,
         }
     }
@@ -796,8 +811,15 @@ impl Slider<'_> {
             let rail_rect = self.rail_rect(rect, rail_radius);
             let corner_radius = widget_visuals.inactive.corner_radius;
 
+            // Determine Gorbie-specific style for this slider (per-widget override or derived from theme)
+            let gstyle = self
+                .gorbie_style
+                .clone()
+                .unwrap_or_else(|| crate::themes::GorbieSliderStyle::from_theme(&ui.style()));
+
+            // Paint rail background using Gorbie rail color
             ui.painter()
-                .rect_filled(rail_rect, corner_radius, widget_visuals.inactive.bg_fill);
+                .rect_filled(rail_rect, corner_radius, gstyle.rail_bg);
 
             let position_1d = self.position_from_value(value, position_range);
             let center = self.marker_center(position_1d, &rail_rect);
@@ -821,11 +843,8 @@ impl Slider<'_> {
                     }
                 };
 
-                ui.painter().rect_filled(
-                    trailing_rail_rect,
-                    corner_radius,
-                    ui.visuals().selection.bg_fill,
-                );
+                // Use Gorbie fill tone for the trailing part of the rail
+                ui.painter().rect_filled(trailing_rail_rect, corner_radius, gstyle.rail_fill);
             }
 
             let radius = self.handle_radius(rect);
@@ -835,19 +854,19 @@ impl Slider<'_> {
                 .unwrap_or_else(|| ui.style().visuals.handle_shape);
             match handle_shape {
                 style::HandleShape::Circle => {
-                    // subtle drop shadow behind the circular handle
+                    // shadow behind the circular handle using Gorbie shadow color & offset
                     ui.painter().add(epaint::CircleShape {
-                        center: center + vec2(0.0, 2.0),
-                        radius: radius + visuals.expansion + 1.0,
-                        fill: Color32::from_rgba_unmultiplied(0, 0, 0, 40),
+                        center: center + gstyle.shadow_offset,
+                        radius: radius + visuals.expansion + gstyle.knob_extra_radius + 1.0,
+                        fill: gstyle.shadow,
                         stroke: Stroke::NONE,
                     });
 
-                    // handle without outline (we rely on shadow for depth)
+                    // knob fill using Gorbie knob color
                     ui.painter().add(epaint::CircleShape {
                         center,
-                        radius: radius + visuals.expansion,
-                        fill: visuals.bg_fill,
+                        radius: radius + visuals.expansion + gstyle.knob_extra_radius,
+                        fill: gstyle.knob,
                         stroke: Stroke::NONE,
                     });
                 }
@@ -858,23 +877,10 @@ impl Slider<'_> {
                     };
                     let v = v + Vec2::splat(visuals.expansion);
                     let rect = Rect::from_center_size(center, 2.0 * v);
-                    // rectangular handle: draw a subtle shadow behind then the handle without outline
-                    let shadow_rect = Rect::from_center_size(
-                        center + vec2(0.0, 2.0),
-                        2.0 * (v + Vec2::splat(1.0)),
-                    );
-                    ui.painter().rect_filled(
-                        shadow_rect,
-                        visuals.corner_radius,
-                        Color32::from_rgba_unmultiplied(0, 0, 0, 40),
-                    );
-                    ui.painter().rect(
-                        rect,
-                        visuals.corner_radius,
-                        visuals.bg_fill,
-                        Stroke::NONE,
-                        epaint::StrokeKind::Inside,
-                    );
+                    // rectangular handle: shadow and fill using Gorbie style
+                    let shadow_rect = Rect::from_center_size(center + gstyle.shadow_offset, 2.0 * (v + Vec2::splat(1.0)));
+                    ui.painter().rect_filled(shadow_rect, visuals.corner_radius, gstyle.shadow);
+                    ui.painter().rect(rect, visuals.corner_radius, gstyle.knob, Stroke::NONE, epaint::StrokeKind::Inside);
                 }
             }
         }
@@ -971,7 +977,8 @@ impl Slider<'_> {
             };
             if let Some(parser) = &self.custom_parser {
                 dv = dv.custom_parser(parser);
-            }
+            };
+
             dv
         });
         if value != self.get_value() {
@@ -1082,6 +1089,58 @@ impl Widget for Slider<'_> {
         };
 
         inner_response.inner | inner_response.response
+    }
+}
+
+// Implement FromTheme for GorbieSliderStyle in the widgets module so that the
+// widget owns the logic of how to derive its style from the global `egui::Style`.
+impl FromTheme for GorbieSliderStyle {
+    fn from_theme(style: &EguiStyle) -> Self {
+        // Construct using the visuals' dark_mode flag similar to the previous helper.
+        // Inline the same logic as `slider_style` but keep it localized here.
+        let dark_mode = style.visuals.dark_mode;
+
+        if dark_mode {
+            let background = crate::themes::base_ink();
+            let accent_foreground = crate::themes::base_teal();
+            let accent_background = crate::themes::base_purple();
+
+            GorbieSliderStyle {
+                rail_bg: blend_color(background, accent_background, 0.10),
+                rail_fill: accent_foreground,
+                knob: accent_foreground,
+                shadow: accent_background,
+                shadow_offset: egui::vec2(-3.0, 3.0),
+                knob_extra_radius: 0.0,
+            }
+        } else {
+            let background = crate::themes::base_parchment();
+            let accent_foreground = crate::themes::base_purple();
+            let accent_background = crate::themes::base_teal();
+
+            GorbieSliderStyle {
+                rail_bg: blend_color(background, accent_background, 0.10),
+                rail_fill: accent_foreground,
+                knob: accent_foreground,
+                shadow: accent_background,
+                shadow_offset: egui::vec2(-3.0, 3.0),
+                knob_extra_radius: 0.0,
+            }
+        }
+    }
+}
+
+// Implement the Styled trait for our Slider widget. Put all styling-application
+// logic here rather than on the `Slider` struct itself (so we don't need a
+// `slider.styled()` helper on the struct).
+impl crate::themes::Styled for Slider<'_> {
+    type Style = crate::themes::GorbieSliderStyle;
+
+    fn styled(mut self, style: Self::Style) -> Self {
+        // Apply the Gorbie-specific style fields to the slider instance by
+        // storing the style override in the widget's `gorbie_style` field.
+        self.gorbie_style = Some(style);
+        self
     }
 }
 

@@ -63,7 +63,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
 
     let slider = state!(nb, (), (0.5).into(), |ui, value: &mut NotifiedState<_>| {
         if ui
-            .add(egui::Slider::new(value.deref_mut(), 0.0..=1.0).text("input"))
+            .add(widgets::Slider::new(value.deref_mut(), 0.0..=1.0).text("input"))
             .changed()
         {
             value.notify();
