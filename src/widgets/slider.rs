@@ -1131,10 +1131,9 @@ impl From<&EguiStyle> for GorbieSliderStyle {
 impl crate::themes::Styled for Slider<'_> {
     type Style = crate::themes::GorbieSliderStyle;
 
-    fn set_style(&mut self, style: Self::Style) {
-        // Apply the Gorbie-specific style fields to the slider instance by
-        // storing the style override in the widget's `gorbie_style` field.
-        self.gorbie_style = Some(style);
+    fn set_style(&mut self, style: Option<Self::Style>) {
+        // Apply or clear the Gorbie-specific style override on the slider.
+        self.gorbie_style = style;
     }
 }
 
