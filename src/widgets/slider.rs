@@ -9,7 +9,6 @@ use eframe::egui::{
 };
 
 use crate::themes::GorbieSliderStyle;
-use crate::themes::FromTheme;
 use egui::Style as EguiStyle;
 
 // Local helper: clamp value to range (originally in egui::widgets::drag_value)
@@ -815,7 +814,7 @@ impl Slider<'_> {
             let gstyle = self
                 .gorbie_style
                 .clone()
-                .unwrap_or_else(|| crate::themes::GorbieSliderStyle::from_theme(&ui.style()));
+                .unwrap_or_else(|| crate::themes::GorbieSliderStyle::from(ui.style().as_ref()));
 
             // Paint rail background using Gorbie rail color
             ui.painter()
@@ -1092,10 +1091,9 @@ impl Widget for Slider<'_> {
     }
 }
 
-// Implement FromTheme for GorbieSliderStyle in the widgets module so that the
-// widget owns the logic of how to derive its style from the global `egui::Style`.
-impl FromTheme for GorbieSliderStyle {
-    fn from_theme(style: &EguiStyle) -> Self {
+// Implement From<&egui::Style> for GorbieSliderStyle so callers can use `Into`/`From`.
+impl From<&EguiStyle> for GorbieSliderStyle {
+    fn from(style: &EguiStyle) -> Self {
         // Construct using the visuals' dark_mode flag similar to the previous helper.
         // Inline the same logic as `slider_style` but keep it localized here.
         let dark_mode = style.visuals.dark_mode;
@@ -1110,7 +1108,7 @@ impl FromTheme for GorbieSliderStyle {
                 rail_fill: accent_foreground,
                 knob: accent_foreground,
                 shadow: accent_background,
-                shadow_offset: egui::vec2(-3.0, 3.0),
+                shadow_offset: egui::vec2(-1.5, 1.5),
                 knob_extra_radius: 0.0,
             }
         } else {
@@ -1123,24 +1121,20 @@ impl FromTheme for GorbieSliderStyle {
                 rail_fill: accent_foreground,
                 knob: accent_foreground,
                 shadow: accent_background,
-                shadow_offset: egui::vec2(-3.0, 3.0),
+                shadow_offset: egui::vec2(-1.5, 1.5),
                 knob_extra_radius: 0.0,
             }
         }
     }
 }
 
-// Implement the Styled trait for our Slider widget. Put all styling-application
-// logic here rather than on the `Slider` struct itself (so we don't need a
-// `slider.styled()` helper on the struct).
 impl crate::themes::Styled for Slider<'_> {
     type Style = crate::themes::GorbieSliderStyle;
 
-    fn styled(mut self, style: Self::Style) -> Self {
+    fn set_style(&mut self, style: Self::Style) {
         // Apply the Gorbie-specific style fields to the slider instance by
         // storing the style override in the widget's `gorbie_style` field.
         self.gorbie_style = Some(style);
-        self
     }
 }
 

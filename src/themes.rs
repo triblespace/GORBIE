@@ -5,7 +5,7 @@ use egui::{
 };
 
 mod style;
-pub use style::{FromTheme, Styled};
+pub use style::Styled;
 
 /// Gorbie-specific semantic style for the custom slider widget.
 #[derive(Clone, Debug)]
