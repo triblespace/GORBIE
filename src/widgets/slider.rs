@@ -1104,11 +1104,11 @@ impl From<&EguiStyle> for GorbieSliderStyle {
             let accent_background = crate::themes::base_purple();
 
             GorbieSliderStyle {
-                rail_bg: blend_color(background, accent_background, 0.10),
+                rail_bg: accent_background,
                 rail_fill: accent_foreground,
                 knob: accent_foreground,
                 shadow: accent_background,
-                shadow_offset: egui::vec2(-1.5, 1.5),
+                shadow_offset: egui::vec2(0.0, 0.0),
                 knob_extra_radius: 0.0,
             }
         } else {
@@ -1117,11 +1117,11 @@ impl From<&EguiStyle> for GorbieSliderStyle {
             let accent_background = crate::themes::base_teal();
 
             GorbieSliderStyle {
-                rail_bg: blend_color(background, accent_background, 0.10),
+                rail_bg: accent_background,
                 rail_fill: accent_foreground,
                 knob: accent_foreground,
                 shadow: accent_background,
-                shadow_offset: egui::vec2(-1.5, 1.5),
+                shadow_offset: egui::vec2(0.0, 0.0),
                 knob_extra_radius: 0.0,
             }
         }
