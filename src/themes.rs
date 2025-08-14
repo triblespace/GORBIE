@@ -97,7 +97,7 @@ pub fn cosmic_gel_light() -> Style {
                 weak_bg_fill: active_weak,
                 bg_stroke: Stroke::NONE,
                 // use `ink` for active icons in light theme
-                fg_stroke: Stroke::new(1.5, parchment),
+                fg_stroke: Stroke::new(1.5, ink),
                 corner_radius: 10.0.into(),
                 expansion: 2.0,
             },
@@ -182,7 +182,7 @@ pub fn cosmic_gel_dark() -> Style {
                 bg_fill: panel_alt,
                 weak_bg_fill: panel_weak,
                 bg_stroke: Stroke::NONE,
-                fg_stroke: Stroke::new(1.0, ink),
+                fg_stroke: Stroke::new(1.0, parchment),
                 corner_radius: 10.0.into(),
                 expansion: 2.0,
             },

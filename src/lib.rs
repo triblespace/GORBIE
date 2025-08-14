@@ -17,9 +17,9 @@
 
 pub mod cards;
 pub mod dataflow;
+pub mod prelude;
 pub mod themes;
 pub mod widgets;
-pub mod prelude;
 
 pub use prelude::*;
 

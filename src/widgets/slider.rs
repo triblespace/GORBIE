@@ -3,9 +3,9 @@
 use std::ops::RangeInclusive;
 
 use eframe::egui::{
-    Color32, DragValue, EventFilter, Key, Label, NumExt as _, Pos2, Rangef, Rect, Response, Sense,
-    Stroke, TextStyle, TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText, emath, epaint, lerp,
-    pos2, remap, remap_clamp, style, style::HandleShape, vec2,
+    emath, epaint, lerp, pos2, remap, remap_clamp, style, style::HandleShape, vec2, Color32,
+    DragValue, EventFilter, Key, Label, NumExt as _, Pos2, Rangef, Rect, Response, Sense, Stroke,
+    TextStyle, TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText,
 };
 
 // Local helper: clamp value to range (originally in egui::widgets::drag_value)
@@ -143,7 +143,11 @@ impl<'a> Slider<'a> {
             value.to_f64()
         });
 
-        if Num::INTEGRAL { slf.integer() } else { slf }
+        if Num::INTEGRAL {
+            slf.integer()
+        } else {
+            slf
+        }
     }
 
     pub fn from_get_set(
@@ -855,8 +859,15 @@ impl Slider<'_> {
                     let v = v + Vec2::splat(visuals.expansion);
                     let rect = Rect::from_center_size(center, 2.0 * v);
                     // rectangular handle: draw a subtle shadow behind then the handle without outline
-                    let shadow_rect = Rect::from_center_size(center + vec2(0.0, 2.0), 2.0 * (v + Vec2::splat(1.0)));
-                    ui.painter().rect_filled(shadow_rect, visuals.corner_radius, Color32::from_rgba_unmultiplied(0, 0, 0, 40));
+                    let shadow_rect = Rect::from_center_size(
+                        center + vec2(0.0, 2.0),
+                        2.0 * (v + Vec2::splat(1.0)),
+                    );
+                    ui.painter().rect_filled(
+                        shadow_rect,
+                        visuals.corner_radius,
+                        Color32::from_rgba_unmultiplied(0, 0, 0, 40),
+                    );
                     ui.painter().rect(
                         rect,
                         visuals.corner_radius,

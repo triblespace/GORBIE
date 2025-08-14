@@ -23,17 +23,20 @@ impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
         (self.function)(ui, &mut current);
 
         // Unified preview panel (value + optional code) ------------------------
-         ui.add_space(8.0);
-         let header_h = 4.0; // thin divider-like header
-         let frame_fill = ui.style().visuals.widgets.inactive.bg_fill;
-         Frame::group(ui.style())
-             .stroke(Stroke::NONE)
-             .fill(frame_fill)
-             .inner_margin(2.0)
-             .corner_radius(4.0)
-             .show(ui, |ui| {
+        ui.add_space(8.0);
+        let header_h = 4.0; // thin divider-like header
+        let frame_fill = ui.style().visuals.widgets.inactive.bg_fill;
+        Frame::group(ui.style())
+            .stroke(Stroke::NONE)
+            .fill(frame_fill)
+            .inner_margin(2.0)
+            .corner_radius(4.0)
+            .show(ui, |ui| {
                 // thin clickable header area that doesn't take much space
-                let (hdr_rect, hdr_resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), header_h), egui::Sense::click());
+                let (hdr_rect, hdr_resp) = ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), header_h),
+                    egui::Sense::click(),
+                );
 
                 let visuals = ui.style().interact(&hdr_resp);
                 // draw a pill-shaped divider centered in the header area
@@ -41,7 +44,8 @@ impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
                 let pill_min = egui::pos2(hdr_rect.left() + pill_pad, hdr_rect.top() + 1.0);
                 let pill_max = egui::pos2(hdr_rect.right() - pill_pad, hdr_rect.bottom() - 1.0);
                 let pill_rect = egui::Rect::from_min_max(pill_min, pill_max);
-                ui.painter().rect_filled(pill_rect, pill_rect.height() / 2.0, visuals.bg_fill);
+                ui.painter()
+                    .rect_filled(pill_rect, pill_rect.height() / 2.0, visuals.bg_fill);
 
                 if hdr_resp.clicked() {
                     self.show_preview = !self.show_preview;
@@ -63,16 +67,23 @@ impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
                                     ui.selectable_value(&mut self.preview_tab, 1, "Code");
                                 }
 
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    let copy_btn = egui::Button::new("Copy").frame(false);
-                                    if ui.add(copy_btn).on_hover_text("Copy current preview to clipboard").clicked() {
-                                        if self.preview_tab == 0 {
-                                            ui.ctx().copy_text(format!("{:?}", &*current));
-                                        } else if let Some(code) = &self.code {
-                                            ui.ctx().copy_text(code.clone());
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        let copy_btn = egui::Button::new("Copy").frame(false);
+                                        if ui
+                                            .add(copy_btn)
+                                            .on_hover_text("Copy current preview to clipboard")
+                                            .clicked()
+                                        {
+                                            if self.preview_tab == 0 {
+                                                ui.ctx().copy_text(format!("{:?}", &*current));
+                                            } else if let Some(code) = &self.code {
+                                                ui.ctx().copy_text(code.clone());
+                                            }
                                         }
-                                    }
-                                });
+                                    },
+                                );
                             });
 
                             // Content (left-aligned within the vertical column)
@@ -81,11 +92,14 @@ impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
                                 ui.monospace(format!("{:?}", &*current));
                             } else if let Some(code) = &mut self.code {
                                 let language = "rs";
-                                let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
-                                    ui.ctx(),
-                                    ui.style(),
+                                let theme =
+                                    egui_extras::syntax_highlighting::CodeTheme::from_memory(
+                                        ui.ctx(),
+                                        ui.style(),
+                                    );
+                                egui_extras::syntax_highlighting::code_view_ui(
+                                    ui, &theme, code, language,
                                 );
-                                egui_extras::syntax_highlighting::code_view_ui(ui, &theme, code, language);
                             }
                         });
 
@@ -93,8 +107,8 @@ impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
                         ui.add_space(8.0);
                     });
                 }
-             });
-        }
+            });
+    }
 }
 
 pub fn stateful_card<T: std::fmt::Debug + std::default::Default + 'static>(
