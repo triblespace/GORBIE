@@ -42,23 +42,20 @@ pub fn cosmic_gel_light() -> Style {
     let hover_light = blend(parchment, purple, 0.25);
 
     // additional named tones derived from base tokens
-    let panel = parchment;
-    let panel_alt = blend(panel, purple, 0.10); // 10% brand_primary over panel
-                                                       // Keep blends bounded between parchment and ink (no pure white/black)
-    let panel_weak = blend(panel, parchment, 0.02); // slight tint toward purple (still <= parchment)
-    let panel_alt_weak = blend(panel_alt, parchment, 0.02); // nudge back toward parchment
-    let faint_bg = blend(panel, ink, 0.01); // slightly darker toward ink
-    let extreme_bg = blend(panel, purple, 0.08);
-    let active_weak = teal;
+    let light_purple = blend(parchment, purple, 0.10); // 10% brand_primary over panel
+    let light_purple_1 = blend(parchment, purple, 0.03); // slight tint toward purple (still <= parchment)
+    let light_purple_3 = blend(parchment, purple, 0.015); // nudge back toward parchment
+    let light_purple_2 = blend(parchment, purple, 0.08);
+    let darker_parchment = blend(parchment, ink, 0.01); // slightly darker toward ink
 
     let visuals = Visuals {
         dark_mode: false,
         window_fill: parchment,
-        panel_fill: panel,
+        panel_fill: parchment,
         override_text_color: None,
-        faint_bg_color: faint_bg,
+        faint_bg_color: darker_parchment,
         // Visible separator color on parchment
-        extreme_bg_color: extreme_bg,
+        extreme_bg_color: light_purple_2,
         slider_trailing_fill: true,
         selection: Selection {
             bg_fill: purple,
@@ -67,8 +64,8 @@ pub fn cosmic_gel_light() -> Style {
         hyperlink_color: purple,
         widgets: Widgets {
             noninteractive: WidgetVisuals {
-                bg_fill: panel,
-                weak_bg_fill: panel_weak,
+                bg_fill: parchment,
+                weak_bg_fill: light_purple_1,
                 bg_stroke: Stroke::NONE,
                 // Make sure icons and inline text use ink explicitly
                 fg_stroke: Stroke::new(1.0, ink),
@@ -76,8 +73,8 @@ pub fn cosmic_gel_light() -> Style {
                 expansion: 0.0,
             },
             inactive: WidgetVisuals {
-                bg_fill: panel_alt,
-                weak_bg_fill: panel_alt_weak,
+                bg_fill: light_purple,
+                weak_bg_fill: light_purple_3,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke::new(1.0, ink),
                 corner_radius: 10.0.into(),
@@ -94,7 +91,7 @@ pub fn cosmic_gel_light() -> Style {
             },
             active: WidgetVisuals {
                 bg_fill: purple,
-                weak_bg_fill: active_weak,
+                weak_bg_fill: teal,
                 bg_stroke: Stroke::NONE,
                 // use `ink` for active icons in light theme
                 fg_stroke: Stroke::new(1.5, ink),
@@ -102,8 +99,8 @@ pub fn cosmic_gel_light() -> Style {
                 expansion: 2.0,
             },
             open: WidgetVisuals {
-                bg_fill: panel,
-                weak_bg_fill: panel_weak,
+                bg_fill: parchment,
+                weak_bg_fill: light_purple_1,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke::new(1.0, ink),
                 corner_radius: 10.0.into(),
@@ -115,7 +112,7 @@ pub fn cosmic_gel_light() -> Style {
             offset: [0, 6],
             blur: 14,
             spread: 0,
-            color: blend(ink, panel, 0.18),
+            color: blend(ink, parchment, 0.18),
         },
         ..Visuals::light()
     };
