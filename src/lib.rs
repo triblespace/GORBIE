@@ -21,11 +21,7 @@ pub mod prelude;
 pub mod themes;
 pub mod widgets;
 
-pub use prelude::*;
-
-pub use cards::*;
 use ctrlc;
-pub use dataflow::*;
 use eframe::egui::{self};
 use egui_theme_switch::global_theme_switch;
 
@@ -35,7 +31,7 @@ use crate::themes::{cosmic_gel_dark, cosmic_gel_fonts, cosmic_gel_light};
 /// Each card is a piece of content that can be displayed in the notebook.
 /// Cards can be stateless, stateful, or reactively derived from other cards.
 pub struct Notebook {
-    pub cards: Vec<Box<dyn Card + 'static>>,
+    pub cards: Vec<Box<dyn cards::Card + 'static>>,
 }
 
 impl Notebook {
@@ -43,7 +39,7 @@ impl Notebook {
         Self { cards: Vec::new() }
     }
 
-    pub fn push(&mut self, card: Box<dyn Card>) {
+    pub fn push(&mut self, card: Box<dyn cards::Card>) {
         self.cards.push(card);
     }
 
@@ -95,7 +91,7 @@ impl eframe::App for Notebook {
                             ui.set_max_width(740.0);
                             for (i, card) in self.cards.iter_mut().enumerate() {
                                 ui.push_id(i, |ui| {
-                                    let card: &mut (dyn Card) = card.as_mut();
+                                    let card: &mut (dyn cards::Card) = card.as_mut();
                                     ui.add(card);
                                     ui.separator();
                                 });

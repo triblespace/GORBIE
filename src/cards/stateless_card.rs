@@ -1,4 +1,4 @@
-use crate::{Card, Notebook};
+use crate::{cards::Card, Notebook};
 use eframe::egui::{Frame, Stroke};
 
 pub struct StatelessCard {
@@ -72,7 +72,7 @@ macro_rules! view {
             // Each clone gets assigned it's own let statement.
             // This makes type checking errors more readable.
             $(let $Dep = $Dep.clone();)*
-            $crate::stateless_card($nb, $code, Some(stringify!($code)))
+            $crate::cards::stateless_card($nb, $code, Some(stringify!($code)))
         }
     };
 }

@@ -1,4 +1,4 @@
-use crate::CardState;
+use crate::cards::CardState;
 
 pub trait Dependency {
     type Value;

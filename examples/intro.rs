@@ -7,7 +7,7 @@
 
 use std::ops::DerefMut;
 
-use GORBIE::{derive, md, notebook, state, view, Notebook, NotifiedState};
+use GORBIE::prelude::*;
 
 fn intro(nb: &mut Notebook) {
     view!(nb, (), move |ui| {

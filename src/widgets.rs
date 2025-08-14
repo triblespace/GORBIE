@@ -63,7 +63,7 @@ pub fn load_auto<'a, T: Send + 'static>(
 use egui_extras::{Column, TableBuilder};
 use polars::prelude::DataFrame;
 
-use crate::ComputedState;
+use crate::dataflow::ComputedState;
 
 pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
     let nr_cols = df.width();

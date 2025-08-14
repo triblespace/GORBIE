@@ -14,7 +14,7 @@ fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
 // Accessor functions for base tokens (use instead of direct consts in functions)
 pub fn base_ink() -> Color32 {
     // Midpoint between the warm ink (#35243E) and the old panel (#1B1821)
-    egui::hex_color!("#241C2B")
+    egui::hex_color!("#1B1821")
 }
 pub fn base_parchment() -> Color32 {
     egui::hex_color!("#FBF6F1")

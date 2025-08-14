@@ -3,7 +3,7 @@ use std::sync::Arc;
 use egui::{Frame, Stroke};
 use parking_lot::RwLock;
 
-use crate::{Card, Notebook};
+use crate::{cards::Card, Notebook};
 
 use super::CardState;
 
@@ -126,7 +126,7 @@ macro_rules! state {
             // Each clone gets assigned it's own let statement.
             // This makes type checking errors more readable.
             $(let $Dep = $Dep.clone();)*
-            $crate::stateful_card($nb, Default::default(), $code, Some(stringify!($code)))
+            $crate::cards::stateful_card($nb, Default::default(), $code, Some(stringify!($code)))
         }
     };
     ($nb:expr, ($($Dep:ident),*), $init:expr, $code:expr) => {
@@ -135,7 +135,7 @@ macro_rules! state {
             // Each clone gets assigned it's own let statement.
             // This makes type checking errors more readable.
             $(let $Dep = $Dep.clone();)*
-            $crate::stateful_card($nb, $init, $code, Some(stringify!($code)))
+            $crate::cards::stateful_card($nb, $init, $code, Some(stringify!($code)))
         }
     };
 }

@@ -3,7 +3,7 @@ use std::{ops::Deref, sync::Arc};
 use egui::{CollapsingHeader, Frame, Stroke};
 use parking_lot::RwLock;
 
-use crate::{Card, ComputedState, Dependencies, Notebook};
+use crate::{cards::Card, dataflow::{ComputedState, Dependencies}, Notebook};
 
 use super::CardState;
 
@@ -167,7 +167,7 @@ macro_rules! derive {
             // Each clone gets assigned it's own let statement.
             // This makes type checking errors more readable.
             $(let $Dep = $Dep.clone();)*
-            $crate::reactive_card($nb, ($($Dep),*,), $code, Some(stringify!($code)))
+            $crate::cards::reactive_card($nb, ($($Dep),*,), $code, Some(stringify!($code)))
         }
     };
 }
