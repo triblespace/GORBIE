@@ -59,8 +59,6 @@ Aenean in turpis tortor. Integer ut nibh a massa maximus bibendum.\
 Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
 "
         );
-
-        ui.ctx().clone().style_ui(ui, egui::Theme::Light);
     });
 
     let slider = state!(nb, (), (0.5).into(), |ui, value: &mut NotifiedState<_>| {

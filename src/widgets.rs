@@ -125,3 +125,6 @@ macro_rules! md {
         }
     };
 }
+
+pub mod slider;
+pub use slider::Slider;

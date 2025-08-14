@@ -35,36 +35,36 @@ pub fn cosmic_gel_light() -> Style {
     let ink = base_ink();
     let parchment = base_parchment();
     // semantic names for intent: brand primary and supporting contrast accent
-    let brand_primary = base_purple();
-    let contrast_accent = base_teal();
+    let purple = base_purple();
+    let teal = base_teal();
 
     // hover blend tokens (25% purple over base)
-    let hover_light = blend(parchment, brand_primary, 0.25);
+    let hover_light = blend(parchment, purple, 0.25);
 
     // additional named tones derived from base tokens
     let panel = parchment;
-    let panel_alt = blend(panel, brand_primary, 0.15); // 15% brand_primary over panel
+    let panel_alt = blend(panel, purple, 0.10); // 10% brand_primary over panel
                                                        // Keep blends bounded between parchment and ink (no pure white/black)
     let panel_weak = blend(panel, parchment, 0.02); // slight tint toward purple (still <= parchment)
     let panel_alt_weak = blend(panel_alt, parchment, 0.02); // nudge back toward parchment
     let faint_bg = blend(panel, ink, 0.01); // slightly darker toward ink
-    let extreme_bg = blend(panel, brand_primary, 0.08);
-    let active_weak = contrast_accent;
+    let extreme_bg = blend(panel, purple, 0.08);
+    let active_weak = teal;
 
     let visuals = Visuals {
         dark_mode: false,
         window_fill: parchment,
         panel_fill: panel,
-        // Explicit text color to ensure markdown headings/bold/italic use readable ink
-        override_text_color: Some(ink),
+        override_text_color: None,
         faint_bg_color: faint_bg,
         // Visible separator color on parchment
         extreme_bg_color: extreme_bg,
+        slider_trailing_fill: true,
         selection: Selection {
-            bg_fill: brand_primary,
+            bg_fill: purple,
             stroke: Stroke::new(2.0, parchment),
         },
-        hyperlink_color: brand_primary,
+        hyperlink_color: purple,
         widgets: Widgets {
             noninteractive: WidgetVisuals {
                 bg_fill: panel,
@@ -85,7 +85,7 @@ pub fn cosmic_gel_light() -> Style {
             },
             hovered: WidgetVisuals {
                 bg_fill: hover_light,
-                weak_bg_fill: brand_primary,
+                weak_bg_fill: purple,
                 bg_stroke: Stroke::NONE,
                 // stronger ink on hover so highlights remain visible
                 fg_stroke: Stroke::new(1.4, ink),
@@ -93,11 +93,11 @@ pub fn cosmic_gel_light() -> Style {
                 expansion: 3.0,
             },
             active: WidgetVisuals {
-                bg_fill: brand_primary,
+                bg_fill: purple,
                 weak_bg_fill: active_weak,
                 bg_stroke: Stroke::NONE,
                 // use `ink` for active icons in light theme
-                fg_stroke: Stroke::new(1.5, ink),
+                fg_stroke: Stroke::new(1.5, parchment),
                 corner_radius: 10.0.into(),
                 expansion: 2.0,
             },
@@ -140,34 +140,35 @@ pub fn cosmic_gel_dark() -> Style {
     let ink = base_ink();
     let parchment = base_parchment();
     // in dark theme we swap roles: use contrast_accent as brand primary here
-    let brand_primary = base_teal(); // TEAL
-    let contrast_accent = base_purple(); // PURPLE
+    let teal = base_teal(); // TEAL
+    let purple = base_purple(); // PURPLE
 
     // derived dark tones
-    let hover_dark = blend(ink, brand_primary, 0.25);
+    let hover_dark = blend(ink, teal, 0.25);
     // Use the same "ink" color for both the window and panel so the dark theme
     // background matches the ink tone (consistent with light theme where both
     // window_fill and panel_fill use parchment).
     let panel = ink;
-    let panel_alt = blend(panel, brand_primary, 0.12);
+    let panel_alt = blend(panel, teal, 0.10);
     // Keep dark blends bounded toward ink rather than pure black
     let panel_weak = blend(panel, ink, 0.08);
     let faint_bg = blend(panel, ink, 0.15);
     let extreme_bg = blend(parchment, ink, 0.10);
-    let active_weak = contrast_accent;
+    let active_weak = purple;
 
     let visuals = Visuals {
         dark_mode: true,
         window_fill: ink,
         panel_fill: panel,
-        override_text_color: Some(parchment),
+        override_text_color: None,
         faint_bg_color: faint_bg,
         extreme_bg_color: extreme_bg,
+        slider_trailing_fill: true,
         selection: Selection {
-            bg_fill: brand_primary,
+            bg_fill: teal,
             stroke: Stroke::new(2.0, ink),
         },
-        hyperlink_color: brand_primary,
+        hyperlink_color: teal,
         widgets: Widgets {
             noninteractive: WidgetVisuals {
                 bg_fill: panel,
@@ -181,20 +182,20 @@ pub fn cosmic_gel_dark() -> Style {
                 bg_fill: panel_alt,
                 weak_bg_fill: panel_weak,
                 bg_stroke: Stroke::NONE,
-                fg_stroke: Stroke::new(1.0, parchment),
+                fg_stroke: Stroke::new(1.0, ink),
                 corner_radius: 10.0.into(),
                 expansion: 2.0,
             },
             hovered: WidgetVisuals {
                 bg_fill: hover_dark,
-                weak_bg_fill: brand_primary,
+                weak_bg_fill: teal,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke::new(1.4, parchment),
                 corner_radius: 10.0.into(),
                 expansion: 3.0,
             },
             active: WidgetVisuals {
-                bg_fill: brand_primary,
+                bg_fill: teal,
                 weak_bg_fill: active_weak,
                 bg_stroke: Stroke::NONE,
                 fg_stroke: Stroke::new(1.5, parchment),

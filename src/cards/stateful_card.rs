@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use egui::CollapsingHeader;
+use egui::{Frame, Stroke};
 use parking_lot::RwLock;
 
-use crate::{Card, Notebook};
+use crate::{md, Card, Notebook};
 
 use super::CardState;
 
@@ -11,6 +11,10 @@ pub struct StatefulCard<T> {
     current: CardState<T>,
     function: Box<dyn FnMut(&mut egui::Ui, &mut T)>,
     code: Option<String>,
+    // UI state for the card so we don't rely on global memory.
+    show_preview: bool,
+    // 0 = value, 1 = code
+    preview_tab: usize,
 }
 
 impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
@@ -18,25 +22,79 @@ impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
         let mut current = self.current.write();
         (self.function)(ui, &mut current);
 
-        CollapsingHeader::new("Current")
-            .id_salt("__current")
-            .show(ui, |ui| {
-                ui.monospace(format!("{:?}", current));
-            });
+        // Unified preview panel (value + optional code) ------------------------
+         ui.add_space(8.0);
+         let header_h = 4.0; // thin divider-like header
+         let frame_fill = ui.style().visuals.widgets.inactive.bg_fill;
+         Frame::group(ui.style())
+             .stroke(Stroke::NONE)
+             .fill(frame_fill)
+             .inner_margin(2.0)
+             .corner_radius(4.0)
+             .show(ui, |ui| {
+                // thin clickable header area that doesn't take much space
+                let (hdr_rect, hdr_resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), header_h), egui::Sense::click());
 
-        if let Some(code) = &mut self.code {
-            CollapsingHeader::new("Code")
-                .id_salt("__code")
-                .show(ui, |ui| {
-                    let language = "rs";
-                    let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
-                        ui.ctx(),
-                        ui.style(),
-                    );
-                    egui_extras::syntax_highlighting::code_view_ui(ui, &theme, code, language);
-                });
+                let visuals = ui.style().interact(&hdr_resp);
+                // draw a pill-shaped divider centered in the header area
+                let pill_pad = 2.0f32;
+                let pill_min = egui::pos2(hdr_rect.left() + pill_pad, hdr_rect.top() + 1.0);
+                let pill_max = egui::pos2(hdr_rect.right() - pill_pad, hdr_rect.bottom() - 1.0);
+                let pill_rect = egui::Rect::from_min_max(pill_min, pill_max);
+                ui.painter().rect_filled(pill_rect, pill_rect.height() / 2.0, visuals.bg_fill);
+
+                if hdr_resp.clicked() {
+                    self.show_preview = !self.show_preview;
+                }
+
+                // Only show tabs and copy controls when expanded
+                if self.show_preview {
+                    // Inner area with side margins so content and tabs align left
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        // Left margin
+                        ui.add_space(8.0);
+
+                        ui.vertical(|ui| {
+                            // Controls row: tabs on the left, copy on the right
+                            ui.horizontal(|ui| {
+                                ui.selectable_value(&mut self.preview_tab, 0, "Value");
+                                if self.code.is_some() {
+                                    ui.selectable_value(&mut self.preview_tab, 1, "Code");
+                                }
+
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let copy_btn = egui::Button::new("Copy").frame(false);
+                                    if ui.add(copy_btn).on_hover_text("Copy current preview to clipboard").clicked() {
+                                        if self.preview_tab == 0 {
+                                            ui.ctx().copy_text(format!("{:?}", &*current));
+                                        } else if let Some(code) = &self.code {
+                                            ui.ctx().copy_text(code.clone());
+                                        }
+                                    }
+                                });
+                            });
+
+                            // Content (left-aligned within the vertical column)
+                            ui.add_space(6.0);
+                            if self.preview_tab == 0 {
+                                ui.monospace(format!("{:?}", &*current));
+                            } else if let Some(code) = &mut self.code {
+                                let language = "rs";
+                                let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
+                                    ui.ctx(),
+                                    ui.style(),
+                                );
+                                egui_extras::syntax_highlighting::code_view_ui(ui, &theme, code, language);
+                            }
+                        });
+
+                        // Right margin filler
+                        ui.add_space(8.0);
+                    });
+                }
+             });
         }
-    }
 }
 
 pub fn stateful_card<T: std::fmt::Debug + std::default::Default + 'static>(
@@ -50,6 +108,8 @@ pub fn stateful_card<T: std::fmt::Debug + std::default::Default + 'static>(
         current: current.clone(),
         function: Box::new(function),
         code: code.map(|s| s.to_owned()),
+        show_preview: false,
+        preview_tab: 0,
     }));
 
     current
