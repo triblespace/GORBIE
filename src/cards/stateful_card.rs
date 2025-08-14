@@ -38,14 +38,14 @@ impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
                     egui::Sense::click(),
                 );
 
-                let visuals = ui.style().interact(&hdr_resp);
+                let visuals = ui.visuals();
                 // draw a pill-shaped divider centered in the header area
                 let pill_pad = 2.0f32;
                 let pill_min = egui::pos2(hdr_rect.left() + pill_pad, hdr_rect.top() + 1.0);
                 let pill_max = egui::pos2(hdr_rect.right() - pill_pad, hdr_rect.bottom() - 1.0);
                 let pill_rect = egui::Rect::from_min_max(pill_min, pill_max);
                 ui.painter()
-                    .rect_filled(pill_rect, pill_rect.height() / 2.0, visuals.bg_fill);
+                    .rect_filled(pill_rect, pill_rect.height() / 2.0, visuals.widgets.active.bg_fill);
 
                 if hdr_resp.clicked() {
                     self.show_preview = !self.show_preview;

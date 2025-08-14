@@ -20,10 +20,95 @@ pub fn base_parchment() -> Color32 {
     egui::hex_color!("#FBF6F1")
 }
 pub fn base_purple() -> Color32 {
-    egui::hex_color!("#5d2fe3")
+    egui::hex_color!("#4d2bb0")
 }
 pub fn base_teal() -> Color32 {
     egui::hex_color!("#35C9BE")
+}
+
+/// Generic palette-to-visuals transformer for the Cosmic Gel theme.
+/// Computes derived tones from four base colors and overrides the provided
+/// `base_visuals` with the same visual fields previously hard-coded for
+/// the light variant.
+pub fn cosmic_gel(
+    foreground: Color32,
+    background: Color32,
+    accent_foreground: Color32,
+    accent_background: Color32,
+    mut base_visuals: Visuals,
+) -> Visuals {
+    // Derived tokens
+    let accent_background_tint = blend(background, accent_background, 0.10);
+    let accent_background_subtle = blend(background, accent_background, 0.03);
+    let background_darker = blend(background, foreground, 0.01);
+
+    base_visuals.window_fill = background;
+    base_visuals.panel_fill = background;
+    base_visuals.override_text_color = None;
+    base_visuals.faint_bg_color = background_darker;
+    base_visuals.extreme_bg_color = accent_background_tint;
+    base_visuals.slider_trailing_fill = true;
+    base_visuals.selection = Selection {
+        // selection should pair with the background (use bg_accent) to avoid purple+ink
+        bg_fill: accent_background,
+        stroke: Stroke::new(2.0, foreground),
+    };
+    base_visuals.hyperlink_color = accent_foreground;
+
+    base_visuals.widgets = Widgets {
+        noninteractive: WidgetVisuals {
+            bg_fill: accent_background_subtle,
+            weak_bg_fill: accent_background_subtle,
+            bg_stroke: Stroke::NONE,
+            fg_stroke: Stroke::new(1.0, foreground),
+            corner_radius: 10.0.into(),
+            expansion: 0.0,
+        },
+        inactive: WidgetVisuals {
+            bg_fill: accent_background_tint,
+            weak_bg_fill: accent_background_tint,
+            bg_stroke: Stroke::NONE,
+            fg_stroke: Stroke::new(1.0, foreground),
+            corner_radius: 10.0.into(),
+            expansion: 2.0,
+        },
+        hovered: WidgetVisuals {
+            bg_fill: accent_background_tint,
+            // use the background-paired accent for hovered weak fill (teal), not the foreground-paired one
+            weak_bg_fill: accent_background_tint,
+            bg_stroke: Stroke::NONE,
+            fg_stroke: Stroke::new(1.4, foreground),
+            corner_radius: 10.0.into(),
+            expansion: 3.0,
+        },
+        active: WidgetVisuals {
+            // active background uses the foreground-paired accent
+            bg_fill: accent_background,
+            weak_bg_fill: accent_background,
+            bg_stroke: Stroke::NONE,
+            fg_stroke: Stroke::new(1.5, foreground),
+            corner_radius: 10.0.into(),
+            expansion: 2.0,
+        },
+        open: WidgetVisuals {
+            bg_fill: background,
+            weak_bg_fill: background,
+            bg_stroke: Stroke::NONE,
+            fg_stroke: Stroke::new(1.0, foreground),
+            corner_radius: 10.0.into(),
+            expansion: 2.0,
+        },
+    };
+
+    // Shadow: derive from base tokens to respect palette (slightly darker than foreground)
+    base_visuals.window_shadow = egui::epaint::Shadow {
+        offset: [0, 6],
+        blur: 14,
+        spread: 0,
+        color: blend(foreground, background, 0.18),
+    };
+
+    base_visuals
 }
 
 pub fn cosmic_gel_light() -> Style {
@@ -31,91 +116,15 @@ pub fn cosmic_gel_light() -> Style {
 
     style.text_styles = cosmic_gel_text_styles().into_iter().collect();
 
-    // Design tokens (named colors)
-    let ink = base_ink();
-    let parchment = base_parchment();
-    // semantic names for intent: brand primary and supporting contrast accent
-    let purple = base_purple();
-    let teal = base_teal();
+    // Base tokens (physical colors)
+    let foreground = base_ink();
+    let background = base_parchment();
+    // Semantic roles for light theme
+    let accent_foreground = base_purple(); // brand primary
+    let accent_background = base_teal(); // supporting accent
 
-    // hover blend tokens (25% purple over base)
-    let hover_light = blend(parchment, purple, 0.25);
-
-    // additional named tones derived from base tokens
-    let light_purple = blend(parchment, purple, 0.10); // 10% brand_primary over panel
-    let light_purple_1 = blend(parchment, purple, 0.03); // slight tint toward purple (still <= parchment)
-    let light_purple_3 = blend(parchment, purple, 0.015); // nudge back toward parchment
-    let light_purple_2 = blend(parchment, purple, 0.08);
-    let darker_parchment = blend(parchment, ink, 0.01); // slightly darker toward ink
-
-    let visuals = Visuals {
-        dark_mode: false,
-        window_fill: parchment,
-        panel_fill: parchment,
-        override_text_color: None,
-        faint_bg_color: darker_parchment,
-        // Visible separator color on parchment
-        extreme_bg_color: light_purple_2,
-        slider_trailing_fill: true,
-        selection: Selection {
-            bg_fill: purple,
-            stroke: Stroke::new(2.0, parchment),
-        },
-        hyperlink_color: purple,
-        widgets: Widgets {
-            noninteractive: WidgetVisuals {
-                bg_fill: parchment,
-                weak_bg_fill: light_purple_1,
-                bg_stroke: Stroke::NONE,
-                // Make sure icons and inline text use ink explicitly
-                fg_stroke: Stroke::new(1.0, ink),
-                corner_radius: 10.0.into(),
-                expansion: 0.0,
-            },
-            inactive: WidgetVisuals {
-                bg_fill: light_purple,
-                weak_bg_fill: light_purple_3,
-                bg_stroke: Stroke::NONE,
-                fg_stroke: Stroke::new(1.0, ink),
-                corner_radius: 10.0.into(),
-                expansion: 2.0,
-            },
-            hovered: WidgetVisuals {
-                bg_fill: hover_light,
-                weak_bg_fill: purple,
-                bg_stroke: Stroke::NONE,
-                // stronger ink on hover so highlights remain visible
-                fg_stroke: Stroke::new(1.4, ink),
-                corner_radius: 10.0.into(),
-                expansion: 3.0,
-            },
-            active: WidgetVisuals {
-                bg_fill: purple,
-                weak_bg_fill: teal,
-                bg_stroke: Stroke::NONE,
-                // use `ink` for active icons in light theme
-                fg_stroke: Stroke::new(1.5, ink),
-                corner_radius: 10.0.into(),
-                expansion: 2.0,
-            },
-            open: WidgetVisuals {
-                bg_fill: parchment,
-                weak_bg_fill: light_purple_1,
-                bg_stroke: Stroke::NONE,
-                fg_stroke: Stroke::new(1.0, ink),
-                corner_radius: 10.0.into(),
-                expansion: 2.0,
-            },
-        },
-        // Shadow: derive from base tokens to respect palette (slightly darker than ink)
-        window_shadow: egui::epaint::Shadow {
-            offset: [0, 6],
-            blur: 14,
-            spread: 0,
-            color: blend(ink, parchment, 0.18),
-        },
-        ..Visuals::light()
-    };
+    // Build visuals by delegating to the shared transformer
+    let visuals = cosmic_gel(foreground, background, accent_foreground, accent_background, Visuals::light());
 
     style.spacing.item_spacing = egui::vec2(12.0, 10.0);
     style.spacing.button_padding = egui::vec2(10.0, 7.0);
@@ -133,90 +142,16 @@ pub fn cosmic_gel_dark() -> Style {
 
     style.text_styles = cosmic_gel_text_styles().into_iter().collect();
 
-    // Base tokens
-    let ink = base_ink();
-    let parchment = base_parchment();
-    // in dark theme we swap roles: use contrast_accent as brand primary here
-    let teal = base_teal(); // TEAL
-    let purple = base_purple(); // PURPLE
+    // For dark theme keep primary = purple and secondary = teal so background blends
+    // produced by the shared generator use teal (secondary) and foreground accents use purple
+    // Base tokens (physical colors)
+    let foreground = base_parchment();
+    let background = base_ink();
+    let accent_foreground = base_teal();
+    let accent_background = base_purple();
 
-    // derived dark tones
-    let hover_dark = blend(ink, teal, 0.25);
-    // Use the same "ink" color for both the window and panel so the dark theme
-    // background matches the ink tone (consistent with light theme where both
-    // window_fill and panel_fill use parchment).
-    let panel = ink;
-    let panel_alt = blend(panel, teal, 0.10);
-    // Keep dark blends bounded toward ink rather than pure black
-    let panel_weak = blend(panel, ink, 0.08);
-    let faint_bg = blend(panel, ink, 0.15);
-    let extreme_bg = blend(parchment, ink, 0.10);
-    let active_weak = purple;
-
-    let visuals = Visuals {
-        dark_mode: true,
-        window_fill: ink,
-        panel_fill: panel,
-        override_text_color: None,
-        faint_bg_color: faint_bg,
-        extreme_bg_color: extreme_bg,
-        slider_trailing_fill: true,
-        selection: Selection {
-            bg_fill: teal,
-            stroke: Stroke::new(2.0, ink),
-        },
-        hyperlink_color: teal,
-        widgets: Widgets {
-            noninteractive: WidgetVisuals {
-                bg_fill: panel,
-                weak_bg_fill: panel_weak,
-                bg_stroke: Stroke::NONE,
-                fg_stroke: Stroke::new(1.0, parchment),
-                corner_radius: 10.0.into(),
-                expansion: 0.0,
-            },
-            inactive: WidgetVisuals {
-                bg_fill: panel_alt,
-                weak_bg_fill: panel_weak,
-                bg_stroke: Stroke::NONE,
-                fg_stroke: Stroke::new(1.0, parchment),
-                corner_radius: 10.0.into(),
-                expansion: 2.0,
-            },
-            hovered: WidgetVisuals {
-                bg_fill: hover_dark,
-                weak_bg_fill: teal,
-                bg_stroke: Stroke::NONE,
-                fg_stroke: Stroke::new(1.4, parchment),
-                corner_radius: 10.0.into(),
-                expansion: 3.0,
-            },
-            active: WidgetVisuals {
-                bg_fill: teal,
-                weak_bg_fill: active_weak,
-                bg_stroke: Stroke::NONE,
-                fg_stroke: Stroke::new(1.5, parchment),
-                corner_radius: 10.0.into(),
-                expansion: 2.0,
-            },
-            open: WidgetVisuals {
-                bg_fill: panel,
-                weak_bg_fill: panel_weak,
-                bg_stroke: Stroke::NONE,
-                fg_stroke: Stroke::new(1.0, parchment),
-                corner_radius: 10.0.into(),
-                expansion: 2.0,
-            },
-        },
-        // Shadow: derive from base tokens (slightly darker than panel)
-        window_shadow: egui::epaint::Shadow {
-            offset: [0, 10],
-            blur: 20,
-            spread: 0,
-            color: blend(panel, ink, 0.22),
-        },
-        ..Visuals::dark()
-    };
+    // Delegate to the shared generator using Visuals::dark() as the base
+    let visuals = cosmic_gel(foreground, background, accent_foreground, accent_background, Visuals::dark());
 
     style.spacing.item_spacing = egui::vec2(12.0, 10.0);
     style.spacing.button_padding = egui::vec2(10.0, 7.0);
