@@ -843,7 +843,8 @@ impl Slider<'_> {
                 };
 
                 // Use Gorbie fill tone for the trailing part of the rail
-                ui.painter().rect_filled(trailing_rail_rect, corner_radius, gstyle.rail_fill);
+                ui.painter()
+                    .rect_filled(trailing_rail_rect, corner_radius, gstyle.rail_fill);
             }
 
             let radius = self.handle_radius(rect);
@@ -877,9 +878,19 @@ impl Slider<'_> {
                     let v = v + Vec2::splat(visuals.expansion);
                     let rect = Rect::from_center_size(center, 2.0 * v);
                     // rectangular handle: shadow and fill using Gorbie style
-                    let shadow_rect = Rect::from_center_size(center + gstyle.shadow_offset, 2.0 * (v + Vec2::splat(1.0)));
-                    ui.painter().rect_filled(shadow_rect, visuals.corner_radius, gstyle.shadow);
-                    ui.painter().rect(rect, visuals.corner_radius, gstyle.knob, Stroke::NONE, epaint::StrokeKind::Inside);
+                    let shadow_rect = Rect::from_center_size(
+                        center + gstyle.shadow_offset,
+                        2.0 * (v + Vec2::splat(1.0)),
+                    );
+                    ui.painter()
+                        .rect_filled(shadow_rect, visuals.corner_radius, gstyle.shadow);
+                    ui.painter().rect(
+                        rect,
+                        visuals.corner_radius,
+                        gstyle.knob,
+                        Stroke::NONE,
+                        epaint::StrokeKind::Inside,
+                    );
                 }
             }
         }

@@ -3,7 +3,11 @@ use std::{ops::Deref, sync::Arc};
 use egui::{CollapsingHeader, Frame, Stroke};
 use parking_lot::RwLock;
 
-use crate::{cards::Card, dataflow::{ComputedState, Dependencies}, Notebook};
+use crate::{
+    cards::Card,
+    dataflow::{ComputedState, Dependencies},
+    Notebook,
+};
 
 use super::CardState;
 
@@ -138,11 +142,14 @@ impl<T: Send + std::fmt::Debug + PartialEq + 'static, D: Dependencies + Send + C
 
                                 ui.vertical(|ui| {
                                     let language = "rs";
-                                    let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
-                                        ui.ctx(),
-                                        ui.style(),
+                                    let theme =
+                                        egui_extras::syntax_highlighting::CodeTheme::from_memory(
+                                            ui.ctx(),
+                                            ui.style(),
+                                        );
+                                    egui_extras::syntax_highlighting::code_view_ui(
+                                        ui, &theme, code, language,
                                     );
-                                    egui_extras::syntax_highlighting::code_view_ui(ui, &theme, code, language);
                                 });
 
                                 // Right margin filler

@@ -2,5 +2,5 @@
 pub use crate::widgets;
 
 // Re-export macros and helpers
-pub use crate::{Notebook, md, notebook, state, view, derive};
-pub use crate::dataflow::{NotifiedState, ComputedState};
+pub use crate::dataflow::{ComputedState, NotifiedState};
+pub use crate::{derive, md, notebook, state, view, Notebook};

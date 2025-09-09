@@ -1,7 +1,7 @@
 use egui::{
     style::{Selection, WidgetVisuals, Widgets},
-    Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style, TextStyle, Visuals,
-    Vec2,
+    Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style, TextStyle, Vec2,
+    Visuals,
 };
 
 mod style;
@@ -169,7 +169,13 @@ pub fn cosmic_gel_light() -> Style {
     let accent_background = base_teal(); // supporting accent
 
     // Build visuals by delegating to the shared transformer
-    let visuals = cosmic_gel(foreground, background, accent_foreground, accent_background, Visuals::light());
+    let visuals = cosmic_gel(
+        foreground,
+        background,
+        accent_foreground,
+        accent_background,
+        Visuals::light(),
+    );
 
     style.spacing.item_spacing = egui::vec2(12.0, 10.0);
     style.spacing.button_padding = egui::vec2(10.0, 7.0);
@@ -196,7 +202,13 @@ pub fn cosmic_gel_dark() -> Style {
     let accent_background = base_purple();
 
     // Delegate to the shared generator using Visuals::dark() as the base
-    let visuals = cosmic_gel(foreground, background, accent_foreground, accent_background, Visuals::dark());
+    let visuals = cosmic_gel(
+        foreground,
+        background,
+        accent_foreground,
+        accent_background,
+        Visuals::dark(),
+    );
 
     style.spacing.item_spacing = egui::vec2(12.0, 10.0);
     style.spacing.button_padding = egui::vec2(10.0, 7.0);

@@ -12,7 +12,9 @@ pub trait Styled {
     /// `set_style` so implementors only need to implement `set_style`.
     #[must_use]
     fn styled<S: Into<Self::Style>>(self, style: S) -> Self
-    where Self: Sized {
+    where
+        Self: Sized,
+    {
         let mut me = self;
         me.set_style(Some(style.into()));
         me
@@ -21,7 +23,9 @@ pub trait Styled {
     /// Remove the current style.
     #[must_use]
     fn unstyled(self) -> Self
-    where Self: Sized {
+    where
+        Self: Sized,
+    {
         let mut me = self;
         me.set_style(None);
         me

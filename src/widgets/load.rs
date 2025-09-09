@@ -1,5 +1,5 @@
-use eframe::egui;
 use crate::dataflow::ComputedState;
+use eframe::egui;
 
 pub fn load_button<'a, T: Send + 'static>(
     ui: &mut egui::Ui,

@@ -1,6 +1,6 @@
+use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 use polars::prelude::DataFrame;
-use eframe::egui;
 
 pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
     let nr_cols = df.width();

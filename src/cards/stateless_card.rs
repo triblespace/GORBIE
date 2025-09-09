@@ -31,11 +31,14 @@ impl Card for StatelessCard {
 
                                 ui.vertical(|ui| {
                                     let language = "rs";
-                                    let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(
-                                        ui.ctx(),
-                                        ui.style(),
+                                    let theme =
+                                        egui_extras::syntax_highlighting::CodeTheme::from_memory(
+                                            ui.ctx(),
+                                            ui.style(),
+                                        );
+                                    egui_extras::syntax_highlighting::code_view_ui(
+                                        ui, &theme, code, language,
                                     );
-                                    egui_extras::syntax_highlighting::code_view_ui(ui, &theme, code, language);
                                 });
 
                                 // Right margin filler
