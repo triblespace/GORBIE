@@ -6,8 +6,12 @@
 //! egui-theme-switch = "0.4"
 //! ```
 
-use egui::{self, Color32};
-use GORBIE::{md, notebook, state, Notebook};
+use egui::Color32;
+use egui::{self};
+use GORBIE::md;
+use GORBIE::notebook;
+use GORBIE::state;
+use GORBIE::Notebook;
 
 fn to_hex(c: Color32) -> String {
     format!("#{:02X}{:02X}{:02X}", c.r(), c.g(), c.b())

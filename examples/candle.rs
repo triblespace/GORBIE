@@ -5,7 +5,11 @@
 //! egui = "0.32"
 //! ```
 
-use GORBIE::{md, notebook, state, view, Notebook};
+use GORBIE::md;
+use GORBIE::notebook;
+use GORBIE::state;
+use GORBIE::view;
+use GORBIE::Notebook;
 
 fn candle(nb: &mut Notebook) {
     let prompt = state!(nb, (), "", move |ui, value| {

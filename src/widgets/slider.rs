@@ -2,11 +2,34 @@
 
 use std::ops::RangeInclusive;
 
-use eframe::egui::{
-    emath, epaint, lerp, pos2, remap, remap_clamp, style, style::HandleShape, vec2, Color32,
-    DragValue, EventFilter, Key, Label, NumExt as _, Pos2, Rangef, Rect, Response, Sense, Stroke,
-    TextStyle, TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText,
-};
+use eframe::egui::emath;
+use eframe::egui::epaint;
+use eframe::egui::lerp;
+use eframe::egui::pos2;
+use eframe::egui::remap;
+use eframe::egui::remap_clamp;
+use eframe::egui::style;
+use eframe::egui::style::HandleShape;
+use eframe::egui::vec2;
+use eframe::egui::Color32;
+use eframe::egui::DragValue;
+use eframe::egui::EventFilter;
+use eframe::egui::Key;
+use eframe::egui::Label;
+use eframe::egui::NumExt as _;
+use eframe::egui::Pos2;
+use eframe::egui::Rangef;
+use eframe::egui::Rect;
+use eframe::egui::Response;
+use eframe::egui::Sense;
+use eframe::egui::Stroke;
+use eframe::egui::TextStyle;
+use eframe::egui::TextWrapMode;
+use eframe::egui::Ui;
+use eframe::egui::Vec2;
+use eframe::egui::Widget;
+use eframe::egui::WidgetInfo;
+use eframe::egui::WidgetText;
 
 use crate::themes::GorbieSliderStyle;
 use egui::Style as EguiStyle;
@@ -788,7 +811,8 @@ impl Slider<'_> {
 
         #[cfg(feature = "accesskit")]
         {
-            use accesskit::{Action, ActionData};
+            use accesskit::Action;
+            use accesskit::ActionData;
             ui.input(|input| {
                 for request in input.accesskit_action_requests(response.id, Action::SetValue) {
                     if let Some(ActionData::NumericValue(new_value)) = request.data {
@@ -1311,7 +1335,7 @@ fn logarithmic_zero_cutoff(min: f64, max: f64) -> f64 {
 
     let cutoff = min_magnitude / (min_magnitude + max_magnitude);
     debug_assert!(
-        0.0 <= cutoff && cutoff <= 1.0,
+        (0.0..=1.0).contains(&cutoff),
         "Bad cutoff {cutoff:?} for min {min:?} and max {max:?}"
     );
     cutoff

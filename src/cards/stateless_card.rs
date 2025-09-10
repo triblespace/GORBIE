@@ -1,8 +1,10 @@
-use crate::{cards::Card, Notebook};
-use eframe::egui::{Frame, Stroke};
+use crate::cards::Card;
+use crate::Notebook;
+use eframe::egui::Frame;
+use eframe::egui::Stroke;
 
 pub struct StatelessCard {
-    function: Box<dyn FnMut(&mut egui::Ui) -> ()>,
+    function: Box<dyn FnMut(&mut egui::Ui)>,
     code: Option<String>,
     show_preview: bool,
 }
@@ -57,7 +59,7 @@ impl Card for StatelessCard {
 
 pub fn stateless_card(
     nb: &mut Notebook,
-    function: impl FnMut(&mut egui::Ui) -> () + 'static,
+    function: impl FnMut(&mut egui::Ui) + 'static,
     code: Option<&str>,
 ) {
     nb.push(Box::new(StatelessCard {

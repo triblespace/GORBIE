@@ -9,8 +9,13 @@
 //! ```
 
 use polars::prelude::*;
-use GORBIE::widgets::{dataframe, load_auto};
-use GORBIE::{md, notebook, state, view, Notebook};
+use GORBIE::md;
+use GORBIE::notebook;
+use GORBIE::state;
+use GORBIE::view;
+use GORBIE::widgets::dataframe;
+use GORBIE::widgets::load_auto;
+use GORBIE::Notebook;
 
 fn polars(nb: &mut Notebook) {
     let df = state!(nb, (), |ui, value| {

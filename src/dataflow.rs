@@ -7,7 +7,9 @@ pub trait Dependency {
     fn ready(&self) -> Option<Self::Value>;
 }
 
+#[derive(Default)]
 pub enum ComputedState<T> {
+    #[default]
     Undefined,
     Init(std::thread::JoinHandle<T>),
     Ready(T, usize),
@@ -45,12 +47,6 @@ impl<T: Clone> Dependency for ComputedState<T> {
 
     fn ready(&self) -> Option<T> {
         self.ready().cloned()
-    }
-}
-
-impl<T> std::default::Default for ComputedState<T> {
-    fn default() -> Self {
-        ComputedState::Undefined
     }
 }
 
@@ -166,7 +162,7 @@ impl<A: Dependency + 'static> Dependencies for (CardState<A>,) {
     fn read(&self) -> Option<Self::Values> {
         Some((self.0.read().ready()?,))
     }
-    fn try_read<'a>(&'a self) -> Option<Self::Values> {
+    fn try_read(&self) -> Option<Self::Values> {
         Some((self.0.try_read()?.ready()?,))
     }
 

@@ -21,17 +21,24 @@ pub mod prelude;
 pub mod themes;
 pub mod widgets;
 
-use ctrlc;
 use eframe::egui::{self};
 use egui_theme_switch::global_theme_switch;
 
-use crate::themes::{cosmic_gel_dark, cosmic_gel_fonts, cosmic_gel_light};
+use crate::themes::cosmic_gel_dark;
+use crate::themes::cosmic_gel_fonts;
+use crate::themes::cosmic_gel_light;
 
 /// A notebook is a collection of cards.
 /// Each card is a piece of content that can be displayed in the notebook.
 /// Cards can be stateless, stateful, or reactively derived from other cards.
 pub struct Notebook {
     pub cards: Vec<Box<dyn cards::Card + 'static>>,
+}
+
+impl Default for Notebook {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Notebook {

@@ -11,7 +11,7 @@ pub fn markdown(ui: &mut egui::Ui, text: &str) {
     // Use a thread-local cache (no locking) and render the formatted markdown.
     GORBIE_MD_CACHE.with(|c| {
         let mut cache = c.borrow_mut();
-        CommonMarkViewer::new().show(ui, &mut *cache, text);
+        CommonMarkViewer::new().show(ui, &mut cache, text);
     });
 }
 

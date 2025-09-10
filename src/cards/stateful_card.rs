@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
-use egui::{Frame, Stroke};
+use egui::Frame;
+use egui::Stroke;
 use parking_lot::RwLock;
 
-use crate::{cards::Card, Notebook};
+use crate::cards::Card;
+use crate::Notebook;
 
 use super::CardState;
 

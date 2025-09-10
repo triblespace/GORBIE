@@ -35,7 +35,7 @@ pub fn load_button<'a, T: Send + 'static>(
         }
     };
 
-    return value.ready_mut();
+    value.ready_mut()
 }
 
 pub fn load_auto<'a, T: Send + 'static>(
@@ -58,5 +58,5 @@ pub fn load_auto<'a, T: Send + 'static>(
         }
     };
 
-    return value.ready_mut();
+    value.ready_mut()
 }

@@ -1,13 +1,15 @@
-use std::{ops::Deref, sync::Arc};
+use std::ops::Deref;
+use std::sync::Arc;
 
-use egui::{CollapsingHeader, Frame, Stroke};
+use egui::CollapsingHeader;
+use egui::Frame;
+use egui::Stroke;
 use parking_lot::RwLock;
 
-use crate::{
-    cards::Card,
-    dataflow::{ComputedState, Dependencies},
-    Notebook,
-};
+use crate::cards::Card;
+use crate::dataflow::ComputedState;
+use crate::dataflow::Dependencies;
+use crate::Notebook;
 
 use super::CardState;
 

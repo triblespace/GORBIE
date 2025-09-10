@@ -1,5 +1,6 @@
 use eframe::egui;
-use egui_extras::{Column, TableBuilder};
+use egui_extras::Column;
+use egui_extras::TableBuilder;
 use polars::prelude::DataFrame;
 
 pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {

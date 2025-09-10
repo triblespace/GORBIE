@@ -4,7 +4,8 @@ pub mod stateless_card;
 
 use std::sync::Arc;
 
-use egui::{Response, Widget};
+use egui::Response;
+use egui::Widget;
 use parking_lot::RwLock;
 pub use reactive_card::*;
 pub use stateful_card::*;

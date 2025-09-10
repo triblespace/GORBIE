@@ -1,8 +1,16 @@
-use egui::{
-    style::{Selection, WidgetVisuals, Widgets},
-    Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style, TextStyle, Vec2,
-    Visuals,
-};
+use egui::style::Selection;
+use egui::style::WidgetVisuals;
+use egui::style::Widgets;
+use egui::Color32;
+use egui::FontData;
+use egui::FontDefinitions;
+use egui::FontFamily;
+use egui::FontId;
+use egui::Stroke;
+use egui::Style;
+use egui::TextStyle;
+use egui::Vec2;
+use egui::Visuals;
 
 mod style;
 pub use style::Styled;

@@ -11,6 +11,7 @@ pub mod slider;
 
 pub use collapsing_divider::collapsing_divider;
 pub use dataframe::dataframe;
-pub use load::{load_auto, load_button};
+pub use load::load_auto;
+pub use load::load_button;
 pub use markdown::markdown;
 pub use slider::Slider;
