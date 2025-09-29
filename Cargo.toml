@@ -17,3 +17,7 @@ egui_commonmark = {version = "0.21", features = ["macros", "better_syntax_highli
 image = { version = "0.25", features = ["png", "jpeg"] }
 polars = "0.50.0"
 egui-theme-switch = "0.4.0"
+
+[features]
+serde = []
+accesskit = []

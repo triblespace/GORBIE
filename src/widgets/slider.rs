@@ -46,6 +46,7 @@ fn clamp_value_to_range(value: f64, range: RangeInclusive<f64>) -> f64 {
 }
 
 // Local helper: simple sRGB linear interpolation for colors (same algorithm as in themes)
+#[allow(dead_code)]
 fn blend_color(a: Color32, b: Color32, t: f32) -> Color32 {
     let r = (a.r() as f32 * (1.0 - t) + b.r() as f32 * t).round() as u8;
     let g = (a.g() as f32 * (1.0 - t) + b.g() as f32 * t).round() as u8;
@@ -1134,7 +1135,7 @@ impl From<&EguiStyle> for GorbieSliderStyle {
         let dark_mode = style.visuals.dark_mode;
 
         if dark_mode {
-            let background = crate::themes::base_ink();
+            let _background = crate::themes::base_ink();
             let accent_foreground = crate::themes::base_teal();
             let accent_background = crate::themes::base_purple();
 
@@ -1147,7 +1148,7 @@ impl From<&EguiStyle> for GorbieSliderStyle {
                 knob_extra_radius: 0.0,
             }
         } else {
-            let background = crate::themes::base_parchment();
+            let _background = crate::themes::base_parchment();
             let accent_foreground = crate::themes::base_purple();
             let accent_background = crate::themes::base_teal();
 
