@@ -24,9 +24,9 @@ pub mod widgets;
 use eframe::egui::{self};
 use egui_theme_switch::global_theme_switch;
 
-use crate::themes::cosmic_gel_dark;
-use crate::themes::cosmic_gel_fonts;
-use crate::themes::cosmic_gel_light;
+use crate::themes::industrial_dark;
+use crate::themes::industrial_fonts;
+use crate::themes::industrial_light;
 
 /// A notebook is a collection of cards.
 /// Each card is a piece of content that can be displayed in the notebook.
@@ -62,12 +62,12 @@ impl Notebook {
                 ctrlc::set_handler(move || ctx.send_viewport_cmd(egui::ViewportCommand::Close))
                     .expect("failed to set exit signal handler");
 
-                cc.egui_ctx.set_fonts(cosmic_gel_fonts());
+                cc.egui_ctx.set_fonts(industrial_fonts());
 
                 cc.egui_ctx
-                    .set_style_of(egui::Theme::Light, cosmic_gel_light());
+                    .set_style_of(egui::Theme::Light, industrial_light());
                 cc.egui_ctx
-                    .set_style_of(egui::Theme::Dark, cosmic_gel_dark());
+                    .set_style_of(egui::Theme::Dark, industrial_dark());
 
                 Ok(Box::new(self))
             }),

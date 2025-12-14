@@ -1,16 +1,8 @@
-use egui::style::Selection;
-use egui::style::WidgetVisuals;
-use egui::style::Widgets;
-use egui::Color32;
-use egui::FontData;
-use egui::FontDefinitions;
-use egui::FontFamily;
-use egui::FontId;
-use egui::Stroke;
-use egui::Style;
-use egui::TextStyle;
-use egui::Vec2;
-use egui::Visuals;
+use egui::style::{Selection, WidgetVisuals, Widgets};
+use egui::{
+    Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style, TextStyle, Vec2,
+    Visuals,
+};
 
 mod style;
 pub use style::Styled;
@@ -29,9 +21,9 @@ pub struct GorbieSliderStyle {
 /// Return a `GorbieSliderStyle` preset for light/dark mode based on our base tokens.
 pub fn slider_style(dark_mode: bool) -> GorbieSliderStyle {
     if dark_mode {
-        let background = base_ink();
-        let accent_foreground = base_teal();
-        let accent_background = base_purple();
+        let background = ral_telegrey();
+        let accent_foreground = ral_orange();
+        let accent_background = ral_orange();
 
         GorbieSliderStyle {
             rail_bg: blend(background, accent_background, 0.10),
@@ -42,9 +34,9 @@ pub fn slider_style(dark_mode: bool) -> GorbieSliderStyle {
             knob_extra_radius: 0.0,
         }
     } else {
-        let background = base_parchment();
-        let accent_foreground = base_purple();
-        let accent_background = base_teal();
+        let background = ral_signal_white();
+        let accent_foreground = ral_orange();
+        let accent_background = ral_telegrey();
 
         GorbieSliderStyle {
             rail_bg: blend(background, accent_background, 0.10),
@@ -65,245 +57,192 @@ pub fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
     Color32::from_rgb(r, g, bch)
 }
 
-// Accessor functions for base tokens (use instead of direct consts in functions)
-pub fn base_ink() -> Color32 {
-    egui::hex_color!("#1B1821")
+// RAL palette
+pub fn ral_orange() -> Color32 {
+    Color32::from_rgb(0xF4, 0x46, 0x11) // Traffic Orange (RAL 2009)
 }
-pub fn base_parchment() -> Color32 {
-    egui::hex_color!("#FBF6F1")
+pub fn ral_signal_white() -> Color32 {
+    Color32::from_rgb(0xF4, 0xF4, 0xF4) // Signal White (RAL 9003)
 }
-pub fn base_purple() -> Color32 {
-    egui::hex_color!("#4d2bb0")
+pub fn ral_telegrey() -> Color32 {
+    Color32::from_rgb(0xCF, 0xD3, 0xD5) // Telegrey (RAL 7047)
 }
-pub fn base_teal() -> Color32 {
-    egui::hex_color!("#35C9BE")
+pub fn ral_ink() -> Color32 {
+    Color32::from_rgb(0x1C, 0x1C, 0x1C)
 }
 
-/// Generic palette-to-visuals transformer for the Cosmic Gel theme.
-/// Computes derived tones from four base colors and overrides the provided
-/// `base_visuals` with the same visual fields previously hard-coded for
-/// the light variant.
-pub fn cosmic_gel(
+/// Build visuals from the RAL palette for a clean, industrial feel.
+pub fn industrial(
     foreground: Color32,
     background: Color32,
-    accent_foreground: Color32,
-    accent_background: Color32,
+    surface: Color32,
+    accent: Color32,
     mut base_visuals: Visuals,
 ) -> Visuals {
-    // Derived tokens
-    let accent_background_tint = blend(background, accent_background, 0.10);
-    let accent_background_subtle = blend(background, accent_background, 0.03);
-    let background_darker = blend(background, foreground, 0.01);
+    let surface_muted = blend(surface, background, 0.2);
+    let surface_hover = blend(surface, accent, 0.08);
+    let border = blend(foreground, background, 0.4);
 
     base_visuals.window_fill = background;
-    base_visuals.panel_fill = background;
+    base_visuals.panel_fill = surface;
     base_visuals.override_text_color = None;
-    base_visuals.faint_bg_color = background_darker;
-    base_visuals.extreme_bg_color = accent_background_tint;
+    base_visuals.faint_bg_color = surface_muted;
+    base_visuals.extreme_bg_color = surface_hover;
     base_visuals.slider_trailing_fill = true;
     base_visuals.selection = Selection {
-        // selection should pair with the background (use bg_accent) to avoid purple+ink
-        bg_fill: accent_background,
-        stroke: Stroke::new(2.0, foreground),
+        bg_fill: accent,
+        stroke: Stroke::new(1.5, foreground),
     };
-    base_visuals.hyperlink_color = accent_foreground;
+    base_visuals.hyperlink_color = accent;
 
     base_visuals.widgets = Widgets {
         noninteractive: WidgetVisuals {
-            bg_fill: accent_background_subtle,
-            weak_bg_fill: accent_background_subtle,
-            bg_stroke: Stroke::NONE,
+            bg_fill: surface,
+            weak_bg_fill: surface,
+            bg_stroke: Stroke::new(1.0, border),
             fg_stroke: Stroke::new(1.0, foreground),
-            corner_radius: 10.0.into(),
-            expansion: 0.0,
+            corner_radius: 8.0.into(),
+            expansion: 1.0,
         },
         inactive: WidgetVisuals {
-            bg_fill: accent_background_tint,
-            weak_bg_fill: accent_background_tint,
-            bg_stroke: Stroke::NONE,
+            bg_fill: surface,
+            weak_bg_fill: surface,
+            bg_stroke: Stroke::new(1.0, border),
             fg_stroke: Stroke::new(1.0, foreground),
-            corner_radius: 10.0.into(),
-            expansion: 2.0,
+            corner_radius: 8.0.into(),
+            expansion: 1.0,
         },
         hovered: WidgetVisuals {
-            bg_fill: accent_background_tint,
-            // use the background-paired accent for hovered weak fill (teal), not the foreground-paired one
-            weak_bg_fill: accent_background_tint,
-            bg_stroke: Stroke::NONE,
-            fg_stroke: Stroke::new(1.4, foreground),
-            corner_radius: 10.0.into(),
-            expansion: 3.0,
+            bg_fill: surface_hover,
+            weak_bg_fill: surface_hover,
+            bg_stroke: Stroke::new(1.0, accent),
+            fg_stroke: Stroke::new(1.2, foreground),
+            corner_radius: 8.0.into(),
+            expansion: 2.0,
         },
         active: WidgetVisuals {
-            // active background uses the foreground-paired accent
-            bg_fill: accent_background,
-            weak_bg_fill: accent_background,
-            bg_stroke: Stroke::NONE,
-            fg_stroke: Stroke::new(1.5, foreground),
-            corner_radius: 10.0.into(),
+            bg_fill: accent,
+            weak_bg_fill: accent,
+            bg_stroke: Stroke::new(1.0, accent),
+            fg_stroke: Stroke::new(1.4, foreground),
+            corner_radius: 8.0.into(),
             expansion: 2.0,
         },
         open: WidgetVisuals {
             bg_fill: background,
             weak_bg_fill: background,
-            bg_stroke: Stroke::NONE,
+            bg_stroke: Stroke::new(1.0, border),
             fg_stroke: Stroke::new(1.0, foreground),
-            corner_radius: 10.0.into(),
-            expansion: 2.0,
+            corner_radius: 8.0.into(),
+            expansion: 1.0,
         },
     };
 
-    // Shadow: derive from base tokens to respect palette (slightly darker than foreground)
     base_visuals.window_shadow = egui::epaint::Shadow {
-        offset: [0, 6],
-        blur: 14,
+        offset: [0, 10],
+        blur: 22,
         spread: 0,
-        color: blend(foreground, background, 0.18),
+        color: blend(foreground, background, 0.25),
     };
 
     base_visuals
 }
 
-pub fn cosmic_gel_light() -> Style {
+pub fn industrial_light() -> Style {
     let mut style = Style::default();
 
-    style.text_styles = cosmic_gel_text_styles().into_iter().collect();
+    style.text_styles = industrial_text_styles().into_iter().collect();
 
-    // Base tokens (physical colors)
-    let foreground = base_ink();
-    let background = base_parchment();
-    // Semantic roles for light theme
-    let accent_foreground = base_purple(); // brand primary
-    let accent_background = base_teal(); // supporting accent
+    let foreground = ral_ink();
+    let background = ral_signal_white();
+    let surface = ral_telegrey();
+    let accent = ral_orange();
 
-    // Build visuals by delegating to the shared transformer
-    let visuals = cosmic_gel(
-        foreground,
-        background,
-        accent_foreground,
-        accent_background,
-        Visuals::light(),
-    );
+    let visuals = industrial(foreground, background, surface, accent, Visuals::light());
 
     style.spacing.item_spacing = egui::vec2(12.0, 10.0);
-    style.spacing.button_padding = egui::vec2(10.0, 7.0);
+    style.spacing.button_padding = egui::vec2(12.0, 8.0);
     style.spacing.indent = 18.0;
     style.spacing.slider_width = 240.0;
-    style.spacing.interact_size = egui::vec2(32.0, 24.0);
-    style.animation_time = 0.14;
+    style.spacing.interact_size = egui::vec2(34.0, 26.0);
+    style.animation_time = 0.12;
 
     style.visuals = visuals;
     style
 }
 
-pub fn cosmic_gel_dark() -> Style {
+pub fn industrial_dark() -> Style {
     let mut style = Style::default();
 
-    style.text_styles = cosmic_gel_text_styles().into_iter().collect();
+    style.text_styles = industrial_text_styles().into_iter().collect();
 
-    // For dark theme keep primary = purple and secondary = teal so background blends
-    // produced by the shared generator use teal (secondary) and foreground accents use purple
-    // Base tokens (physical colors)
-    let foreground = base_parchment();
-    let background = base_ink();
-    let accent_foreground = base_teal();
-    let accent_background = base_purple();
+    let foreground = ral_signal_white();
+    let background = Color32::from_rgb(0x20, 0x23, 0x24);
+    let surface = ral_telegrey();
+    let accent = ral_orange();
 
-    // Delegate to the shared generator using Visuals::dark() as the base
-    let visuals = cosmic_gel(
-        foreground,
-        background,
-        accent_foreground,
-        accent_background,
-        Visuals::dark(),
-    );
+    let visuals = industrial(foreground, background, surface, accent, Visuals::dark());
 
     style.spacing.item_spacing = egui::vec2(12.0, 10.0);
-    style.spacing.button_padding = egui::vec2(10.0, 7.0);
+    style.spacing.button_padding = egui::vec2(12.0, 8.0);
     style.spacing.indent = 18.0;
     style.spacing.slider_width = 240.0;
-    style.spacing.interact_size = egui::vec2(32.0, 24.0);
-    style.animation_time = 0.14;
+    style.spacing.interact_size = egui::vec2(34.0, 26.0);
+    style.animation_time = 0.12;
 
     style.visuals = visuals;
     style
 }
 
-pub fn cosmic_gel_fonts() -> FontDefinitions {
+pub fn industrial_fonts() -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
 
+    // Remove defaults to avoid fallback to built-in fonts.
+    fonts.font_data.clear();
+
     fonts.font_data.insert(
-        "Lora".to_owned(),
+        "Inconsolata".to_owned(),
         std::sync::Arc::new(FontData::from_static(include_bytes!(
-            "../assets/fonts/Lora/Lora-VariableFont_wght.ttf"
+            "../assets/fonts/Inconsolata/Inconsolata-VariableFont_wdth,wght.ttf"
         ))),
     );
 
-    fonts.font_data.insert(
-        "Caprasimo".to_owned(),
-        egui::FontData::from_static(include_bytes!(
-            "../assets/fonts/Caprasimo/Caprasimo-Regular.ttf"
-        ))
-        .into(),
-    );
-
-    fonts.font_data.insert(
-        "JetBrainsMono".to_owned(),
-        egui::FontData::from_static(include_bytes!(
-            "../assets/fonts/JetBrains_Mono/static/JetBrainsMono-Regular.ttf"
-        ))
-        .into(),
-    );
-
-    // Set up font families
-    fonts
-        .families
-        .get_mut(&FontFamily::Proportional)
-        .unwrap()
-        .insert(0, "Lora".to_owned());
-    fonts
-        .families
-        .get_mut(&FontFamily::Monospace)
-        .unwrap()
-        .insert(0, "JetBrainsMono".to_owned());
-
-    fonts
-        .families
-        .insert(FontFamily::Name("Lora".into()), vec!["Lora".to_owned()]);
+    fonts.families.clear();
     fonts.families.insert(
-        FontFamily::Name("Caprasimo".into()),
-        vec!["Caprasimo".to_owned()],
+        FontFamily::Proportional,
+        vec!["Inconsolata".to_owned()],
     );
-    fonts.families.insert(
-        FontFamily::Name("JetBrainsMono".into()),
-        vec!["JetBrainsMono".to_owned()],
-    );
+    fonts
+        .families
+        .insert(FontFamily::Monospace, vec!["Inconsolata".to_owned()]);
+    fonts
+        .families
+        .insert(FontFamily::Name("Inconsolata".into()), vec!["Inconsolata".to_owned()]);
 
     fonts
 }
 
-pub fn cosmic_gel_text_styles() -> Vec<(TextStyle, FontId)> {
+pub fn industrial_text_styles() -> Vec<(TextStyle, FontId)> {
     vec![
         (
             TextStyle::Heading,
-            // Restore the warm, old-book charm
-            FontId::new(30.0, FontFamily::Name("Caprasimo".into())),
+            FontId::new(30.0, FontFamily::Name("Inconsolata".into())),
         ),
         (
             TextStyle::Body,
-            FontId::new(16.0, FontFamily::Name("Lora".into())),
+            FontId::new(16.0, FontFamily::Name("Inconsolata".into())),
         ),
         (
             TextStyle::Monospace,
-            FontId::new(14.0, FontFamily::Name("JetBrainsMono".into())),
+            FontId::new(14.0, FontFamily::Name("Inconsolata".into())),
         ),
         (
             TextStyle::Button,
-            FontId::new(16.0, FontFamily::Name("Lora".into())),
+            FontId::new(16.0, FontFamily::Name("Inconsolata".into())),
         ),
         (
             TextStyle::Small,
-            FontId::new(12.0, FontFamily::Name("Lora".into())),
+            FontId::new(12.0, FontFamily::Name("Inconsolata".into())),
         ),
     ]
 }
