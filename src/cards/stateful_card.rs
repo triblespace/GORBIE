@@ -32,7 +32,7 @@ impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
             .stroke(Stroke::NONE)
             .fill(frame_fill)
             .inner_margin(2.0)
-            .corner_radius(4.0)
+            .corner_radius(10.0)
             .show(ui, |ui| {
                 // thin clickable header area that doesn't take much space
                 let hdr_resp = crate::widgets::collapsing_divider(ui, header_h, |ui| {

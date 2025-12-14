@@ -36,52 +36,73 @@ fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
 
 fn playbook(nb: &mut Notebook) {
     state!(nb, (), (), |ui, _| {
-        md!(ui, "# Palette Playbook\n\nA short story of how our theme palette is constructed from four base tokens.");
+        md!(
+            ui,
+            "# Palette Playbook\n\nA short story of how our industrial theme palette is constructed from four base tokens."
+        );
 
-        // Get the canonical base tokens directly from the themes module
-        let ink = GORBIE::themes::base_ink();
-        let parchment = GORBIE::themes::base_parchment();
-        let brand_primary = GORBIE::themes::base_purple();
-        let contrast_accent = GORBIE::themes::base_teal();
+        let light_foreground = GORBIE::themes::ral(9011);
+        let light_background = GORBIE::themes::ral(7047);
+        let light_surface = GORBIE::themes::ral(7047);
+        let accent = GORBIE::themes::ral(2009);
 
-        // Derived samples (same rules used in themes.rs)
-        let hover_light = blend(parchment, brand_primary, 0.30);
-        let panel_alt = blend(parchment, brand_primary, 0.15);
+        let dark_foreground = GORBIE::themes::ral(9003);
+        let dark_background = GORBIE::themes::ral(7046);
+        let dark_surface = GORBIE::themes::ral(7047);
 
-        let hover_dark = blend(ink, contrast_accent, 0.30);
-        let panel_alt_dark = blend(Color32::from_hex("#281E2F").unwrap(), contrast_accent, 0.10);
+        // Derived samples (same rules used in `themes::industrial`)
+        let light_surface_muted = blend(light_surface, light_background, 0.2);
+        let light_surface_hover = blend(light_surface, accent, 0.08);
+        let light_border = blend(light_foreground, light_background, 0.4);
+
+        let dark_surface_muted = blend(dark_surface, dark_background, 0.2);
+        let dark_surface_hover = blend(dark_surface, accent, 0.08);
+        let dark_border = blend(dark_foreground, dark_background, 0.4);
 
         ui.vertical(|ui| {
             ui.group(|ui| {
-                md!(ui, "## Base tokens");
+                md!(ui, "## Base tokens (light)");
                 ui.horizontal(|ui| {
-                    swatch(ui, ink, "Ink — dark base");
-                    swatch(ui, parchment, "Parchment — light base");
-                    swatch(ui, brand_primary, "Brand primary — purple");
-                    swatch(ui, contrast_accent, "Contrast accent — teal");
+                    swatch(ui, light_foreground, "Foreground — RAL 9011");
+                    swatch(ui, light_background, "Background — RAL 7047 (Telegrey 4)");
+                    swatch(ui, light_surface, "Surface — RAL 7047");
+                    swatch(ui, accent, "Accent — RAL 2009");
                 });
             });
 
             ui.group(|ui| {
-                md!(ui, "## Derived samples (light)");
+                md!(ui, "## Derived samples (light, industrial)");
                 ui.horizontal(|ui| {
-                    swatch(ui, panel_alt, "Panel (inactive)");
-                    swatch(ui, hover_light, "Hover (light)");
-                    swatch(ui, blend(panel_alt, parchment, 0.02), "Panel weak");
+                    swatch(ui, light_surface_muted, "faint_bg_color (muted)");
+                    swatch(ui, light_surface_hover, "extreme_bg_color (hover)");
+                    swatch(ui, light_border, "Border (stroke)");
                 });
             });
 
             ui.group(|ui| {
-                md!(ui, "## Derived samples (dark)");
+                md!(ui, "## Base tokens (dark)");
                 ui.horizontal(|ui| {
-                    swatch(ui, panel_alt_dark, "Panel (inactive, dark)");
-                    swatch(ui, hover_dark, "Hover (dark)");
-                    swatch(ui, blend(panel_alt_dark, ink, 0.08), "Panel weak (dark)");
+                    swatch(ui, dark_foreground, "Foreground — RAL 9003");
+                    swatch(ui, dark_background, "Background — RAL 7046 (Telegrey 2)");
+                    swatch(ui, dark_surface, "Surface — RAL 7047");
+                    swatch(ui, accent, "Accent — RAL 2009");
+                });
+            });
+
+            ui.group(|ui| {
+                md!(ui, "## Derived samples (dark, industrial)");
+                ui.horizontal(|ui| {
+                    swatch(ui, dark_surface_muted, "faint_bg_color (muted)");
+                    swatch(ui, dark_surface_hover, "extreme_bg_color (hover)");
+                    swatch(ui, dark_border, "Border (stroke)");
                 });
             });
         });
 
-        md!(ui, "---\nThese colors are the primitives we use to build the two themes. The light theme uses the purple as Brand Primary while the dark theme swaps to teal as Brand Primary for better contrast on dark backgrounds.");
+        md!(
+            ui,
+            "---\nThese colors are the primitives we use to build the two themes. Both themes share the same accent (RAL 2009), and vary the base background to RAL 7047/7046."
+        );
     });
 }
 

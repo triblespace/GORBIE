@@ -111,7 +111,7 @@ impl eframe::App for Notebook {
                             ui.set_max_width(740.0);
                             for (i, card) in self.cards.iter_mut().enumerate() {
                                 ui.push_id(i, |ui| {
-                                    let card: &mut (dyn cards::Card) = card.as_mut();
+                                    let card: &mut dyn cards::Card = card.as_mut();
                                     ui.add(card);
                                     ui.separator();
                                 });

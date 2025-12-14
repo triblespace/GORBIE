@@ -94,7 +94,7 @@ pub fn industrial(
             weak_bg_fill: surface,
             bg_stroke: Stroke::new(1.0, border),
             fg_stroke: Stroke::new(1.0, foreground),
-            corner_radius: 8.0.into(),
+            corner_radius: 10.0.into(),
             expansion: 1.0,
         },
         inactive: WidgetVisuals {
@@ -102,7 +102,7 @@ pub fn industrial(
             weak_bg_fill: surface,
             bg_stroke: Stroke::new(1.0, border),
             fg_stroke: Stroke::new(1.0, foreground),
-            corner_radius: 8.0.into(),
+            corner_radius: 10.0.into(),
             expansion: 1.0,
         },
         hovered: WidgetVisuals {
@@ -110,7 +110,7 @@ pub fn industrial(
             weak_bg_fill: surface_hover,
             bg_stroke: Stroke::new(1.0, accent),
             fg_stroke: Stroke::new(1.2, foreground),
-            corner_radius: 8.0.into(),
+            corner_radius: 10.0.into(),
             expansion: 2.0,
         },
         active: WidgetVisuals {
@@ -118,7 +118,7 @@ pub fn industrial(
             weak_bg_fill: accent,
             bg_stroke: Stroke::new(1.0, accent),
             fg_stroke: Stroke::new(1.4, foreground),
-            corner_radius: 8.0.into(),
+            corner_radius: 10.0.into(),
             expansion: 2.0,
         },
         open: WidgetVisuals {
@@ -126,7 +126,7 @@ pub fn industrial(
             weak_bg_fill: background,
             bg_stroke: Stroke::new(1.0, border),
             fg_stroke: Stroke::new(1.0, foreground),
-            corner_radius: 8.0.into(),
+            corner_radius: 10.0.into(),
             expansion: 1.0,
         },
     };

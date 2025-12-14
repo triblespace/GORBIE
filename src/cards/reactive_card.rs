@@ -132,7 +132,7 @@ impl<T: Send + std::fmt::Debug + PartialEq + 'static, D: Dependencies + Send + C
                 .stroke(Stroke::NONE)
                 .fill(frame_fill)
                 .inner_margin(2.0)
-                .corner_radius(4.0)
+                .corner_radius(10.0)
                 .show(ui, |ui| {
                     let hdr_resp = crate::widgets::collapsing_divider(ui, header_h, |ui| {
                         if self.show_preview {

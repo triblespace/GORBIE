@@ -21,3 +21,8 @@ egui-theme-switch = "0.4.0"
 [features]
 serde = []
 accesskit = []
+
+[patch.crates-io]
+egui_commonmark_backend = { path = "vendor/egui_commonmark_backend" }
+
+[workspace]
