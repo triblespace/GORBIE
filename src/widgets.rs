@@ -4,12 +4,14 @@
 //! be edited independently.
 
 pub mod collapsing_divider;
+pub mod code;
 pub mod dataframe;
 pub mod load;
 pub mod markdown;
 pub mod slider;
 
 pub use collapsing_divider::collapsing_divider;
+pub use code::code_view;
 pub use dataframe::dataframe;
 pub use load::load_auto;
 pub use load::load_button;

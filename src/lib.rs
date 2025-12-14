@@ -86,7 +86,20 @@ impl eframe::App for Notebook {
                         frame.content_ui.with_layout(
                             egui::Layout::right_to_left(egui::Align::Min),
                             |ui| {
-                                global_theme_switch(ui);
+                                ui.scope(|ui| {
+                                    let dark_mode = ui.visuals().dark_mode;
+                                    let bg = ui.visuals().window_fill;
+
+                                    if dark_mode {
+                                        let widgets = &mut ui.visuals_mut().widgets;
+                                        widgets.inactive.bg_fill = bg;
+                                        widgets.inactive.weak_bg_fill = bg;
+                                        widgets.hovered.bg_fill = bg;
+                                        widgets.hovered.weak_bg_fill = bg;
+                                    }
+
+                                    global_theme_switch(ui);
+                                });
                             },
                         );
                     }

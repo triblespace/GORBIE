@@ -143,15 +143,7 @@ impl<T: Send + std::fmt::Debug + PartialEq + 'static, D: Dependencies + Send + C
                                 ui.add_space(8.0);
 
                                 ui.vertical(|ui| {
-                                    let language = "rs";
-                                    let theme =
-                                        egui_extras::syntax_highlighting::CodeTheme::from_memory(
-                                            ui.ctx(),
-                                            ui.style(),
-                                        );
-                                    egui_extras::syntax_highlighting::code_view_ui(
-                                        ui, &theme, code, language,
-                                    );
+                                    let _ = crate::widgets::code_view(ui, code, "rs");
                                 });
 
                                 // Right margin filler
