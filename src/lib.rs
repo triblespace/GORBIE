@@ -63,7 +63,7 @@ impl Notebook {
                     .expect("failed to set exit signal handler");
 
                 cc.egui_ctx.set_fonts(industrial_fonts());
-
+                
                 cc.egui_ctx
                     .set_style_of(egui::Theme::Light, industrial_light());
                 cc.egui_ctx

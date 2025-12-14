@@ -1135,9 +1135,9 @@ impl From<&EguiStyle> for GorbieSliderStyle {
         let dark_mode = style.visuals.dark_mode;
 
         if dark_mode {
-            let _background = crate::themes::ral_ink();
-            let accent_foreground = crate::themes::ral_orange();
-            let accent_background = crate::themes::ral_telegrey();
+            let _background = crate::themes::ral(9011);
+            let accent_foreground = crate::themes::ral(2009);
+            let accent_background = crate::themes::ral(7047);
 
             GorbieSliderStyle {
                 rail_bg: accent_background,
@@ -1148,9 +1148,9 @@ impl From<&EguiStyle> for GorbieSliderStyle {
                 knob_extra_radius: 0.0,
             }
         } else {
-            let _background = crate::themes::ral_signal_white();
-            let accent_foreground = crate::themes::ral_orange();
-            let accent_background = crate::themes::ral_telegrey();
+            let _background = crate::themes::ral(9003);
+            let accent_foreground = crate::themes::ral(2009);
+            let accent_background = crate::themes::ral(7047);
 
             GorbieSliderStyle {
                 rail_bg: accent_background,

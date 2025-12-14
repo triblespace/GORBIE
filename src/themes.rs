@@ -1,11 +1,10 @@
 use egui::style::{Selection, WidgetVisuals, Widgets};
-use egui::{
-    Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style, TextStyle, Vec2,
-    Visuals,
-};
+use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style, TextStyle, Vec2, Visuals};
 
 mod style;
 pub use style::Styled;
+pub mod ral;
+use ral::RAL_COLORS;
 
 /// Gorbie-specific semantic style for the custom slider widget.
 #[derive(Clone, Debug)]
@@ -21,9 +20,9 @@ pub struct GorbieSliderStyle {
 /// Return a `GorbieSliderStyle` preset for light/dark mode based on our base tokens.
 pub fn slider_style(dark_mode: bool) -> GorbieSliderStyle {
     if dark_mode {
-        let background = ral_telegrey();
-        let accent_foreground = ral_orange();
-        let accent_background = ral_orange();
+        let background = ral(7047);
+        let accent_foreground = ral(2009);
+        let accent_background = ral(2009);
 
         GorbieSliderStyle {
             rail_bg: blend(background, accent_background, 0.10),
@@ -31,12 +30,12 @@ pub fn slider_style(dark_mode: bool) -> GorbieSliderStyle {
             knob: accent_foreground,
             shadow: accent_background,
             shadow_offset: egui::vec2(-3.0, 0.0),
-            knob_extra_radius: 0.0,
+            knob_extra_radius: 1.0,
         }
     } else {
-        let background = ral_signal_white();
-        let accent_foreground = ral_orange();
-        let accent_background = ral_telegrey();
+        let background = ral(9003);
+        let accent_foreground = ral(2009);
+        let accent_background = ral(7047);
 
         GorbieSliderStyle {
             rail_bg: blend(background, accent_background, 0.10),
@@ -44,7 +43,7 @@ pub fn slider_style(dark_mode: bool) -> GorbieSliderStyle {
             knob: accent_foreground,
             shadow: accent_background,
             shadow_offset: egui::vec2(-3.0, 0.0),
-            knob_extra_radius: 0.0,
+            knob_extra_radius: 1.0,
         }
     }
 }
@@ -57,18 +56,12 @@ pub fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
     Color32::from_rgb(r, g, bch)
 }
 
-// RAL palette
-pub fn ral_orange() -> Color32 {
-    Color32::from_rgb(0xF4, 0x46, 0x11) // Traffic Orange (RAL 2009)
-}
-pub fn ral_signal_white() -> Color32 {
-    Color32::from_rgb(0xF4, 0xF4, 0xF4) // Signal White (RAL 9003)
-}
-pub fn ral_telegrey() -> Color32 {
-    Color32::from_rgb(0xCF, 0xD3, 0xD5) // Telegrey (RAL 7047)
-}
-pub fn ral_ink() -> Color32 {
-    Color32::from_rgb(0x1C, 0x1C, 0x1C)
+pub fn ral(num: u16) -> Color32 {
+    RAL_COLORS
+        .iter()
+        .find(|(code, _, _)| *code == num)
+        .map(|(_, _, c)| *c)
+        .unwrap_or(Color32::from_rgb(0, 0, 0))
 }
 
 /// Build visuals from the RAL palette for a clean, industrial feel.
@@ -84,7 +77,7 @@ pub fn industrial(
     let border = blend(foreground, background, 0.4);
 
     base_visuals.window_fill = background;
-    base_visuals.panel_fill = surface;
+    base_visuals.panel_fill = background;
     base_visuals.override_text_color = None;
     base_visuals.faint_bg_color = surface_muted;
     base_visuals.extreme_bg_color = surface_hover;
@@ -153,10 +146,10 @@ pub fn industrial_light() -> Style {
 
     style.text_styles = industrial_text_styles().into_iter().collect();
 
-    let foreground = ral_ink();
-    let background = ral_signal_white();
-    let surface = ral_telegrey();
-    let accent = ral_orange();
+    let foreground = ral(9011);
+    let background = ral(7047);
+    let surface = ral(7047);
+    let accent = ral(2009);
 
     let visuals = industrial(foreground, background, surface, accent, Visuals::light());
 
@@ -176,10 +169,10 @@ pub fn industrial_dark() -> Style {
 
     style.text_styles = industrial_text_styles().into_iter().collect();
 
-    let foreground = ral_signal_white();
-    let background = Color32::from_rgb(0x20, 0x23, 0x24);
-    let surface = ral_telegrey();
-    let accent = ral_orange();
+    let foreground = ral(9003);
+    let background = ral(7046);
+    let surface = ral(7047);
+    let accent = ral(2009);
 
     let visuals = industrial(foreground, background, surface, accent, Visuals::dark());
 
