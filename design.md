@@ -8,6 +8,21 @@ The analysis reveals that these diverse subjects—spanning hardware manufacturi
 
 This investigation synthesizes primary documentation, product specifications, critical reviews, and design manifestos to map the contours of this aesthetic. It explores how Teenage Engineering’s industrial "office fun" design informs the user interface; how Zachtronics gamifies the "work" of engineering through diegetic manuals; how *Routine* constructs a believable "Cassette Futurist" world; and how Radiant Computer attempts to codify these principles into a functioning operating system and hardware platform. The report posits that this convergence represents a burgeoning **"Electro-Industrial"** cultural shift, where the digital becomes tangible, and the complex becomes comprehensible.
 
+## **TL;DR (Implementation Cheat Sheet)**
+
+This doc is a mood + philosophy map. If you just want the build rules, start here:
+
+* **Metaphor:** treat the UI as an **instrument** (learnable, precise, honest), not an appliance.
+* **Color:** use **RAL neutrals** for structure; reserve saturation for meaning (**Traffic Orange / RAL 2009**) and keep it scarce.
+* **Backgrounds:** a calm, industrial “paper” field is the default; avoid gradients and decorative textures.
+* **Layout:** one dominant “page”/column; margins are “marginalia” (e.g. dot grid), not extra chrome.
+* **Structure:** prefer **single-line dividers** and consistent strokes over boxes-with-boxes.
+* **Shape language:** straight edges for structural containers; rounded corners for controls/media (consistent radius).
+* **Typography:** typography is the ornament—monospace, strong hierarchy, occasional uppercase “label plates”.
+* **Motion:** minimal; if it moves, it should communicate state (loading, focus), not delight-for-delight’s-sake.
+* **Glitch/texture:** if used, it should emerge from constraints (or be subtle and structural), not be pasted on.
+* **Rule of thumb:** when unsure, add a constraint or clarify the system—don’t add decoration.
+
 ## ---
 
 **1\. Introduction: The Post-Frictionless Era and the Rise of Instrumental Realism**
@@ -319,6 +334,28 @@ This insight is the key to understanding the **authenticity** of the design lang
 * **Radiant:** By rejecting the "smoothness" of modern web engines, Radiant embraces the friction of a "clean slate." It tries to be a modern computer, but in doing so, it reveals the raw edges of the hardware and the code, demanding the user meet it halfway.
 
 **Design Takeaway:** To successfully emulate this language, one must not design "glitches" or "retro vibes." One must design **constraints** and **systems that try to work**, allowing the "glitch" to emerge naturally from the system's struggle to function.
+
+### **6.9 Implications for GORBIE (Notebook UI)**
+
+If this aesthetic is the target, here is how it translates into concrete notebook UI rules:
+
+* **Core metaphor:** the notebook is a **printed engineering log** you scroll through; each card is a “section” on the page, not a floating window.
+* **Palette (practical RAL tokens):**
+  * `bg/light`: Telegrey 4 (RAL 7047)
+  * `bg/dark`: Telegrey 2 (RAL 7046)
+  * `text/light`: Graphite black (RAL 9011)
+  * `text/dark`: Signal white (RAL 9003)
+  * `accent`: Traffic orange (RAL 2009) — use for state/meaning, not decoration.
+  * `border`: derived (blend fg/bg), not a new hue.
+* **Shape language:**
+  * Structural containers (page column, card stack, dividers): `radius = 0`.
+  * Interactive controls, code blocks, and embedded media: `radius ≈ 10px` with a subtle stroke.
+* **Strokes and dividers:** prefer a single 1px stroke for outlines/dividers; avoid nested borders (“box inside box”).
+* **Spacing scale:** pick a small set and repeat it (e.g. page padding `16×12`, header-to-content gap `12`, card-to-card gap `0` plus a divider line).
+* **Header:** keep global controls in a small header strip; show an uppercase filename for fullscreen context. If the only available path is absolute, prefer the basename and expose the full path via hover tooltip.
+* **Markdown/code/media:** code blocks should always have a dedicated, high-contrast code background; embedded images get the same rounding + stroke as code blocks.
+* **Marginalia:** side margins can carry subtle structure (dot grid), but should never compete with the page column.
+* **Shadows:** treat shadows as “elevation semantics” (menus, popovers). Avoid using shadows as decoration for primary content.
 
 ## ---
 

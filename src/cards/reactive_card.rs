@@ -127,10 +127,8 @@ impl<T: Send + std::fmt::Debug + PartialEq + 'static, D: Dependencies + Send + C
         if let Some(code) = &mut self.code {
             ui.add_space(8.0);
             let header_h = 4.0;
-            let frame_fill = ui.style().visuals.widgets.inactive.bg_fill;
             Frame::group(ui.style())
                 .stroke(Stroke::NONE)
-                .fill(frame_fill)
                 .inner_margin(2.0)
                 .corner_radius(10.0)
                 .show(ui, |ui| {
