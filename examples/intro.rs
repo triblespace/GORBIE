@@ -72,8 +72,8 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
 
     let progress = derive!(nb, (slider), move |(slider,)| {
         //Derives are executed on a new thread, so we can sleep or perform heavy computations here.
-        //Uncomment the line below to see waiting in action.
-        //std::thread::sleep(std::time::Duration::from_secs(2));
+        // Sleep a bit so we can clearly see the "computing" hatch pattern.
+        std::thread::sleep(std::time::Duration::from_secs(1));
         slider * 0.5
     });
 

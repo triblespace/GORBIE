@@ -122,7 +122,7 @@ impl eframe::App for Notebook {
                         let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
                         let fill = ui.visuals().window_fill;
 
-                        let column_inner_margin = egui::Margin::symmetric(16, 12);
+                        let column_inner_margin = egui::Margin::symmetric(0, 12);
                         let code_note_width = right_margin.width().clamp(260.0, 480.0);
 
                         egui::Frame::new()
@@ -133,6 +133,7 @@ impl eframe::App for Notebook {
                             .show(ui, |ui| {
                                 // Theme switch is part of the page header (above the first card).
                                 ui.horizontal(|ui| {
+                                    ui.add_space(16.0);
                                     if !self.header_title.is_empty() {
                                         ui.add(
                                             egui::Label::new(self.header_title.clone()).truncate(),
@@ -142,6 +143,7 @@ impl eframe::App for Notebook {
                                     ui.with_layout(
                                         egui::Layout::right_to_left(egui::Align::Center),
                                         |ui| {
+                                            ui.add_space(16.0);
                                             ui.scope(|ui| {
                                                 let dark_mode = ui.visuals().dark_mode;
                                                 let bg = ui.visuals().window_fill;
@@ -162,8 +164,7 @@ impl eframe::App for Notebook {
 
                                 ui.add_space(12.0);
 
-                                let divider_x_range =
-                                    ui.max_rect().x_range().expand(column_inner_margin.leftf());
+                                let divider_x_range = ui.max_rect().x_range();
 
                                 self.code_notes_open.resize(self.cards.len(), false);
 
@@ -178,6 +179,7 @@ impl eframe::App for Notebook {
                                         let inner = egui::Frame::group(ui.style())
                                             .stroke(egui::Stroke::NONE)
                                             .corner_radius(0.0)
+                                            .inner_margin(egui::Margin::ZERO)
                                             .show(ui, |ui| {
                                                 ui.reset_style();
                                                 ui.set_width(ui.available_width());

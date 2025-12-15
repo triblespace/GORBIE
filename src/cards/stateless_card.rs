@@ -8,7 +8,12 @@ pub struct StatelessCard {
 
 impl Card for StatelessCard {
     fn draw(&mut self, ui: &mut egui::Ui) {
-        (self.function)(ui);
+        egui::Frame::new()
+            .inner_margin(egui::Margin::symmetric(16, 12))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                (self.function)(ui);
+            });
     }
 
     fn code(&self) -> Option<&str> {

@@ -24,6 +24,7 @@ impl Widget for &mut dyn Card {
         egui::Frame::group(ui.style())
             .stroke(egui::Stroke::NONE)
             .corner_radius(0.0)
+            .inner_margin(egui::Margin::ZERO)
             .show(ui, |ui| {
                 // Allow the notebook layout to remove inter-card spacing without
                 // affecting spacing inside the card content.

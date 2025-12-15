@@ -15,8 +15,13 @@ pub struct StatefulCard<T> {
 
 impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
     fn draw(&mut self, ui: &mut egui::Ui) {
-        let mut current = self.current.write();
-        (self.function)(ui, &mut current);
+        egui::Frame::new()
+            .inner_margin(egui::Margin::symmetric(16, 12))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                let mut current = self.current.write();
+                (self.function)(ui, &mut current);
+            });
     }
 
     fn code(&self) -> Option<&str> {
