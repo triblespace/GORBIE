@@ -3,15 +3,15 @@
 //! The actual widget implementations live in `src/widgets/*.rs` so each widget can
 //! be edited independently.
 
-pub mod collapsing_divider;
 pub mod code;
+pub mod collapsing_divider;
 pub mod dataframe;
 pub mod load;
 pub mod markdown;
 pub mod slider;
 
-pub use collapsing_divider::collapsing_divider;
 pub use code::code_view;
+pub use collapsing_divider::collapsing_divider;
 pub use dataframe::dataframe;
 pub use load::load_auto;
 pub use load::load_button;

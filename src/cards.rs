@@ -17,13 +17,17 @@ pub trait Card {
 
 impl Widget for &mut dyn Card {
     fn ui(self, ui: &mut egui::Ui) -> Response {
-        // Delegate the call to the draw method of the Card trait
-        // This allows us to use the Card trait as a Widget in egui
-        // without needing to implement Widget directly on each card type.
-        ui.group(|ui| {
-            self.draw(ui);
-        })
-        .response
+        egui::Frame::group(ui.style())
+            .stroke(egui::Stroke::NONE)
+            .corner_radius(0.0)
+            .show(ui, |ui| {
+                // Allow the notebook layout to remove inter-card spacing without
+                // affecting spacing inside the card content.
+                ui.reset_style();
+                ui.set_width(ui.available_width());
+                self.draw(ui);
+            })
+            .response
     }
 }
 

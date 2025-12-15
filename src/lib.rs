@@ -32,6 +32,7 @@ use crate::themes::industrial_light;
 /// Each card is a piece of content that can be displayed in the notebook.
 /// Cards can be stateless, stateful, or reactively derived from other cards.
 pub struct Notebook {
+    header_title: egui::WidgetText,
     pub cards: Vec<Box<dyn cards::Card + 'static>>,
 }
 
@@ -43,7 +44,10 @@ impl Default for Notebook {
 
 impl Notebook {
     pub fn new() -> Self {
-        Self { cards: Vec::new() }
+        Self {
+            header_title: egui::WidgetText::default(),
+            cards: Vec::new(),
+        }
     }
 
     pub fn push(&mut self, card: Box<dyn cards::Card>) {
@@ -51,6 +55,12 @@ impl Notebook {
     }
 
     pub fn run(self, name: &str) -> eframe::Result {
+        let mut notebook = self;
+        notebook.header_title = egui::RichText::new(name.to_uppercase())
+            .monospace()
+            .strong()
+            .into();
+
         let mut native_options = eframe::NativeOptions::default();
         native_options.persist_window = true;
 
@@ -63,13 +73,13 @@ impl Notebook {
                     .expect("failed to set exit signal handler");
 
                 cc.egui_ctx.set_fonts(industrial_fonts());
-                
+
                 cc.egui_ctx
                     .set_style_of(egui::Theme::Light, industrial_light());
                 cc.egui_ctx
                     .set_style_of(egui::Theme::Dark, industrial_dark());
 
-                Ok(Box::new(self))
+                Ok(Box::new(notebook))
             }),
         )
     }
@@ -78,49 +88,119 @@ impl Notebook {
 impl eframe::App for Notebook {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical()
-                .auto_shrink(false)
-                .show(ui, |ui| {
-                    let mut frame = egui::Frame::default().outer_margin(16.0).begin(ui);
-                    {
-                        frame.content_ui.with_layout(
-                            egui::Layout::right_to_left(egui::Align::Min),
-                            |ui| {
-                                ui.scope(|ui| {
-                                    let dark_mode = ui.visuals().dark_mode;
-                                    let bg = ui.visuals().window_fill;
+            let rect = ui.max_rect();
 
-                                    if dark_mode {
-                                        let widgets = &mut ui.visuals_mut().widgets;
-                                        widgets.inactive.bg_fill = bg;
-                                        widgets.inactive.weak_bg_fill = bg;
-                                        widgets.hovered.bg_fill = bg;
-                                        widgets.hovered.weak_bg_fill = bg;
-                                    }
+            let column_max_width: f32 = 740.0;
+            let column_width = column_max_width.min(rect.width());
+            let side_margin_width = ((rect.width() - column_width) / 2.0).max(0.0);
 
-                                    global_theme_switch(ui);
-                                });
-                            },
-                        );
-                    }
-                    frame.end(ui);
+            let left_margin = egui::Rect::from_min_max(
+                rect.min,
+                egui::pos2(rect.min.x + side_margin_width, rect.max.y),
+            );
+            let column_rect = egui::Rect::from_min_max(
+                egui::pos2(left_margin.max.x, rect.min.y),
+                egui::pos2(left_margin.max.x + column_width, rect.max.y),
+            );
+            let right_margin =
+                egui::Rect::from_min_max(egui::pos2(column_rect.max.x, rect.min.y), rect.max);
 
-                    let frame = egui::Frame::default().begin(ui);
-                    {
-                        ui.vertical_centered(|ui| {
-                            ui.set_max_width(740.0);
-                            for (i, card) in self.cards.iter_mut().enumerate() {
-                                ui.push_id(i, |ui| {
-                                    let card: &mut dyn cards::Card = card.as_mut();
-                                    ui.add(card);
-                                    ui.separator();
-                                });
+            paint_dot_grid(ui, left_margin);
+            paint_dot_grid(ui, right_margin);
+
+            ui.scope_builder(egui::UiBuilder::new().max_rect(column_rect), |ui| {
+                ui.set_min_size(column_rect.size());
+
+                let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+                let fill = ui.visuals().window_fill;
+
+                egui::Frame::new()
+                    .fill(fill)
+                    .stroke(stroke)
+                    .corner_radius(0.0)
+                    .inner_margin(egui::Margin::symmetric(16, 12))
+                    .show(ui, |ui| {
+                        // Theme switch is part of the page header (above the first card).
+                        ui.horizontal(|ui| {
+                            if !self.header_title.is_empty() {
+                                ui.add(egui::Label::new(self.header_title.clone()).truncate());
                             }
+
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.scope(|ui| {
+                                        let dark_mode = ui.visuals().dark_mode;
+                                        let bg = ui.visuals().window_fill;
+
+                                        if dark_mode {
+                                            let widgets = &mut ui.visuals_mut().widgets;
+                                            widgets.inactive.bg_fill = bg;
+                                            widgets.inactive.weak_bg_fill = bg;
+                                            widgets.hovered.bg_fill = bg;
+                                            widgets.hovered.weak_bg_fill = bg;
+                                        }
+
+                                        global_theme_switch(ui);
+                                    });
+                                },
+                            );
                         });
-                    }
-                    frame.end(ui);
-                });
+
+                        ui.add_space(12.0);
+
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false; 2])
+                            .show(ui, |ui| {
+                                ui.style_mut().spacing.item_spacing.y = 0.0;
+                                for (i, card) in self.cards.iter_mut().enumerate() {
+                                    ui.push_id(i, |ui| {
+                                        let card: &mut dyn cards::Card = card.as_mut();
+                                        let resp = ui.add(card);
+                                        if i > 0 {
+                                            ui.painter().hline(
+                                                resp.rect.x_range(),
+                                                resp.rect.top(),
+                                                ui.visuals().widgets.noninteractive.bg_stroke,
+                                            );
+                                        }
+                                    });
+                                }
+                            });
+                    });
+            });
         });
+    }
+}
+
+fn paint_dot_grid(ui: &egui::Ui, rect: egui::Rect) {
+    if rect.width() <= 0.0 || rect.height() <= 0.0 {
+        return;
+    }
+
+    let painter = ui.painter_at(rect);
+
+    let spacing = 18.0;
+    let radius = 1.2;
+    let color = ui
+        .visuals()
+        .widgets
+        .noninteractive
+        .bg_stroke
+        .color
+        .gamma_multiply(0.35);
+
+    let start_x = (rect.left() / spacing).floor() * spacing + spacing / 2.0;
+    let start_y = (rect.top() / spacing).floor() * spacing + spacing / 2.0;
+
+    let mut y = start_y;
+    while y < rect.bottom() {
+        let mut x = start_x;
+        while x < rect.right() {
+            painter.circle_filled(egui::pos2(x, y), radius, color);
+            x += spacing;
+        }
+        y += spacing;
     }
 }
 

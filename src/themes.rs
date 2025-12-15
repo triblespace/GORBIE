@@ -1,5 +1,7 @@
 use egui::style::{Selection, WidgetVisuals, Widgets};
-use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style, TextStyle, Vec2, Visuals};
+use egui::{
+    Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style, TextStyle, Vec2, Visuals,
+};
 
 mod style;
 pub use style::Styled;
@@ -201,16 +203,16 @@ pub fn industrial_fonts() -> FontDefinitions {
     );
 
     fonts.families.clear();
-    fonts.families.insert(
-        FontFamily::Proportional,
-        vec!["Inconsolata".to_owned()],
-    );
+    fonts
+        .families
+        .insert(FontFamily::Proportional, vec!["Inconsolata".to_owned()]);
     fonts
         .families
         .insert(FontFamily::Monospace, vec!["Inconsolata".to_owned()]);
-    fonts
-        .families
-        .insert(FontFamily::Name("Inconsolata".into()), vec!["Inconsolata".to_owned()]);
+    fonts.families.insert(
+        FontFamily::Name("Inconsolata".into()),
+        vec!["Inconsolata".to_owned()],
+    );
 
     fonts
 }

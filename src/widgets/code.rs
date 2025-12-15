@@ -10,7 +10,8 @@ pub fn code_view(ui: &mut egui::Ui, code: &str, language: &str) -> egui::Respons
         .inner_margin(egui::Margin::same(8))
         .corner_radius(10.0)
         .show(ui, |ui| {
-            let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(ui.ctx(), ui.style());
+            let theme =
+                egui_extras::syntax_highlighting::CodeTheme::from_memory(ui.ctx(), ui.style());
             egui_extras::syntax_highlighting::code_view_ui(ui, &theme, code, language)
         });
 

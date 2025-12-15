@@ -251,8 +251,12 @@ impl Image {
                 .corner_radius(corner_radius),
         );
 
-        ui.painter()
-            .rect_stroke(response.rect, corner_radius, stroke, egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(
+            response.rect,
+            corner_radius,
+            stroke,
+            egui::StrokeKind::Inside,
+        );
 
         if !self.alt_text.is_empty() && options.show_alt_text_on_hover {
             response.on_hover_ui_at_pointer(|ui| {
