@@ -17,6 +17,10 @@ pub trait Card {
     fn code(&self) -> Option<&str> {
         None
     }
+
+    fn is_updating(&self) -> bool {
+        false
+    }
 }
 
 impl Widget for &mut dyn Card {

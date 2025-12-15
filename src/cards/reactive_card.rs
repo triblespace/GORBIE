@@ -108,10 +108,29 @@ impl<T: Send + std::fmt::Debug + PartialEq + 'static, D: Dependencies + Send + C
         if matches!(&*current, ComputedState::Init(_) | ComputedState::Stale(_, _, _)) {
             ui.ctx().request_repaint();
         }
+
+        match &*current {
+            ComputedState::Ready(value, _) => {
+                ui.monospace(format!("{value:?}"));
+            }
+            ComputedState::Stale(previous, _, _) => {
+                ui.monospace(format!("{previous:?}"));
+            }
+            _ => {
+                ui.monospace("…");
+            }
+        }
     }
 
     fn code(&self) -> Option<&str> {
         self.code.as_deref()
+    }
+
+    fn is_updating(&self) -> bool {
+        matches!(
+            &*self.value.read(),
+            ComputedState::Init(_) | ComputedState::Stale(_, _, _)
+        )
     }
 }
 

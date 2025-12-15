@@ -239,6 +239,34 @@ impl eframe::App for Notebook {
                                             inner.response.rect.top(),
                                             ui.visuals().widgets.noninteractive.bg_stroke,
                                         );
+
+                                        if card.is_updating() {
+                                            let rect = inner.response.rect.shrink(2.0);
+                                            let painter = ui.painter().with_clip_rect(rect);
+
+                                            let stripe_spacing = 10.0;
+                                            let stripe_width = 1.0;
+                                            let stripe_color = {
+                                                let [r, g, b, _] =
+                                                    ui.visuals().hyperlink_color.to_srgba_unmultiplied();
+                                                egui::Color32::from_rgba_unmultiplied(r, g, b, 42)
+                                            };
+
+                                            let stroke = egui::Stroke::new(stripe_width, stripe_color);
+                                            let h = rect.height();
+
+                                            let mut x = rect.left() - h;
+                                            while x < rect.right() + h {
+                                                painter.line_segment(
+                                                    [
+                                                        egui::pos2(x, rect.top()),
+                                                        egui::pos2(x + h, rect.bottom()),
+                                                    ],
+                                                    stroke,
+                                                );
+                                                x += stripe_spacing;
+                                            }
+                                        }
                                     });
                                 }
                             });
