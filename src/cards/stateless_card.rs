@@ -1,48 +1,80 @@
 use crate::cards::Card;
 use crate::Notebook;
-use eframe::egui::Frame;
-use eframe::egui::Stroke;
 
 pub struct StatelessCard {
     function: Box<dyn FnMut(&mut egui::Ui)>,
     code: Option<String>,
-    show_preview: bool,
+    show_code_note: bool,
 }
 
 impl Card for StatelessCard {
     fn draw(&mut self, ui: &mut egui::Ui) {
         (self.function)(ui);
 
-        if let Some(code) = &mut self.code {
-            ui.add_space(8.0);
-            let header_h = 4.0;
-            Frame::group(ui.style())
-                .stroke(Stroke::NONE)
-                .inner_margin(2.0)
-                .corner_radius(10.0)
-                .show(ui, |ui| {
-                    let hdr_resp = crate::widgets::collapsing_divider(ui, header_h, |ui| {
-                        if self.show_preview {
-                            // Inner area with side margins so content aligns left
-                            ui.add_space(6.0);
-                            ui.horizontal(|ui| {
-                                // Left margin
-                                ui.add_space(8.0);
+        if self.code.is_none() {
+            self.show_code_note = false;
+            return;
+        }
 
-                                ui.vertical(|ui| {
-                                    let _ = crate::widgets::code_view(ui, code, "rs");
-                                });
+        ui.add_space(8.0);
 
-                                // Right margin filler
-                                ui.add_space(8.0);
+        let button_size = egui::vec2(24.0, 24.0);
+        let (row_rect, _) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), button_size.y),
+            egui::Sense::hover(),
+        );
+
+        let right_btn_rect = egui::Rect::from_min_size(
+            egui::pos2(row_rect.max.x - button_size.x, row_rect.min.y),
+            button_size,
+        );
+
+        let code_btn = ui
+            .scope_builder(egui::UiBuilder::new().max_rect(right_btn_rect), |ui| {
+                ui.push_id("marginalia_code_btn", |ui| {
+                    ui.add_sized(
+                        button_size,
+                        egui::Button::new(egui::RichText::new("{}").monospace()),
+                    )
+                    .on_hover_text("Toggle code note")
+                })
+                .inner
+            })
+            .inner;
+
+        if code_btn.clicked() {
+            self.show_code_note = !self.show_code_note;
+        }
+
+        let screen = ui.ctx().screen_rect();
+        let card_rect = ui.max_rect();
+        let right_margin_width = (screen.right() - card_rect.right()).max(0.0);
+        let code_note_width = right_margin_width.clamp(260.0, 480.0);
+
+        if self.show_code_note {
+            if let Some(code) = self.code.as_deref() {
+                let _ = crate::widgets::pinned_note(
+                    ui,
+                    &code_btn,
+                    &mut self.show_code_note,
+                    egui::RectAlign::RIGHT_END,
+                    code_note_width,
+                    |ui| {
+                        egui::ScrollArea::both()
+                            .auto_shrink([false; 2])
+                            .max_height(320.0)
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::Label::new(egui::RichText::new(code).monospace())
+                                        .selectable(true)
+                                        .wrap_mode(egui::TextWrapMode::Extend),
+                                );
                             });
-                        }
-                    });
-
-                    if hdr_resp.clicked() {
-                        self.show_preview = !self.show_preview;
-                    }
-                });
+                    },
+                );
+            } else {
+                self.show_code_note = false;
+            }
         }
     }
 }
@@ -55,7 +87,7 @@ pub fn stateless_card(
     nb.push(Box::new(StatelessCard {
         function: Box::new(function),
         code: code.map(|s| s.to_owned()),
-        show_preview: false,
+        show_code_note: false,
     }));
 }
 

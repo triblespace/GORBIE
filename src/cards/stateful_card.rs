@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use egui::Frame;
-use egui::Stroke;
 use parking_lot::RwLock;
 
 use crate::cards::Card;
@@ -14,9 +12,8 @@ pub struct StatefulCard<T> {
     function: Box<dyn FnMut(&mut egui::Ui, &mut T)>,
     code: Option<String>,
     // UI state for the card so we don't rely on global memory.
-    show_preview: bool,
-    // 0 = value, 1 = code
-    preview_tab: usize,
+    show_value_note: bool,
+    show_code_note: bool,
 }
 
 impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
@@ -24,71 +21,115 @@ impl<T: std::fmt::Debug + std::default::Default> Card for StatefulCard<T> {
         let mut current = self.current.write();
         (self.function)(ui, &mut current);
 
-        // Unified preview panel (value + optional code) ------------------------
+        if self.code.is_none() {
+            self.show_code_note = false;
+        }
+
         ui.add_space(8.0);
-        let header_h = 4.0; // thin divider-like header
-        Frame::group(ui.style())
-            .stroke(Stroke::NONE)
-            .inner_margin(2.0)
-            .corner_radius(10.0)
-            .show(ui, |ui| {
-                // thin clickable header area that doesn't take much space
-                let hdr_resp = crate::widgets::collapsing_divider(ui, header_h, |ui| {
-                    // Only show tabs and copy controls when expanded
-                    if self.show_preview {
-                        // Inner area with side margins so content and tabs align left
-                        ui.add_space(6.0);
-                        ui.horizontal(|ui| {
-                            // Left margin
-                            ui.add_space(8.0);
 
-                            ui.vertical(|ui| {
-                                // Controls row: tabs on the left, copy on the right
-                                ui.horizontal(|ui| {
-                                    ui.selectable_value(&mut self.preview_tab, 0, "Value");
-                                    if self.code.is_some() {
-                                        ui.selectable_value(&mut self.preview_tab, 1, "Code");
-                                    }
+        let button_size = egui::vec2(24.0, 24.0);
+        let (row_rect, _) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width(), button_size.y),
+            egui::Sense::hover(),
+        );
 
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            let copy_btn = egui::Button::new("Copy").frame(false);
-                                            if ui
-                                                .add(copy_btn)
-                                                .on_hover_text("Copy current preview to clipboard")
-                                                .clicked()
-                                            {
-                                                if self.preview_tab == 0 {
-                                                    ui.ctx().copy_text(format!("{:?}", &*current));
-                                                } else if let Some(code) = &self.code {
-                                                    ui.ctx().copy_text(code.clone());
-                                                }
-                                            }
-                                        },
-                                    );
-                                });
+        let left_btn_rect = egui::Rect::from_min_size(row_rect.min, button_size);
+        let right_btn_rect = egui::Rect::from_min_size(
+            egui::pos2(row_rect.max.x - button_size.x, row_rect.min.y),
+            button_size,
+        );
 
-                                // Content (left-aligned within the vertical column)
-                                ui.add_space(6.0);
-                                if self.preview_tab == 0 {
-                                    ui.monospace(format!("{:?}", &*current));
-                                } else if let Some(code) = &mut self.code {
-                                    let _ = crate::widgets::code_view(ui, code, "rs");
-                                }
-                            });
+        let value_btn = ui
+            .scope_builder(egui::UiBuilder::new().max_rect(left_btn_rect), |ui| {
+                ui.push_id("marginalia_value_btn", |ui| {
+                    ui.add_sized(
+                        button_size,
+                        egui::Button::new(egui::RichText::new("V").monospace()),
+                    )
+                    .on_hover_text("Toggle value note")
+                })
+                .inner
+            })
+            .inner;
 
-                            // Right margin filler
-                            ui.add_space(8.0);
+        if value_btn.clicked() {
+            self.show_value_note = !self.show_value_note;
+        }
+
+        let code_btn = self.code.as_ref().map(|_| {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(right_btn_rect), |ui| {
+                ui.push_id("marginalia_code_btn", |ui| {
+                    ui.add_sized(
+                        button_size,
+                        egui::Button::new(egui::RichText::new("{}").monospace()),
+                    )
+                    .on_hover_text("Toggle code note")
+                })
+                .inner
+            })
+            .inner
+        });
+
+        if code_btn.as_ref().is_some_and(|btn| btn.clicked()) {
+            self.show_code_note = !self.show_code_note;
+        }
+
+        let screen = ui.ctx().screen_rect();
+        let card_rect = ui.max_rect();
+        let left_margin_width = (card_rect.left() - screen.left()).max(0.0);
+        let right_margin_width = (screen.right() - card_rect.right()).max(0.0);
+        let value_note_width = left_margin_width.clamp(220.0, 360.0);
+        let code_note_width = right_margin_width.clamp(260.0, 480.0);
+
+        if self.show_value_note {
+            let value = &*current;
+            let value_text = format!("{value:?}");
+            let _ = crate::widgets::pinned_note(
+                ui,
+                &value_btn,
+                &mut self.show_value_note,
+                egui::RectAlign::LEFT_END,
+                value_note_width,
+                |ui| {
+                    egui::ScrollArea::both()
+                        .auto_shrink([false; 2])
+                        .max_height(240.0)
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(value_text).monospace())
+                                    .selectable(true)
+                                    .wrap_mode(egui::TextWrapMode::Extend),
+                            );
                         });
-                    }
-                });
+                },
+            );
+        }
 
-                // Click handling is performed by the caller using the returned response
-                if hdr_resp.clicked() {
-                    self.show_preview = !self.show_preview;
-                }
-            });
+        if self.show_code_note {
+            if let (Some(btn), Some(code)) = (code_btn.as_ref(), self.code.as_deref()) {
+                let _ = crate::widgets::pinned_note(
+                    ui,
+                    btn,
+                    &mut self.show_code_note,
+                    egui::RectAlign::RIGHT_END,
+                    code_note_width,
+                    |ui| {
+                        egui::ScrollArea::both()
+                            .auto_shrink([false; 2])
+                            .max_height(320.0)
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::Label::new(egui::RichText::new(code).monospace())
+                                        .selectable(true)
+                                        .wrap_mode(egui::TextWrapMode::Extend),
+                                );
+                            });
+                    },
+                );
+            } else {
+                self.show_code_note = false;
+            }
+        }
     }
 }
 
@@ -103,8 +144,8 @@ pub fn stateful_card<T: std::fmt::Debug + std::default::Default + 'static>(
         current: current.clone(),
         function: Box::new(function),
         code: code.map(|s| s.to_owned()),
-        show_preview: false,
-        preview_tab: 0,
+        show_value_note: false,
+        show_code_note: false,
     }));
 
     current
