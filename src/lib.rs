@@ -34,6 +34,7 @@ use crate::themes::industrial_light;
 pub struct Notebook {
     header_title: egui::WidgetText,
     pub cards: Vec<Box<dyn cards::Card + 'static>>,
+    code_notes_open: Vec<bool>,
 }
 
 impl Default for Notebook {
@@ -47,11 +48,13 @@ impl Notebook {
         Self {
             header_title: egui::WidgetText::default(),
             cards: Vec::new(),
+            code_notes_open: Vec::new(),
         }
     }
 
     pub fn push(&mut self, card: Box<dyn cards::Card>) {
         self.cards.push(card);
+        self.code_notes_open.push(false);
     }
 
     pub fn run(self, name: &str) -> eframe::Result {
@@ -120,6 +123,7 @@ impl eframe::App for Notebook {
                         let fill = ui.visuals().window_fill;
 
                         let column_inner_margin = egui::Margin::symmetric(16, 12);
+                        let code_note_width = right_margin.width().clamp(260.0, 480.0);
 
                         egui::Frame::new()
                             .fill(fill)
@@ -161,15 +165,78 @@ impl eframe::App for Notebook {
                                 let divider_x_range =
                                     ui.max_rect().x_range().expand(column_inner_margin.leftf());
 
+                                self.code_notes_open.resize(self.cards.len(), false);
+
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 for (i, card) in self.cards.iter_mut().enumerate() {
+                                    let code_note_open = self
+                                        .code_notes_open
+                                        .get_mut(i)
+                                        .expect("code_notes_open synced to cards");
                                     ui.push_id(i, |ui| {
                                         let card: &mut dyn cards::Card = card.as_mut();
-                                        let resp = ui.add(card);
+                                        let inner = egui::Frame::group(ui.style())
+                                            .stroke(egui::Stroke::NONE)
+                                            .corner_radius(0.0)
+                                            .show(ui, |ui| {
+                                                ui.reset_style();
+                                                ui.set_width(ui.available_width());
+                                                card.draw(ui);
+
+                                                let Some(code) = card.code() else {
+                                                    return;
+                                                };
+
+                                                ui.add_space(8.0);
+                                                let button_size = egui::vec2(24.0, 24.0);
+                                                ui.with_layout(
+                                                    egui::Layout::right_to_left(egui::Align::Center),
+                                                    |ui| {
+                                                        let code_btn = ui
+                                                            .add_sized(
+                                                                button_size,
+                                                                egui::Button::new(
+                                                                    egui::RichText::new("{}")
+                                                                        .monospace(),
+                                                                ),
+                                                            )
+                                                            .on_hover_text("Toggle code note");
+
+                                                        if code_btn.clicked() {
+                                                            *code_note_open = !*code_note_open;
+                                                        }
+
+                                                        if *code_note_open {
+                                                            let _ = crate::widgets::pinned_note(
+                                                                ui,
+                                                                &code_btn,
+                                                                code_note_open,
+                                                                egui::RectAlign::RIGHT_END,
+                                                                code_note_width,
+                                                                |ui| {
+                                                                    egui::ScrollArea::both()
+                                                                        .auto_shrink([false; 2])
+                                                                        .max_height(320.0)
+                                                                        .show(ui, |ui| {
+                                                                            ui.add(
+                                                                                egui::Label::new(
+                                                                                    egui::RichText::new(code)
+                                                                                        .monospace(),
+                                                                                )
+                                                                                .selectable(true)
+                                                                                .wrap_mode(egui::TextWrapMode::Extend),
+                                                                            );
+                                                                        });
+                                                                },
+                                                            );
+                                                        }
+                                                    },
+                                                );
+                                            });
 
                                         ui.painter().hline(
                                             divider_x_range,
-                                            resp.rect.top(),
+                                            inner.response.rect.top(),
                                             ui.visuals().widgets.noninteractive.bg_stroke,
                                         );
                                     });

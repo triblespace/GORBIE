@@ -13,6 +13,10 @@ pub use stateless_card::*;
 
 pub trait Card {
     fn draw(&mut self, ui: &mut egui::Ui);
+
+    fn code(&self) -> Option<&str> {
+        None
+    }
 }
 
 impl Widget for &mut dyn Card {
