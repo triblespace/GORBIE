@@ -136,7 +136,7 @@ impl eframe::App for Notebook {
                         let column_inner_margin = egui::Margin::symmetric(0, 12);
                         let code_note_width = (right_margin.width() - 16.0).max(260.0);
 
-                        egui::Frame::new()
+                        let frame = egui::Frame::new()
                             .fill(fill)
                             .stroke(stroke)
                             .corner_radius(0.0)
@@ -179,7 +179,7 @@ impl eframe::App for Notebook {
 
                                 self.code_notes_open.resize(self.cards.len(), false);
 
-                                let mut extra_bottom_space = 0.0_f32;
+                                let mut max_note_bottom = 0.0_f32;
 
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 for (i, card) in self.cards.iter_mut().enumerate() {
@@ -321,18 +321,18 @@ impl eframe::App for Notebook {
                                         }
 
                                         if *code_note_open {
-                                            let overflow = (flag_resp.rect.height()
-                                                - inner.response.rect.height())
-                                            .max(0.0);
-                                            extra_bottom_space = extra_bottom_space.max(overflow);
+                                            max_note_bottom =
+                                                max_note_bottom.max(flag_resp.rect.bottom());
                                         }
                                     });
                                 }
 
-                                if extra_bottom_space > 0.0 {
-                                    ui.add_space(extra_bottom_space);
-                                }
+                                max_note_bottom
                             });
+                        let overflow = (frame.inner - frame.response.rect.bottom()).max(0.0);
+                        if overflow > 0.0 {
+                            ui.add_space(overflow);
+                        }
                     });
                 });
         });
