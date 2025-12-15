@@ -35,6 +35,7 @@ pub struct Notebook {
     header_title: egui::WidgetText,
     pub cards: Vec<Box<dyn cards::Card + 'static>>,
     code_notes_open: Vec<bool>,
+    code_note_heights: Vec<f32>,
 }
 
 impl Default for Notebook {
@@ -49,12 +50,14 @@ impl Notebook {
             header_title: egui::WidgetText::default(),
             cards: Vec::new(),
             code_notes_open: Vec::new(),
+            code_note_heights: Vec::new(),
         }
     }
 
     pub fn push(&mut self, card: Box<dyn cards::Card>) {
         self.cards.push(card);
         self.code_notes_open.push(false);
+        self.code_note_heights.push(0.0);
     }
 
     pub fn run(self, name: &str) -> eframe::Result {
@@ -136,7 +139,7 @@ impl eframe::App for Notebook {
                         let column_inner_margin = egui::Margin::symmetric(0, 12);
                         let code_note_width = (right_margin.width() - 16.0).max(260.0);
 
-                        let frame = egui::Frame::new()
+                        egui::Frame::new()
                             .fill(fill)
                             .stroke(stroke)
                             .corner_radius(0.0)
@@ -178,8 +181,7 @@ impl eframe::App for Notebook {
                                 let divider_x_range = ui.max_rect().x_range();
 
                                 self.code_notes_open.resize(self.cards.len(), false);
-
-                                let mut max_note_bottom = 0.0_f32;
+                                self.code_note_heights.resize(self.cards.len(), 0.0);
 
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 for (i, card) in self.cards.iter_mut().enumerate() {
@@ -187,6 +189,10 @@ impl eframe::App for Notebook {
                                         .code_notes_open
                                         .get_mut(i)
                                         .expect("code_notes_open synced to cards");
+                                    let code_note_height = self
+                                        .code_note_heights
+                                        .get_mut(i)
+                                        .expect("code_note_heights synced to cards");
                                     ui.push_id(i, |ui| {
                                         let card: &mut dyn cards::Card = card.as_mut();
                                         let inner = egui::Frame::group(ui.style())
@@ -212,7 +218,19 @@ impl eframe::App for Notebook {
                                         let flag_left_x = inner.response.rect.right() + 8.0;
                                         let flag_size = egui::vec2(18.0, 32.0);
                                         let flag_pos_y = if *code_note_open {
-                                            inner.response.rect.top()
+                                            let note_height = if *code_note_height > 0.0 {
+                                                *code_note_height
+                                            } else {
+                                                240.0
+                                            };
+                                            let padding = 8.0;
+                                            let min_top = clip_rect.min.y + padding;
+                                            let max_top = clip_rect.max.y - note_height - padding;
+                                            if max_top < min_top {
+                                                min_top
+                                            } else {
+                                                inner.response.rect.top().clamp(min_top, max_top)
+                                            }
                                         } else {
                                             inner.response.rect.center().y - flag_size.y / 2.0
                                         };
@@ -232,11 +250,7 @@ impl eframe::App for Notebook {
                                                         .noninteractive
                                                         .bg_stroke
                                                         .color;
-                                                    let shadow_color = crate::themes::blend(
-                                                        ui.visuals().window_fill,
-                                                        crate::themes::ral(9011),
-                                                        0.22,
-                                                    );
+                                                    let shadow_color = crate::themes::ral(9004);
                                                     let shadow = egui::epaint::Shadow {
                                                         offset: [4, 4],
                                                         blur: 0,
@@ -321,18 +335,11 @@ impl eframe::App for Notebook {
                                         }
 
                                         if *code_note_open {
-                                            max_note_bottom =
-                                                max_note_bottom.max(flag_resp.rect.bottom());
+                                            *code_note_height = flag_resp.rect.height();
                                         }
                                     });
                                 }
-
-                                max_note_bottom
                             });
-                        let overflow = (frame.inner - frame.response.rect.bottom()).max(0.0);
-                        if overflow > 0.0 {
-                            ui.add_space(overflow);
-                        }
                     });
                 });
         });
