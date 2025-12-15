@@ -223,30 +223,18 @@ impl eframe::App for Notebook {
                                                     egui::Sense::click(),
                                                 );
 
-                                                let [r, g, b, _] = ui
-                                                    .visuals()
-                                                    .hyperlink_color
-                                                    .to_srgba_unmultiplied();
-                                                let base_alpha: u8 =
-                                                    if *code_note_open { 110 } else { 55 };
-                                                let hover_alpha: u8 =
-                                                    if resp.hovered() || resp.has_focus() {
-                                                        35
-                                                    } else {
-                                                        0
-                                                    };
-                                                let fill = egui::Color32::from_rgba_unmultiplied(
-                                                    r,
-                                                    g,
-                                                    b,
-                                                    base_alpha.saturating_add(hover_alpha),
-                                                );
-                                                let stroke = egui::Stroke::new(
-                                                    1.0,
-                                                    egui::Color32::from_rgba_unmultiplied(
-                                                        r, g, b, 180,
-                                                    ),
-                                                );
+                                                let fill = ui.visuals().window_fill;
+                                                let outline = ui.visuals().widgets.noninteractive.bg_stroke.color;
+                                                let accent = ui.visuals().hyperlink_color;
+                                                let stroke_color = if *code_note_open
+                                                    || resp.hovered()
+                                                    || resp.has_focus()
+                                                {
+                                                    accent
+                                                } else {
+                                                    outline
+                                                };
+                                                let stroke = egui::Stroke::new(1.0, stroke_color);
 
                                                 ui.painter().rect_filled(rect, 0.0, fill);
                                                 ui.painter().rect_stroke(
@@ -315,13 +303,9 @@ fn paint_dot_grid(ui: &egui::Ui, rect: egui::Rect, scroll_y: f32) {
 
     let spacing = 18.0;
     let radius = 1.2;
-    let color = ui
-        .visuals()
-        .widgets
-        .noninteractive
-        .bg_stroke
-        .color
-        .gamma_multiply(0.35);
+    let background = ui.visuals().window_fill;
+    let outline = ui.visuals().widgets.noninteractive.bg_stroke.color;
+    let color = crate::themes::blend(background, outline, 0.35);
 
     let start_x = (rect.left() / spacing).floor() * spacing + spacing / 2.0;
     let start_y = rect.top() - scroll_y.rem_euclid(spacing) + spacing / 2.0;

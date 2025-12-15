@@ -18,6 +18,7 @@ This doc is a mood + philosophy map. If you just want the build rules, start her
 * **Layout:** one dominant “page”/column; margins are “marginalia” (e.g. dot grid), not extra chrome.
 * **Structure:** prefer **single-line dividers** and consistent strokes over boxes-with-boxes.
 * **Shape language:** straight edges for structural containers; rounded corners for controls/media (consistent radius).
+* **Transparency:** avoid alpha/blurs; use solid palette blends and hard offset shadows.
 * **Typography:** typography is the ornament—monospace, strong hierarchy, occasional uppercase “label plates”.
 * **Motion:** minimal; if it moves, it should communicate state (loading, focus), not delight-for-delight’s-sake.
 * **Glitch/texture:** if used, it should emerge from constraints (or be subtle and structural), not be pasted on.

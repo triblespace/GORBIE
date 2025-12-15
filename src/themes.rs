@@ -77,10 +77,15 @@ pub fn industrial(
     let surface_muted = blend(surface, background, 0.2);
     let surface_hover = blend(surface, accent, 0.08);
     let border = blend(foreground, background, 0.4);
+    let weak_text = blend(foreground, background, 0.55);
+    let popup_shadow_color = blend(background, ral(9011), 0.22);
 
     base_visuals.window_fill = background;
     base_visuals.panel_fill = background;
     base_visuals.override_text_color = None;
+    base_visuals.weak_text_alpha = 1.0;
+    base_visuals.weak_text_color = Some(weak_text);
+    base_visuals.disabled_alpha = 1.0;
     base_visuals.faint_bg_color = surface_muted;
     base_visuals.extreme_bg_color = surface_hover;
     base_visuals.slider_trailing_fill = true;
@@ -133,11 +138,12 @@ pub fn industrial(
         },
     };
 
-    base_visuals.window_shadow = egui::epaint::Shadow {
-        offset: [0, 10],
-        blur: 22,
+    base_visuals.window_shadow = egui::epaint::Shadow::NONE;
+    base_visuals.popup_shadow = egui::epaint::Shadow {
+        offset: [4, 4],
+        blur: 0,
         spread: 0,
-        color: blend(foreground, background, 0.25),
+        color: popup_shadow_color,
     };
 
     base_visuals
