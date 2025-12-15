@@ -88,70 +88,75 @@ impl Notebook {
 impl eframe::App for Notebook {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            let rect = ui.max_rect();
+            egui::ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    let rect = ui.max_rect();
 
-            let column_max_width: f32 = 740.0;
-            let column_width = column_max_width.min(rect.width());
-            let side_margin_width = ((rect.width() - column_width) / 2.0).max(0.0);
+                    let column_max_width: f32 = 740.0;
+                    let column_width = column_max_width.min(rect.width());
+                    let side_margin_width = ((rect.width() - column_width) / 2.0).max(0.0);
 
-            let left_margin = egui::Rect::from_min_max(
-                rect.min,
-                egui::pos2(rect.min.x + side_margin_width, rect.max.y),
-            );
-            let column_rect = egui::Rect::from_min_max(
-                egui::pos2(left_margin.max.x, rect.min.y),
-                egui::pos2(left_margin.max.x + column_width, rect.max.y),
-            );
-            let right_margin =
-                egui::Rect::from_min_max(egui::pos2(column_rect.max.x, rect.min.y), rect.max);
+                    let left_margin = egui::Rect::from_min_max(
+                        rect.min,
+                        egui::pos2(rect.min.x + side_margin_width, rect.max.y),
+                    );
+                    let column_rect = egui::Rect::from_min_max(
+                        egui::pos2(left_margin.max.x, rect.min.y),
+                        egui::pos2(left_margin.max.x + column_width, rect.max.y),
+                    );
+                    let right_margin = egui::Rect::from_min_max(
+                        egui::pos2(column_rect.max.x, rect.min.y),
+                        rect.max,
+                    );
 
-            paint_dot_grid(ui, left_margin);
-            paint_dot_grid(ui, right_margin);
+                    paint_dot_grid(ui, left_margin);
+                    paint_dot_grid(ui, right_margin);
 
-            ui.scope_builder(egui::UiBuilder::new().max_rect(column_rect), |ui| {
-                ui.set_min_size(column_rect.size());
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(column_rect), |ui| {
+                        ui.set_min_size(column_rect.size());
 
-                let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
-                let fill = ui.visuals().window_fill;
+                        let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+                        let fill = ui.visuals().window_fill;
 
-                egui::Frame::new()
-                    .fill(fill)
-                    .stroke(stroke)
-                    .corner_radius(0.0)
-                    .inner_margin(egui::Margin::symmetric(16, 12))
-                    .show(ui, |ui| {
-                        // Theme switch is part of the page header (above the first card).
-                        ui.horizontal(|ui| {
-                            if !self.header_title.is_empty() {
-                                ui.add(egui::Label::new(self.header_title.clone()).truncate());
-                            }
-
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.scope(|ui| {
-                                        let dark_mode = ui.visuals().dark_mode;
-                                        let bg = ui.visuals().window_fill;
-
-                                        if dark_mode {
-                                            let widgets = &mut ui.visuals_mut().widgets;
-                                            widgets.inactive.bg_fill = bg;
-                                            widgets.inactive.weak_bg_fill = bg;
-                                            widgets.hovered.bg_fill = bg;
-                                            widgets.hovered.weak_bg_fill = bg;
-                                        }
-
-                                        global_theme_switch(ui);
-                                    });
-                                },
-                            );
-                        });
-
-                        ui.add_space(12.0);
-
-                        egui::ScrollArea::vertical()
-                            .auto_shrink([false; 2])
+                        egui::Frame::new()
+                            .fill(fill)
+                            .stroke(stroke)
+                            .corner_radius(0.0)
+                            .inner_margin(egui::Margin::symmetric(16, 12))
                             .show(ui, |ui| {
+                                // Theme switch is part of the page header (above the first card).
+                                ui.horizontal(|ui| {
+                                    if !self.header_title.is_empty() {
+                                        ui.add(
+                                            egui::Label::new(self.header_title.clone())
+                                                .truncate(),
+                                        );
+                                    }
+
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            ui.scope(|ui| {
+                                                let dark_mode = ui.visuals().dark_mode;
+                                                let bg = ui.visuals().window_fill;
+
+                                                if dark_mode {
+                                                    let widgets = &mut ui.visuals_mut().widgets;
+                                                    widgets.inactive.bg_fill = bg;
+                                                    widgets.inactive.weak_bg_fill = bg;
+                                                    widgets.hovered.bg_fill = bg;
+                                                    widgets.hovered.weak_bg_fill = bg;
+                                                }
+
+                                                global_theme_switch(ui);
+                                            });
+                                        },
+                                    );
+                                });
+
+                                ui.add_space(12.0);
+
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 for (i, card) in self.cards.iter_mut().enumerate() {
                                     ui.push_id(i, |ui| {
@@ -168,7 +173,7 @@ impl eframe::App for Notebook {
                                 }
                             });
                     });
-            });
+                });
         });
     }
 }
