@@ -93,13 +93,19 @@ impl eframe::App for Notebook {
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
-                .show(ui, |ui| {
+                .show_viewport(ui, |ui, viewport| {
                     let rect = ui.max_rect();
+                    let clip_rect = ui.clip_rect();
+                    let scroll_y = viewport.min.y;
 
                     let column_max_width: f32 = 740.0;
                     let column_width = column_max_width.min(rect.width());
                     let side_margin_width = ((rect.width() - column_width) / 2.0).max(0.0);
 
+                    let left_margin_paint = egui::Rect::from_min_max(
+                        egui::pos2(rect.min.x, clip_rect.min.y),
+                        egui::pos2(rect.min.x + side_margin_width, clip_rect.max.y),
+                    );
                     let left_margin = egui::Rect::from_min_max(
                         rect.min,
                         egui::pos2(rect.min.x + side_margin_width, rect.max.y),
@@ -108,13 +114,17 @@ impl eframe::App for Notebook {
                         egui::pos2(left_margin.max.x, rect.min.y),
                         egui::pos2(left_margin.max.x + column_width, rect.max.y),
                     );
+                    let right_margin_paint = egui::Rect::from_min_max(
+                        egui::pos2(column_rect.max.x, clip_rect.min.y),
+                        egui::pos2(rect.max.x, clip_rect.max.y),
+                    );
                     let right_margin = egui::Rect::from_min_max(
                         egui::pos2(column_rect.max.x, rect.min.y),
                         rect.max,
                     );
 
-                    paint_dot_grid(ui, left_margin);
-                    paint_dot_grid(ui, right_margin);
+                    paint_dot_grid(ui, left_margin_paint, scroll_y);
+                    paint_dot_grid(ui, right_margin_paint, scroll_y);
 
                     ui.scope_builder(egui::UiBuilder::new().max_rect(column_rect), |ui| {
                         ui.set_min_size(column_rect.size());
@@ -296,7 +306,7 @@ impl eframe::App for Notebook {
     }
 }
 
-fn paint_dot_grid(ui: &egui::Ui, rect: egui::Rect) {
+fn paint_dot_grid(ui: &egui::Ui, rect: egui::Rect, scroll_y: f32) {
     if rect.width() <= 0.0 || rect.height() <= 0.0 {
         return;
     }
@@ -314,7 +324,7 @@ fn paint_dot_grid(ui: &egui::Ui, rect: egui::Rect) {
         .gamma_multiply(0.35);
 
     let start_x = (rect.left() / spacing).floor() * spacing + spacing / 2.0;
-    let start_y = (rect.top() / spacing).floor() * spacing + spacing / 2.0;
+    let start_y = rect.top() - scroll_y.rem_euclid(spacing) + spacing / 2.0;
 
     let mut y = start_y;
     while y < rect.bottom() {
