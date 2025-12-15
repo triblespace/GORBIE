@@ -206,9 +206,25 @@ impl eframe::App for Notebook {
                                             return;
                                         };
 
-                                        let flag_size = egui::vec2(18.0, 32.0);
+                                        let flag_left_x = inner.response.rect.right() + 8.0;
+                                        let (flag_size, fill, hover_text) = if *code_note_open {
+                                            let note_side = (right_margin.max.x - flag_left_x)
+                                                .max(56.0)
+                                                .min(code_note_width);
+                                            (
+                                                egui::vec2(note_side, note_side),
+                                                crate::themes::ral(1003),
+                                                "Hide code note",
+                                            )
+                                        } else {
+                                            (
+                                                egui::vec2(18.0, 32.0),
+                                                ui.visuals().window_fill,
+                                                "Show code note",
+                                            )
+                                        };
                                         let flag_pos = egui::pos2(
-                                            inner.response.rect.right() + 8.0,
+                                            flag_left_x,
                                             inner.response.rect.center().y - flag_size.y / 2.0,
                                         );
 
@@ -223,18 +239,35 @@ impl eframe::App for Notebook {
                                                     egui::Sense::click(),
                                                 );
 
-                                                let fill = ui.visuals().window_fill;
-                                                let outline = ui.visuals().widgets.noninteractive.bg_stroke.color;
+                                                let outline = ui
+                                                    .visuals()
+                                                    .widgets
+                                                    .noninteractive
+                                                    .bg_stroke
+                                                    .color;
                                                 let accent = ui.visuals().hyperlink_color;
-                                                let stroke_color = if *code_note_open
-                                                    || resp.hovered()
-                                                    || resp.has_focus()
-                                                {
-                                                    accent
-                                                } else {
-                                                    outline
-                                                };
+                                                let stroke_color =
+                                                    if resp.hovered() || resp.has_focus() {
+                                                        accent
+                                                    } else {
+                                                        outline
+                                                    };
                                                 let stroke = egui::Stroke::new(1.0, stroke_color);
+
+                                                if *code_note_open {
+                                                    let shadow_color = crate::themes::blend(
+                                                        ui.visuals().window_fill,
+                                                        crate::themes::ral(9011),
+                                                        0.22,
+                                                    );
+                                                    let shadow_rect = rect
+                                                        .translate(egui::vec2(4.0, 4.0));
+                                                    ui.painter().rect_filled(
+                                                        shadow_rect,
+                                                        0.0,
+                                                        shadow_color,
+                                                    );
+                                                }
 
                                                 ui.painter().rect_filled(rect, 0.0, fill);
                                                 ui.painter().rect_stroke(
@@ -243,47 +276,55 @@ impl eframe::App for Notebook {
                                                     stroke,
                                                     egui::StrokeKind::Middle,
                                                 );
-                                                ui.painter().text(
-                                                    rect.center(),
-                                                    egui::Align2::CENTER_CENTER,
-                                                    "{}",
-                                                    egui::FontId::monospace(10.0),
-                                                    ui.visuals().text_color(),
-                                                );
 
-                                                resp.on_hover_text("Toggle code note")
+                                                if *code_note_open {
+                                                    let content_rect = rect.shrink(10.0);
+                                                    ui.scope_builder(
+                                                        egui::UiBuilder::new()
+                                                            .max_rect(content_rect),
+                                                        |ui| {
+                                                            ui.set_min_size(
+                                                                content_rect.size(),
+                                                            );
+                                                            egui::ScrollArea::both()
+                                                                .auto_shrink([false; 2])
+                                                                .show(ui, |ui| {
+                                                                    ui.add(
+                                                                        egui::Label::new(
+                                                                            egui::RichText::new(
+                                                                                code,
+                                                                            )
+                                                                            .monospace()
+                                                                            .color(
+                                                                                crate::themes::ral(
+                                                                                    9011,
+                                                                                ),
+                                                                            ),
+                                                                        )
+                                                                        .selectable(true)
+                                                                        .wrap_mode(
+                                                                            egui::TextWrapMode::Extend,
+                                                                        ),
+                                                                    );
+                                                                });
+                                                        },
+                                                    );
+                                                } else {
+                                                    ui.painter().text(
+                                                        rect.center(),
+                                                        egui::Align2::CENTER_CENTER,
+                                                        "{}",
+                                                        egui::FontId::monospace(10.0),
+                                                        ui.visuals().text_color(),
+                                                    );
+                                                }
+
+                                                resp.on_hover_text(hover_text)
                                             })
                                             .inner;
 
                                         if flag_resp.clicked() {
                                             *code_note_open = !*code_note_open;
-                                        }
-
-                                        if *code_note_open {
-                                            let _ = crate::widgets::pinned_note(
-                                                ui,
-                                                &flag_resp,
-                                                code_note_open,
-                                                egui::RectAlign::RIGHT,
-                                                code_note_width,
-                                                |ui| {
-                                                    egui::ScrollArea::both()
-                                                        .auto_shrink([false; 2])
-                                                        .max_height(320.0)
-                                                        .show(ui, |ui| {
-                                                            ui.add(
-                                                                egui::Label::new(
-                                                                    egui::RichText::new(code)
-                                                                        .monospace(),
-                                                                )
-                                                                .selectable(true)
-                                                                .wrap_mode(
-                                                                    egui::TextWrapMode::Extend,
-                                                                ),
-                                                            );
-                                                        });
-                                                },
-                                            );
                                         }
                                     });
                                 }
