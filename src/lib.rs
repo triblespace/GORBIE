@@ -119,18 +119,19 @@ impl eframe::App for Notebook {
                         let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
                         let fill = ui.visuals().window_fill;
 
+                        let column_inner_margin = egui::Margin::symmetric(16, 12);
+
                         egui::Frame::new()
                             .fill(fill)
                             .stroke(stroke)
                             .corner_radius(0.0)
-                            .inner_margin(egui::Margin::symmetric(16, 12))
+                            .inner_margin(column_inner_margin)
                             .show(ui, |ui| {
                                 // Theme switch is part of the page header (above the first card).
                                 ui.horizontal(|ui| {
                                     if !self.header_title.is_empty() {
                                         ui.add(
-                                            egui::Label::new(self.header_title.clone())
-                                                .truncate(),
+                                            egui::Label::new(self.header_title.clone()).truncate(),
                                         );
                                     }
 
@@ -157,18 +158,20 @@ impl eframe::App for Notebook {
 
                                 ui.add_space(12.0);
 
+                                let divider_x_range =
+                                    ui.max_rect().x_range().expand(column_inner_margin.leftf());
+
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 for (i, card) in self.cards.iter_mut().enumerate() {
                                     ui.push_id(i, |ui| {
                                         let card: &mut dyn cards::Card = card.as_mut();
                                         let resp = ui.add(card);
-                                        if i > 0 {
-                                            ui.painter().hline(
-                                                resp.rect.x_range(),
-                                                resp.rect.top(),
-                                                ui.visuals().widgets.noninteractive.bg_stroke,
-                                            );
-                                        }
+
+                                        ui.painter().hline(
+                                            divider_x_range,
+                                            resp.rect.top(),
+                                            ui.visuals().widgets.noninteractive.bg_stroke,
+                                        );
                                     });
                                 }
                             });
