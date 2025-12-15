@@ -13,7 +13,7 @@ egui_extras = "0.32.0"
 parking_lot = { version = "0.12.3", features = ["arc_lock"] }
 log = "0.4.26"
 ctrlc = {version="3.4", features=["termination"]}
-egui_commonmark = {version = "0.21", features = ["macros", "better_syntax_highlighting", "svg", "fetch"]}
+egui_commonmark = { path = "vendor/egui_commonmark", features = ["macros", "better_syntax_highlighting", "svg", "fetch"] }
 image = { version = "0.25", features = ["png", "jpeg"] }
 polars = "0.50.0"
 egui-theme-switch = "0.4.0"
@@ -21,8 +21,5 @@ egui-theme-switch = "0.4.0"
 [features]
 serde = []
 accesskit = []
-
-[patch.crates-io]
-egui_commonmark_backend = { path = "vendor/egui_commonmark_backend" }
 
 [workspace]
