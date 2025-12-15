@@ -100,15 +100,16 @@ impl eframe::App for Notebook {
 
                     let column_max_width: f32 = 740.0;
                     let column_width = column_max_width.min(rect.width());
-                    let side_margin_width = ((rect.width() - column_width) / 2.0).max(0.0);
+                    let remaining_width = (rect.width() - column_width).max(0.0);
+                    let left_margin_width = (remaining_width * 0.10).min(120.0);
 
                     let left_margin_paint = egui::Rect::from_min_max(
                         egui::pos2(rect.min.x, clip_rect.min.y),
-                        egui::pos2(rect.min.x + side_margin_width, clip_rect.max.y),
+                        egui::pos2(rect.min.x + left_margin_width, clip_rect.max.y),
                     );
                     let left_margin = egui::Rect::from_min_max(
                         rect.min,
-                        egui::pos2(rect.min.x + side_margin_width, rect.max.y),
+                        egui::pos2(rect.min.x + left_margin_width, rect.max.y),
                     );
                     let column_rect = egui::Rect::from_min_max(
                         egui::pos2(left_margin.max.x, rect.min.y),
@@ -133,7 +134,7 @@ impl eframe::App for Notebook {
                         let fill = ui.visuals().window_fill;
 
                         let column_inner_margin = egui::Margin::symmetric(0, 12);
-                        let code_note_width = right_margin.width().clamp(260.0, 480.0);
+                        let code_note_width = (right_margin.width() - 16.0).max(260.0);
 
                         egui::Frame::new()
                             .fill(fill)
@@ -178,6 +179,8 @@ impl eframe::App for Notebook {
 
                                 self.code_notes_open.resize(self.cards.len(), false);
 
+                                let mut extra_bottom_space = 0.0_f32;
+
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 for (i, card) in self.cards.iter_mut().enumerate() {
                                     let code_note_open = self
@@ -207,109 +210,99 @@ impl eframe::App for Notebook {
                                         };
 
                                         let flag_left_x = inner.response.rect.right() + 8.0;
-                                        let (flag_size, fill, hover_text) = if *code_note_open {
-                                            let note_side = (right_margin.max.x - flag_left_x)
-                                                .max(56.0)
-                                                .min(code_note_width);
-                                            (
-                                                egui::vec2(note_side, note_side),
-                                                crate::themes::ral(1003),
-                                                "Hide code note",
-                                            )
+                                        let flag_size = egui::vec2(18.0, 32.0);
+                                        let flag_pos_y = if *code_note_open {
+                                            inner.response.rect.top()
                                         } else {
-                                            (
-                                                egui::vec2(18.0, 32.0),
-                                                ui.visuals().window_fill,
-                                                "Show code note",
-                                            )
+                                            inner.response.rect.center().y - flag_size.y / 2.0
                                         };
-                                        let flag_pos = egui::pos2(
-                                            flag_left_x,
-                                            inner.response.rect.center().y - flag_size.y / 2.0,
-                                        );
+                                        let flag_pos = egui::pos2(flag_left_x, flag_pos_y);
 
                                         let flag_id = ui.id().with("code_flag");
                                         let flag_resp = egui::Area::new(flag_id)
                                             .order(egui::Order::Foreground)
                                             .fixed_pos(flag_pos)
                                             .movable(false)
+                                            .constrain_to(egui::Rect::EVERYTHING)
                                             .show(ui.ctx(), |ui| {
-                                                let (rect, resp) = ui.allocate_exact_size(
-                                                    flag_size,
-                                                    egui::Sense::click(),
-                                                );
-
-                                                let outline = ui
-                                                    .visuals()
-                                                    .widgets
-                                                    .noninteractive
-                                                    .bg_stroke
-                                                    .color;
-                                                let accent = ui.visuals().hyperlink_color;
-                                                let stroke_color =
-                                                    if resp.hovered() || resp.has_focus() {
-                                                        accent
-                                                    } else {
-                                                        outline
-                                                    };
-                                                let stroke = egui::Stroke::new(1.0, stroke_color);
-
                                                 if *code_note_open {
+                                                    let outline = ui
+                                                        .visuals()
+                                                        .widgets
+                                                        .noninteractive
+                                                        .bg_stroke
+                                                        .color;
                                                     let shadow_color = crate::themes::blend(
                                                         ui.visuals().window_fill,
                                                         crate::themes::ral(9011),
                                                         0.22,
                                                     );
-                                                    let shadow_rect = rect
-                                                        .translate(egui::vec2(4.0, 4.0));
-                                                    ui.painter().rect_filled(
-                                                        shadow_rect,
-                                                        0.0,
-                                                        shadow_color,
-                                                    );
-                                                }
+                                                    let shadow = egui::epaint::Shadow {
+                                                        offset: [4, 4],
+                                                        blur: 0,
+                                                        spread: 0,
+                                                        color: shadow_color,
+                                                    };
 
-                                                ui.painter().rect_filled(rect, 0.0, fill);
-                                                ui.painter().rect_stroke(
-                                                    rect,
-                                                    0.0,
-                                                    stroke,
-                                                    egui::StrokeKind::Middle,
-                                                );
+                                                    let note_width = (right_margin.max.x
+                                                        - flag_left_x)
+                                                        .max(56.0)
+                                                        .min(code_note_width);
+                                                    ui.set_width(note_width);
 
-                                                if *code_note_open {
-                                                    let content_rect = rect.shrink(10.0);
-                                                    ui.scope_builder(
-                                                        egui::UiBuilder::new()
-                                                            .max_rect(content_rect),
-                                                        |ui| {
-                                                            ui.set_min_size(
-                                                                content_rect.size(),
-                                                            );
-                                                            egui::ScrollArea::both()
-                                                                .auto_shrink([false; 2])
-                                                                .show(ui, |ui| {
-                                                                    ui.add(
-                                                                        egui::Label::new(
-                                                                            egui::RichText::new(
-                                                                                code,
-                                                                            )
-                                                                            .monospace()
-                                                                            .color(
-                                                                                crate::themes::ral(
-                                                                                    9011,
-                                                                                ),
-                                                                            ),
-                                                                        )
-                                                                        .selectable(true)
-                                                                        .wrap_mode(
-                                                                            egui::TextWrapMode::Extend,
-                                                                        ),
-                                                                    );
-                                                                });
-                                                        },
-                                                    );
+                                                    let frame = egui::Frame::new()
+                                                        .fill(crate::themes::ral(1003))
+                                                        .stroke(egui::Stroke::new(1.0, outline))
+                                                        .shadow(shadow)
+                                                        .corner_radius(0.0)
+                                                        .inner_margin(egui::Margin::same(10));
+                                                    let inner = frame.show(ui, |ui| {
+                                                        ui.add(
+                                                            egui::Label::new(
+                                                                egui::RichText::new(code)
+                                                                    .monospace()
+                                                                    .color(crate::themes::ral(
+                                                                        9011,
+                                                                    )),
+                                                            )
+                                                            .selectable(true)
+                                                            .wrap_mode(egui::TextWrapMode::Wrap),
+                                                        );
+                                                    });
+                                                    inner
+                                                        .response
+                                                        .interact(egui::Sense::click())
+                                                        .on_hover_text("Hide code note")
                                                 } else {
+                                                    let (rect, resp) = ui.allocate_exact_size(
+                                                        flag_size,
+                                                        egui::Sense::click(),
+                                                    );
+
+                                                    let fill = ui.visuals().window_fill;
+                                                    let outline = ui
+                                                        .visuals()
+                                                        .widgets
+                                                        .noninteractive
+                                                        .bg_stroke
+                                                        .color;
+                                                    let accent = ui.visuals().hyperlink_color;
+                                                    let stroke_color =
+                                                        if resp.hovered() || resp.has_focus() {
+                                                            accent
+                                                        } else {
+                                                            outline
+                                                        };
+                                                    let stroke =
+                                                        egui::Stroke::new(1.0, stroke_color);
+
+                                                    ui.painter().rect_filled(rect, 0.0, fill);
+                                                    ui.painter().rect_stroke(
+                                                        rect,
+                                                        0.0,
+                                                        stroke,
+                                                        egui::StrokeKind::Middle,
+                                                    );
                                                     ui.painter().text(
                                                         rect.center(),
                                                         egui::Align2::CENTER_CENTER,
@@ -317,16 +310,27 @@ impl eframe::App for Notebook {
                                                         egui::FontId::monospace(10.0),
                                                         ui.visuals().text_color(),
                                                     );
-                                                }
 
-                                                resp.on_hover_text(hover_text)
+                                                    resp.on_hover_text("Show code note")
+                                                }
                                             })
                                             .inner;
 
                                         if flag_resp.clicked() {
                                             *code_note_open = !*code_note_open;
                                         }
+
+                                        if *code_note_open {
+                                            let overflow = (flag_resp.rect.height()
+                                                - inner.response.rect.height())
+                                            .max(0.0);
+                                            extra_bottom_space = extra_bottom_space.max(overflow);
+                                        }
                                     });
+                                }
+
+                                if extra_bottom_space > 0.0 {
+                                    ui.add_space(extra_bottom_space);
                                 }
                             });
                     });
