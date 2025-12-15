@@ -105,32 +105,50 @@ impl<T: Send + std::fmt::Debug + PartialEq + 'static, D: Dependencies + Send + C
             }
         };
 
-        if matches!(&*current, ComputedState::Init(_) | ComputedState::Stale(_, _, _)) {
+        let is_updating = matches!(
+            &*current,
+            ComputedState::Init(_) | ComputedState::Stale(_, _, _)
+        );
+        if is_updating {
             ui.ctx().request_repaint();
         }
 
-        match &*current {
-            ComputedState::Ready(value, _) => {
-                ui.monospace(format!("{value:?}"));
-            }
-            ComputedState::Stale(previous, _, _) => {
-                ui.monospace(format!("{previous:?}"));
-            }
-            _ => {
-                ui.monospace("…");
+        let value_resp = match &*current {
+            ComputedState::Ready(value, _) => ui.monospace(format!("{value:?}")),
+            ComputedState::Stale(previous, _, _) => ui.monospace(format!("{previous:?}")),
+            _ => ui.monospace("…"),
+        };
+
+        if is_updating {
+            let rect =
+                egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), value_resp.rect.y_range())
+                    .shrink(2.0);
+            let painter = ui.painter().with_clip_rect(rect);
+
+            let stripe_spacing = 10.0;
+            let stripe_width = 1.0;
+            let stripe_color = {
+                let outline = ui.visuals().widgets.noninteractive.bg_stroke.color;
+                let [r, g, b, _] = outline.to_srgba_unmultiplied();
+                egui::Color32::from_rgba_unmultiplied(r, g, b, 120)
+            };
+
+            let stroke = egui::Stroke::new(stripe_width, stripe_color);
+            let h = rect.height();
+
+            let mut x = rect.left() - h;
+            while x < rect.right() + h {
+                painter.line_segment(
+                    [egui::pos2(x, rect.top()), egui::pos2(x + h, rect.bottom())],
+                    stroke,
+                );
+                x += stripe_spacing;
             }
         }
     }
 
     fn code(&self) -> Option<&str> {
         self.code.as_deref()
-    }
-
-    fn is_updating(&self) -> bool {
-        matches!(
-            &*self.value.read(),
-            ComputedState::Init(_) | ComputedState::Stale(_, _, _)
-        )
     }
 }
 

@@ -182,56 +182,6 @@ impl eframe::App for Notebook {
                                                 ui.reset_style();
                                                 ui.set_width(ui.available_width());
                                                 card.draw(ui);
-
-                                                let Some(code) = card.code() else {
-                                                    return;
-                                                };
-
-                                                ui.add_space(8.0);
-                                                let button_size = egui::vec2(24.0, 24.0);
-                                                ui.with_layout(
-                                                    egui::Layout::right_to_left(egui::Align::Center),
-                                                    |ui| {
-                                                        let code_btn = ui
-                                                            .add_sized(
-                                                                button_size,
-                                                                egui::Button::new(
-                                                                    egui::RichText::new("{}")
-                                                                        .monospace(),
-                                                                ),
-                                                            )
-                                                            .on_hover_text("Toggle code note");
-
-                                                        if code_btn.clicked() {
-                                                            *code_note_open = !*code_note_open;
-                                                        }
-
-                                                        if *code_note_open {
-                                                            let _ = crate::widgets::pinned_note(
-                                                                ui,
-                                                                &code_btn,
-                                                                code_note_open,
-                                                                egui::RectAlign::RIGHT_END,
-                                                                code_note_width,
-                                                                |ui| {
-                                                                    egui::ScrollArea::both()
-                                                                        .auto_shrink([false; 2])
-                                                                        .max_height(320.0)
-                                                                        .show(ui, |ui| {
-                                                                            ui.add(
-                                                                                egui::Label::new(
-                                                                                    egui::RichText::new(code)
-                                                                                        .monospace(),
-                                                                                )
-                                                                                .selectable(true)
-                                                                                .wrap_mode(egui::TextWrapMode::Extend),
-                                                                            );
-                                                                        });
-                                                                },
-                                                            );
-                                                        }
-                                                    },
-                                                );
                                             });
 
                                         ui.painter().hline(
@@ -240,32 +190,100 @@ impl eframe::App for Notebook {
                                             ui.visuals().widgets.noninteractive.bg_stroke,
                                         );
 
-                                        if card.is_updating() {
-                                            let rect = inner.response.rect.shrink(2.0);
-                                            let painter = ui.painter().with_clip_rect(rect);
+                                        let Some(code) = card.code() else {
+                                            return;
+                                        };
 
-                                            let stripe_spacing = 10.0;
-                                            let stripe_width = 1.0;
-                                            let stripe_color = {
-                                                let [r, g, b, _] =
-                                                    ui.visuals().hyperlink_color.to_srgba_unmultiplied();
-                                                egui::Color32::from_rgba_unmultiplied(r, g, b, 42)
-                                            };
+                                        let flag_size = egui::vec2(18.0, 32.0);
+                                        let flag_pos = egui::pos2(
+                                            inner.response.rect.right() + 8.0,
+                                            inner.response.rect.center().y - flag_size.y / 2.0,
+                                        );
 
-                                            let stroke = egui::Stroke::new(stripe_width, stripe_color);
-                                            let h = rect.height();
-
-                                            let mut x = rect.left() - h;
-                                            while x < rect.right() + h {
-                                                painter.line_segment(
-                                                    [
-                                                        egui::pos2(x, rect.top()),
-                                                        egui::pos2(x + h, rect.bottom()),
-                                                    ],
-                                                    stroke,
+                                        let flag_id = ui.id().with("code_flag");
+                                        let flag_resp = egui::Area::new(flag_id)
+                                            .order(egui::Order::Foreground)
+                                            .fixed_pos(flag_pos)
+                                            .movable(false)
+                                            .show(ui.ctx(), |ui| {
+                                                let (rect, resp) = ui.allocate_exact_size(
+                                                    flag_size,
+                                                    egui::Sense::click(),
                                                 );
-                                                x += stripe_spacing;
-                                            }
+
+                                                let [r, g, b, _] = ui
+                                                    .visuals()
+                                                    .hyperlink_color
+                                                    .to_srgba_unmultiplied();
+                                                let base_alpha: u8 =
+                                                    if *code_note_open { 110 } else { 55 };
+                                                let hover_alpha: u8 =
+                                                    if resp.hovered() || resp.has_focus() {
+                                                        35
+                                                    } else {
+                                                        0
+                                                    };
+                                                let fill = egui::Color32::from_rgba_unmultiplied(
+                                                    r,
+                                                    g,
+                                                    b,
+                                                    base_alpha.saturating_add(hover_alpha),
+                                                );
+                                                let stroke = egui::Stroke::new(
+                                                    1.0,
+                                                    egui::Color32::from_rgba_unmultiplied(
+                                                        r, g, b, 180,
+                                                    ),
+                                                );
+
+                                                ui.painter().rect_filled(rect, 0.0, fill);
+                                                ui.painter().rect_stroke(
+                                                    rect,
+                                                    0.0,
+                                                    stroke,
+                                                    egui::StrokeKind::Middle,
+                                                );
+                                                ui.painter().text(
+                                                    rect.center(),
+                                                    egui::Align2::CENTER_CENTER,
+                                                    "{}",
+                                                    egui::FontId::monospace(10.0),
+                                                    ui.visuals().text_color(),
+                                                );
+
+                                                resp.on_hover_text("Toggle code note")
+                                            })
+                                            .inner;
+
+                                        if flag_resp.clicked() {
+                                            *code_note_open = !*code_note_open;
+                                        }
+
+                                        if *code_note_open {
+                                            let _ = crate::widgets::pinned_note(
+                                                ui,
+                                                &flag_resp,
+                                                code_note_open,
+                                                egui::RectAlign::RIGHT,
+                                                code_note_width,
+                                                |ui| {
+                                                    egui::ScrollArea::both()
+                                                        .auto_shrink([false; 2])
+                                                        .max_height(320.0)
+                                                        .show(ui, |ui| {
+                                                            ui.add(
+                                                                egui::Label::new(
+                                                                    egui::RichText::new(code)
+                                                                        .monospace(),
+                                                                )
+                                                                .selectable(true)
+                                                                .wrap_mode(
+                                                                    egui::TextWrapMode::Extend,
+                                                                ),
+                                                            );
+                                                        });
+                                                },
+                                            );
                                         }
                                     });
                                 }
