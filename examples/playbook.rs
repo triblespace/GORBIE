@@ -8,13 +8,19 @@
 
 use egui::Color32;
 use egui::{self};
+use std::ops::DerefMut;
+use GORBIE::dataflow::NotifiedState;
 use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::state;
+use GORBIE::widgets;
 use GORBIE::Notebook;
 
 fn to_hex(c: Color32) -> String {
-    format!("#{:02X}{:02X}{:02X}", c.r(), c.g(), c.b())
+    let r = c.r();
+    let g = c.g();
+    let b = c.b();
+    format!("#{r:02X}{g:02X}{b:02X}")
 }
 
 fn swatch(ui: &mut egui::Ui, color: Color32, label: &str) {
@@ -104,6 +110,53 @@ fn playbook(nb: &mut Notebook) {
             "---\nThese colors are the primitives we use to build the two themes. Both themes share the same accent (RAL 2009), and vary the base background to RAL 7047/7046."
         );
     });
+
+    state!(
+        nb,
+        (),
+        (0.5_f32).into(),
+        |ui, value: &mut NotifiedState<_>| {
+            md!(
+            ui,
+            "## Widget Playbook\n\nA quick showcase of our custom widgets (slider + segmented meter). The value is normalized to `[0, 1]`."
+        );
+
+            if ui
+                .add(widgets::Slider::new(value.deref_mut(), 0.0..=1.0).text("LEVEL"))
+                .changed()
+            {
+                value.notify();
+            }
+
+            let progress = **value;
+            md!(ui, "Value: `{progress:.3}`");
+
+            ui.add(
+                widgets::ProgressBar::new(progress)
+                    .text("OUTPUT")
+                    .scale_percent(),
+            );
+
+            let green = GORBIE::themes::ral(6024);
+            let yellow = GORBIE::themes::ral(1023);
+            let red = GORBIE::themes::ral(3020);
+
+            md!(
+            ui,
+            "### Multi‑color meter\n\nThis uses normalized color zones (green/yellow/red) and a custom segment count."
+        );
+
+            ui.add(
+                widgets::ProgressBar::new(progress)
+                    .text("SIGNAL")
+                    .segments(60)
+                    .scale_labels([(0.0, "0"), (0.7, "70"), (0.9, "90"), (1.0, "100")])
+                    .zone(0.0..=0.7, green)
+                    .zone(0.7..=0.9, yellow)
+                    .zone(0.9..=1.0, red),
+            );
+        }
+    );
 }
 
 fn main() {
