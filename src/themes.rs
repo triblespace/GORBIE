@@ -21,13 +21,11 @@ pub struct GorbieSliderStyle {
 
 /// Return a `GorbieSliderStyle` preset for light/dark mode based on our base tokens.
 pub fn slider_style(dark_mode: bool) -> GorbieSliderStyle {
-    if dark_mode {
-        let background = ral(7046);
-        let outline = blend(ral(9003), background, 0.4);
-        let slot_fill = blend(background, ral(9004), 0.55);
+    let outline = blend(ral(9011), ral(7047), 0.4);
 
+    if dark_mode {
         GorbieSliderStyle {
-            rail_bg: slot_fill,
+            rail_bg: ral(9004),
             rail_fill: outline,
             knob: ral(9003),
             shadow: ral(9004),
@@ -35,12 +33,8 @@ pub fn slider_style(dark_mode: bool) -> GorbieSliderStyle {
             knob_extra_radius: 0.0,
         }
     } else {
-        let background = ral(7047);
-        let outline = blend(ral(9011), background, 0.4);
-        let slot_fill = blend(background, ral(9004), 0.55);
-
         GorbieSliderStyle {
-            rail_bg: slot_fill,
+            rail_bg: ral(9004),
             rail_fill: outline,
             knob: ral(9003),
             shadow: ral(9004),

@@ -867,7 +867,7 @@ impl Slider<'_> {
         if ui.is_rect_visible(response.rect) {
             let value = self.get_value();
 
-            let outline = ui.visuals().widgets.noninteractive.bg_stroke.color;
+            let outline = gstyle.rail_fill;
             let accent = ui.visuals().selection.bg_fill;
             let active_stroke_color =
                 if response.dragged() || response.hovered() || response.has_focus() {
@@ -1242,13 +1242,11 @@ impl Widget for Slider<'_> {
 
 // Implement From<&egui::Style> for GorbieSliderStyle so callers can use `Into`/`From`.
 impl From<&EguiStyle> for GorbieSliderStyle {
-    fn from(style: &EguiStyle) -> Self {
-        let background = style.visuals.window_fill;
-        let slot_fill = crate::themes::blend(background, crate::themes::ral(9004), 0.55);
-        let outline = style.visuals.widgets.noninteractive.bg_stroke.color;
+    fn from(_style: &EguiStyle) -> Self {
+        let outline = crate::themes::blend(crate::themes::ral(9011), crate::themes::ral(7047), 0.4);
 
         GorbieSliderStyle {
-            rail_bg: slot_fill,
+            rail_bg: crate::themes::ral(9004),
             rail_fill: outline,
             knob: crate::themes::ral(9003),
             shadow: crate::themes::ral(9004),
