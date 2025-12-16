@@ -85,7 +85,11 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
             return;
         };
         md!(ui, "Progress: {:.2}%", *progress * 100.0);
-        ui.add(egui::ProgressBar::new(*progress).text("output"));
+        ui.add(
+            widgets::ProgressBar::new(*progress)
+                .text("output")
+                .scale_percent(),
+        );
     });
 }
 

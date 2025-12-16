@@ -9,6 +9,7 @@ pub mod dataframe;
 pub mod load;
 pub mod marginalia;
 pub mod markdown;
+pub mod progress;
 pub mod slider;
 
 pub use code::code_view;
@@ -18,4 +19,5 @@ pub use load::load_auto;
 pub use load::load_button;
 pub use marginalia::pinned_note;
 pub use markdown::markdown;
+pub use progress::ProgressBar;
 pub use slider::Slider;
