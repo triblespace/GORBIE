@@ -22,30 +22,30 @@ pub struct GorbieSliderStyle {
 /// Return a `GorbieSliderStyle` preset for light/dark mode based on our base tokens.
 pub fn slider_style(dark_mode: bool) -> GorbieSliderStyle {
     if dark_mode {
-        let background = ral(7047);
-        let accent_foreground = ral(2009);
-        let accent_background = ral(2009);
+        let background = ral(7046);
+        let outline = blend(ral(9003), background, 0.4);
+        let slot_fill = blend(background, ral(9004), 0.55);
 
         GorbieSliderStyle {
-            rail_bg: blend(background, accent_background, 0.10),
-            rail_fill: accent_foreground,
-            knob: accent_foreground,
-            shadow: accent_background,
-            shadow_offset: egui::vec2(-3.0, 0.0),
-            knob_extra_radius: 1.0,
+            rail_bg: slot_fill,
+            rail_fill: outline,
+            knob: ral(9003),
+            shadow: ral(9004),
+            shadow_offset: egui::vec2(2.0, 2.0),
+            knob_extra_radius: 0.0,
         }
     } else {
-        let background = ral(9003);
-        let accent_foreground = ral(2009);
-        let accent_background = ral(7047);
+        let background = ral(7047);
+        let outline = blend(ral(9011), background, 0.4);
+        let slot_fill = blend(background, ral(9004), 0.55);
 
         GorbieSliderStyle {
-            rail_bg: blend(background, accent_background, 0.10),
-            rail_fill: accent_foreground,
-            knob: accent_foreground,
-            shadow: accent_background,
-            shadow_offset: egui::vec2(-3.0, 0.0),
-            knob_extra_radius: 1.0,
+            rail_bg: slot_fill,
+            rail_fill: outline,
+            knob: ral(9003),
+            shadow: ral(9004),
+            shadow_offset: egui::vec2(2.0, 2.0),
+            knob_extra_radius: 0.0,
         }
     }
 }

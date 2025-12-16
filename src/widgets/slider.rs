@@ -8,7 +8,6 @@ use eframe::egui::lerp;
 use eframe::egui::pos2;
 use eframe::egui::remap;
 use eframe::egui::remap_clamp;
-use eframe::egui::style;
 use eframe::egui::style::HandleShape;
 use eframe::egui::vec2;
 use eframe::egui::Color32;
@@ -712,13 +711,54 @@ impl Slider<'_> {
         ui.allocate_response(desired_size, Sense::drag())
     }
 
+    fn te_position_range(&self, ui: &Ui, rect: &Rect, shadow_offset: Vec2) -> Rangef {
+        let slot_height = (ui.spacing().slider_rail_height + 2.0)
+            .at_least(8.0)
+            .at_most(rect.height() - 10.0);
+        let handle_short = (slot_height * 1.4).clamp(12.0, 18.0);
+        let handle_half = handle_short / 2.0;
+
+        let axis_shadow_before = match self.orientation {
+            SliderOrientation::Horizontal => (-shadow_offset.x).max(0.0),
+            SliderOrientation::Vertical => (-shadow_offset.y).max(0.0),
+        };
+        let axis_shadow_after = match self.orientation {
+            SliderOrientation::Horizontal => shadow_offset.x.max(0.0),
+            SliderOrientation::Vertical => shadow_offset.y.max(0.0),
+        };
+
+        let range = match self.orientation {
+            SliderOrientation::Horizontal => Rangef::new(
+                rect.left() + handle_half + axis_shadow_before,
+                rect.right() - handle_half - axis_shadow_after,
+            ),
+            SliderOrientation::Vertical => Rangef::new(
+                rect.top() + handle_half + axis_shadow_before,
+                rect.bottom() - handle_half - axis_shadow_after,
+            )
+            .flip(),
+        };
+
+        if range.span() <= 0.0 {
+            Rangef::point(match self.orientation {
+                SliderOrientation::Horizontal => rect.center().x,
+                SliderOrientation::Vertical => rect.center().y,
+            })
+        } else {
+            range
+        }
+    }
+
     /// Just the slider, no text
     fn slider_ui(&mut self, ui: &Ui, response: &Response) {
         let rect = &response.rect;
-        let handle_shape = self
-            .handle_shape
-            .unwrap_or_else(|| ui.style().visuals.handle_shape);
-        let position_range = self.position_range(rect, &handle_shape);
+
+        // Determine Gorbie-specific style for this slider (per-widget override or derived from theme).
+        let gstyle = self
+            .gorbie_style
+            .clone()
+            .unwrap_or_else(|| crate::themes::GorbieSliderStyle::from(ui.style().as_ref()));
+        let position_range = self.te_position_range(ui, rect, gstyle.shadow_offset);
 
         if let Some(pointer_position_2d) = response.interact_pointer_pos() {
             let position = self.pointer_position(pointer_position_2d);
@@ -827,94 +867,152 @@ impl Slider<'_> {
         if ui.is_rect_visible(response.rect) {
             let value = self.get_value();
 
-            let visuals = ui.style().interact(response);
-            let widget_visuals = &ui.visuals().widgets;
-            let spacing = &ui.style().spacing;
+            let outline = ui.visuals().widgets.noninteractive.bg_stroke.color;
+            let accent = ui.visuals().selection.bg_fill;
+            let active_stroke_color =
+                if response.dragged() || response.hovered() || response.has_focus() {
+                    accent
+                } else {
+                    outline
+                };
+            let active_stroke = Stroke::new(1.0, active_stroke_color);
 
-            let rail_radius = (spacing.slider_rail_height / 2.0).at_least(0.0);
-            let rail_rect = self.rail_rect(rect, rail_radius);
-            let corner_radius = widget_visuals.inactive.corner_radius;
+            let slot_height = (ui.spacing().slider_rail_height + 2.0)
+                .at_least(8.0)
+                .at_most(rect.height() - 10.0);
+            let slot_radius = (slot_height / 2.0).at_least(0.0);
+            let slot_rect = self.rail_rect(rect, slot_radius);
 
-            // Determine Gorbie-specific style for this slider (per-widget override or derived from theme)
-            let gstyle = self
-                .gorbie_style
-                .clone()
-                .unwrap_or_else(|| crate::themes::GorbieSliderStyle::from(ui.style().as_ref()));
+            let painter = ui.painter_at(*rect);
 
-            // Paint rail background using Gorbie rail color
-            ui.painter()
-                .rect_filled(rail_rect, corner_radius, gstyle.rail_bg);
+            painter.rect_filled(slot_rect, slot_radius, gstyle.rail_bg);
+            painter.rect_stroke(
+                slot_rect,
+                slot_radius,
+                active_stroke,
+                epaint::StrokeKind::Inside,
+            );
 
             let position_1d = self.position_from_value(value, position_range);
-            let center = self.marker_center(position_1d, &rail_rect);
+            let center = self.marker_center(position_1d, &slot_rect);
 
-            // Decide if we should add trailing fill.
-            let trailing_fill = self
-                .trailing_fill
-                .unwrap_or_else(|| ui.visuals().slider_trailing_fill);
-
-            // Paint trailing fill.
+            // Optional: only draw trailing fill if explicitly requested.
+            let trailing_fill = self.trailing_fill.unwrap_or(false);
             if trailing_fill {
-                let mut trailing_rail_rect = rail_rect;
-
-                // The trailing rect has to be drawn differently depending on the orientation.
+                let mut trailing_rect = slot_rect;
                 match self.orientation {
-                    SliderOrientation::Horizontal => {
-                        trailing_rail_rect.max.x = center.x + corner_radius.nw as f32;
-                    }
-                    SliderOrientation::Vertical => {
-                        trailing_rail_rect.min.y = center.y - corner_radius.se as f32;
-                    }
-                };
+                    SliderOrientation::Horizontal => trailing_rect.max.x = center.x,
+                    SliderOrientation::Vertical => trailing_rect.min.y = center.y,
+                }
 
-                // Use Gorbie fill tone for the trailing part of the rail
-                ui.painter()
-                    .rect_filled(trailing_rail_rect, corner_radius, gstyle.rail_fill);
+                painter.rect_filled(trailing_rect, slot_radius, gstyle.rail_fill);
             }
 
-            let radius = self.handle_radius(rect);
+            // Tick marks inspired by Teenage Engineering faders.
+            let tick_count = 11usize;
+            if tick_count >= 2 {
+                let minor_len = 4.0;
+                let major_len = 6.0;
+                match self.orientation {
+                    SliderOrientation::Horizontal => {
+                        let tick_origin_y = slot_rect.bottom() + 2.0;
+                        let max_len = (rect.bottom() - tick_origin_y).at_least(0.0);
+                        let minor_len = max_len.at_most(minor_len);
+                        let major_len = max_len.at_most(major_len);
 
-            let handle_shape = self
-                .handle_shape
-                .unwrap_or_else(|| ui.style().visuals.handle_shape);
-            match handle_shape {
-                style::HandleShape::Circle => {
-                    // shadow behind the circular handle using Gorbie shadow color & offset
-                    ui.painter().add(epaint::CircleShape {
-                        center: center + gstyle.shadow_offset,
-                        radius: radius + visuals.expansion + gstyle.knob_extra_radius + 1.0,
-                        fill: gstyle.shadow,
-                        stroke: Stroke::NONE,
-                    });
+                        for i in 0..tick_count {
+                            let t = i as f32 / (tick_count - 1) as f32;
+                            let x = lerp(position_range, t);
+                            let major = i % 5 == 0;
+                            let len = if major { major_len } else { minor_len };
+                            if len <= 0.0 {
+                                continue;
+                            }
 
-                    // knob fill using Gorbie knob color
-                    ui.painter().add(epaint::CircleShape {
-                        center,
-                        radius: radius + visuals.expansion + gstyle.knob_extra_radius,
-                        fill: gstyle.knob,
-                        stroke: Stroke::NONE,
-                    });
+                            let stroke = Stroke::new(if major { 2.0 } else { 1.0 }, outline);
+                            painter.line_segment(
+                                [pos2(x, tick_origin_y), pos2(x, tick_origin_y + len)],
+                                stroke,
+                            );
+                        }
+                    }
+                    SliderOrientation::Vertical => {
+                        let tick_origin_x = slot_rect.right() + 2.0;
+                        let max_len = (rect.right() - tick_origin_x).at_least(0.0);
+                        let minor_len = max_len.at_most(minor_len);
+                        let major_len = max_len.at_most(major_len);
+
+                        for i in 0..tick_count {
+                            let t = i as f32 / (tick_count - 1) as f32;
+                            let y = lerp(position_range, t);
+                            let major = i % 5 == 0;
+                            let len = if major { major_len } else { minor_len };
+                            if len <= 0.0 {
+                                continue;
+                            }
+
+                            let stroke = Stroke::new(if major { 2.0 } else { 1.0 }, outline);
+                            painter.line_segment(
+                                [pos2(tick_origin_x, y), pos2(tick_origin_x + len, y)],
+                                stroke,
+                            );
+                        }
+                    }
                 }
-                style::HandleShape::Rect { aspect_ratio } => {
-                    let v = match self.orientation {
-                        SliderOrientation::Horizontal => Vec2::new(radius * aspect_ratio, radius),
-                        SliderOrientation::Vertical => Vec2::new(radius, radius * aspect_ratio),
-                    };
-                    let v = v + Vec2::splat(visuals.expansion);
-                    let rect = Rect::from_center_size(center, 2.0 * v);
-                    // rectangular handle: shadow and fill using Gorbie style
-                    let shadow_rect = Rect::from_center_size(
-                        center + gstyle.shadow_offset,
-                        2.0 * (v + Vec2::splat(1.0)),
+            }
+
+            // A small "cap" handle, with a hard shadow.
+            let shadow_inset_x =
+                (-gstyle.shadow_offset.x).max(0.0) + gstyle.shadow_offset.x.max(0.0);
+            let shadow_inset_y =
+                (-gstyle.shadow_offset.y).max(0.0) + gstyle.shadow_offset.y.max(0.0);
+            let handle_long_limit = match self.orientation {
+                SliderOrientation::Horizontal => rect.height() - 2.0 - shadow_inset_y,
+                SliderOrientation::Vertical => rect.width() - 2.0 - shadow_inset_x,
+            };
+            let handle_long = (slot_height + 10.0)
+                .at_most(handle_long_limit.at_least(0.0))
+                .at_least(slot_height);
+            let handle_short = (slot_height * 1.4).clamp(12.0, 18.0);
+            let handle_size = match self.orientation {
+                SliderOrientation::Horizontal => vec2(handle_short, handle_long),
+                SliderOrientation::Vertical => vec2(handle_long, handle_short),
+            };
+            let handle_rect = Rect::from_center_size(center, handle_size);
+            let shadow_rect = Rect::from_center_size(center + gstyle.shadow_offset, handle_size);
+            let handle_rounding = 2.0;
+
+            painter.rect_filled(shadow_rect, handle_rounding, gstyle.shadow);
+            painter.rect(
+                handle_rect,
+                handle_rounding,
+                gstyle.knob,
+                active_stroke,
+                epaint::StrokeKind::Inside,
+            );
+
+            // Notch to make the handle feel mechanical.
+            let notch_margin = 4.0;
+            let notch_stroke = Stroke::new(1.0, outline);
+            match self.orientation {
+                SliderOrientation::Horizontal => {
+                    let x = handle_rect.center().x;
+                    painter.line_segment(
+                        [
+                            pos2(x, handle_rect.top() + notch_margin),
+                            pos2(x, handle_rect.bottom() - notch_margin),
+                        ],
+                        notch_stroke,
                     );
-                    ui.painter()
-                        .rect_filled(shadow_rect, visuals.corner_radius, gstyle.shadow);
-                    ui.painter().rect(
-                        rect,
-                        visuals.corner_radius,
-                        gstyle.knob,
-                        Stroke::NONE,
-                        epaint::StrokeKind::Inside,
+                }
+                SliderOrientation::Vertical => {
+                    let y = handle_rect.center().y;
+                    painter.line_segment(
+                        [
+                            pos2(handle_rect.left() + notch_margin, y),
+                            pos2(handle_rect.right() - notch_margin, y),
+                        ],
+                        notch_stroke,
                     );
                 }
             }
@@ -935,20 +1033,6 @@ impl Slider<'_> {
         }
     }
 
-    fn position_range(&self, rect: &Rect, handle_shape: &style::HandleShape) -> Rangef {
-        let handle_radius = self.handle_radius(rect);
-        let handle_radius = match handle_shape {
-            style::HandleShape::Circle => handle_radius,
-            style::HandleShape::Rect { aspect_ratio } => handle_radius * aspect_ratio,
-        };
-        match self.orientation {
-            SliderOrientation::Horizontal => rect.x_range().shrink(handle_radius),
-            // The vertical case has to be flipped because the largest slider value maps to the
-            // lowest y value (which is at the top)
-            SliderOrientation::Vertical => rect.y_range().shrink(handle_radius).flip(),
-        }
-    }
-
     fn rail_rect(&self, rect: &Rect, radius: f32) -> Rect {
         match self.orientation {
             SliderOrientation::Horizontal => Rect::from_min_max(
@@ -960,14 +1044,6 @@ impl Slider<'_> {
                 pos2(rect.center().x + radius, rect.bottom()),
             ),
         }
-    }
-
-    fn handle_radius(&self, rect: &Rect) -> f32 {
-        let limit = match self.orientation {
-            SliderOrientation::Horizontal => rect.height(),
-            SliderOrientation::Vertical => rect.width(),
-        };
-        limit / 2.5
     }
 
     fn value_ui(&mut self, ui: &mut Ui, position_range: Rangef) -> Response {
@@ -988,34 +1064,70 @@ impl Slider<'_> {
         };
 
         let mut value = self.get_value();
-        let response = ui.add({
-            let mut dv = DragValue::new(&mut value)
-                .speed(speed)
-                .min_decimals(self.min_decimals)
-                .max_decimals_opt(self.max_decimals)
-                .suffix(self.suffix.clone())
-                .prefix(self.prefix.clone())
-                .update_while_editing(self.update_while_editing);
 
-            match self.clamping {
-                SliderClamping::Never => {}
-                SliderClamping::Edits => {
-                    dv = dv.range(self.range.clone()).clamp_existing_to_range(false);
+        let outline_stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+        let accent = ui.visuals().selection.bg_fill;
+        let plate_fill = crate::themes::ral(9003);
+        let plate_text = crate::themes::ral(9011);
+
+        let response = ui
+            .scope(|ui| {
+                let visuals = ui.visuals_mut();
+                visuals.override_text_color = Some(plate_text);
+                visuals.text_edit_bg_color = Some(plate_fill);
+                visuals.extreme_bg_color = plate_fill;
+
+                let widgets = &mut visuals.widgets;
+                let hover_stroke = Stroke::new(1.0, accent);
+
+                widgets.inactive.bg_stroke = outline_stroke;
+                widgets.inactive.bg_fill = plate_fill;
+                widgets.inactive.weak_bg_fill = plate_fill;
+                widgets.inactive.corner_radius = 0.0.into();
+
+                widgets.hovered.bg_stroke = hover_stroke;
+                widgets.hovered.bg_fill = plate_fill;
+                widgets.hovered.weak_bg_fill = plate_fill;
+                widgets.hovered.corner_radius = 0.0.into();
+
+                widgets.active.bg_stroke = hover_stroke;
+                widgets.active.bg_fill = plate_fill;
+                widgets.active.weak_bg_fill = plate_fill;
+                widgets.active.corner_radius = 0.0.into();
+
+                widgets.open.bg_stroke = outline_stroke;
+                widgets.open.bg_fill = plate_fill;
+                widgets.open.weak_bg_fill = plate_fill;
+                widgets.open.corner_radius = 0.0.into();
+
+                let mut dv = DragValue::new(&mut value)
+                    .speed(speed)
+                    .min_decimals(self.min_decimals)
+                    .max_decimals_opt(self.max_decimals)
+                    .suffix(self.suffix.clone())
+                    .prefix(self.prefix.clone())
+                    .update_while_editing(self.update_while_editing);
+
+                match self.clamping {
+                    SliderClamping::Never => {}
+                    SliderClamping::Edits => {
+                        dv = dv.range(self.range.clone()).clamp_existing_to_range(false);
+                    }
+                    SliderClamping::Always => {
+                        dv = dv.range(self.range.clone()).clamp_existing_to_range(true);
+                    }
                 }
-                SliderClamping::Always => {
-                    dv = dv.range(self.range.clone()).clamp_existing_to_range(true);
-                }
-            }
 
-            if let Some(fmt) = &self.custom_formatter {
-                dv = dv.custom_formatter(fmt);
-            };
-            if let Some(parser) = &self.custom_parser {
-                dv = dv.custom_parser(parser);
-            };
+                if let Some(fmt) = &self.custom_formatter {
+                    dv = dv.custom_formatter(fmt);
+                };
+                if let Some(parser) = &self.custom_parser {
+                    dv = dv.custom_parser(parser);
+                };
 
-            dv
-        });
+                ui.add(dv)
+            })
+            .inner;
         if value != self.get_value() {
             self.set_value(value);
         }
@@ -1078,10 +1190,11 @@ impl Slider<'_> {
         let slider_response = response.clone();
 
         let value_response = if self.show_value {
-            let handle_shape = self
-                .handle_shape
-                .unwrap_or_else(|| ui.style().visuals.handle_shape);
-            let position_range = self.position_range(&response.rect, &handle_shape);
+            let gstyle = self
+                .gorbie_style
+                .clone()
+                .unwrap_or_else(|| crate::themes::GorbieSliderStyle::from(ui.style().as_ref()));
+            let position_range = self.te_position_range(ui, &response.rect, gstyle.shadow_offset);
             let value_response = self.value_ui(ui, position_range);
             if value_response.gained_focus()
                 || value_response.has_focus()
@@ -1130,36 +1243,17 @@ impl Widget for Slider<'_> {
 // Implement From<&egui::Style> for GorbieSliderStyle so callers can use `Into`/`From`.
 impl From<&EguiStyle> for GorbieSliderStyle {
     fn from(style: &EguiStyle) -> Self {
-        // Construct using the visuals' dark_mode flag similar to the previous helper.
-        // Inline the same logic as `slider_style` but keep it localized here.
-        let dark_mode = style.visuals.dark_mode;
+        let background = style.visuals.window_fill;
+        let slot_fill = crate::themes::blend(background, crate::themes::ral(9004), 0.55);
+        let outline = style.visuals.widgets.noninteractive.bg_stroke.color;
 
-        if dark_mode {
-            let _background = crate::themes::ral(9011);
-            let accent_foreground = crate::themes::ral(2009);
-            let accent_background = crate::themes::ral(7047);
-
-            GorbieSliderStyle {
-                rail_bg: accent_background,
-                rail_fill: accent_foreground,
-                knob: accent_foreground,
-                shadow: accent_background,
-                shadow_offset: egui::vec2(0.0, 0.0),
-                knob_extra_radius: 0.0,
-            }
-        } else {
-            let _background = crate::themes::ral(9003);
-            let accent_foreground = crate::themes::ral(2009);
-            let accent_background = crate::themes::ral(7047);
-
-            GorbieSliderStyle {
-                rail_bg: accent_background,
-                rail_fill: accent_foreground,
-                knob: accent_foreground,
-                shadow: accent_background,
-                shadow_offset: egui::vec2(0.0, 0.0),
-                knob_extra_radius: 0.0,
-            }
+        GorbieSliderStyle {
+            rail_bg: slot_fill,
+            rail_fill: outline,
+            knob: crate::themes::ral(9003),
+            shadow: crate::themes::ral(9004),
+            shadow_offset: egui::vec2(2.0, 2.0),
+            knob_extra_radius: 0.0,
         }
     }
 }
