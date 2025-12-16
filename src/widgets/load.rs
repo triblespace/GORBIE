@@ -1,4 +1,5 @@
 use crate::dataflow::ComputedState;
+use crate::widgets::Button;
 use eframe::egui;
 
 pub fn load_button<'a, T: Send + 'static>(
@@ -9,7 +10,7 @@ pub fn load_button<'a, T: Send + 'static>(
     action: impl FnMut() -> T + Send + 'static,
 ) -> Option<&'a mut T> {
     *value = match std::mem::replace(value, ComputedState::Undefined) {
-        ComputedState::Undefined if ui.button(label_init).clicked() => {
+        ComputedState::Undefined if ui.add(Button::new(label_init)).clicked() => {
             ComputedState::Init(std::thread::spawn(action))
         }
         ComputedState::Undefined => ComputedState::Undefined,
@@ -20,7 +21,9 @@ pub fn load_button<'a, T: Send + 'static>(
             ui.add(egui::widgets::Spinner::new());
             ComputedState::Init(handle)
         }
-        ComputedState::Ready(current, generation) if ui.button(label_reinit).clicked() => {
+        ComputedState::Ready(current, generation)
+            if ui.add(Button::new(label_reinit)).clicked() =>
+        {
             ui.ctx().request_repaint();
             ComputedState::Stale(current, generation + 1, std::thread::spawn(action))
         }

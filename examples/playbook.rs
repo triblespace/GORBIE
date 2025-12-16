@@ -58,12 +58,12 @@ fn playbook(nb: &mut Notebook) {
 
         // Derived samples (same rules used in `themes::industrial`)
         let light_surface_muted = blend(light_surface, light_background, 0.2);
-        let light_surface_hover = blend(light_surface, accent, 0.08);
         let light_border = blend(light_foreground, light_background, 0.4);
+        let light_control_fill_hover = blend(light_background, light_foreground, 0.05);
 
         let dark_surface_muted = blend(dark_surface, dark_background, 0.2);
-        let dark_surface_hover = blend(dark_surface, accent, 0.08);
         let dark_border = blend(dark_foreground, dark_background, 0.4);
+        let dark_control_fill_hover = blend(dark_background, dark_foreground, 0.05);
 
         ui.vertical(|ui| {
             ui.group(|ui| {
@@ -80,7 +80,7 @@ fn playbook(nb: &mut Notebook) {
                 md!(ui, "## Derived samples (light, industrial)");
                 ui.horizontal(|ui| {
                     swatch(ui, light_surface_muted, "faint_bg_color (muted)");
-                    swatch(ui, light_surface_hover, "extreme_bg_color (hover)");
+                    swatch(ui, light_control_fill_hover, "extreme_bg_color (hover)");
                     swatch(ui, light_border, "Border (stroke)");
                 });
             });
@@ -99,7 +99,7 @@ fn playbook(nb: &mut Notebook) {
                 md!(ui, "## Derived samples (dark, industrial)");
                 ui.horizontal(|ui| {
                     swatch(ui, dark_surface_muted, "faint_bg_color (muted)");
-                    swatch(ui, dark_surface_hover, "extreme_bg_color (hover)");
+                    swatch(ui, dark_control_fill_hover, "extreme_bg_color (hover)");
                     swatch(ui, dark_border, "Border (stroke)");
                 });
             });
@@ -117,9 +117,18 @@ fn playbook(nb: &mut Notebook) {
         (0.5_f32).into(),
         |ui, value: &mut NotifiedState<_>| {
             md!(
-            ui,
-            "## Widget Playbook\n\nA quick showcase of our custom widgets (slider + segmented meter). The value is normalized to `[0, 1]`."
-        );
+                ui,
+                "## Widget Playbook\n\nA quick showcase of our custom widgets (slider + segmented meter). The value is normalized to `[0, 1]`."
+            );
+
+            md!(ui, "### Buttons");
+            ui.horizontal(|ui| {
+                let _ = ui.add(widgets::Button::new("BUTTON"));
+                let _ = ui.add(widgets::Button::new("SMALL").small());
+                ui.add_enabled(false, widgets::Button::new("DISABLED"));
+                let _ = ui.add(widgets::Button::new("SELECTED").selected(true));
+                let _ = ui.add(widgets::Button::new("TOGGLE"));
+            });
 
             if ui
                 .add(widgets::Slider::new(value.deref_mut(), 0.0..=1.0).text("LEVEL"))
@@ -142,9 +151,9 @@ fn playbook(nb: &mut Notebook) {
             let red = GORBIE::themes::ral(3020);
 
             md!(
-            ui,
-            "### Multi‑color meter\n\nThis uses normalized color zones (green/yellow/red) and a custom segment count."
-        );
+                ui,
+                "### Multi‑color meter\n\nThis uses normalized color zones (green/yellow/red) and a custom segment count."
+            );
 
             ui.add(
                 widgets::ProgressBar::new(progress)

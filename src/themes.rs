@@ -69,9 +69,15 @@ pub fn industrial(
     mut base_visuals: Visuals,
 ) -> Visuals {
     let surface_muted = blend(surface, background, 0.2);
-    let surface_hover = blend(surface, accent, 0.08);
     let border = blend(foreground, background, 0.4);
     let weak_text = blend(foreground, background, 0.55);
+    let control_radius = 2.0;
+    let container_radius = 0.0;
+
+    let control_fill = background;
+    let control_fill_hover = blend(background, foreground, 0.05);
+    let control_fill_active = blend(control_fill_hover, ral(9011), 0.12);
+    let selection_fill = blend(background, foreground, 0.12);
     let link = ral(5005);
     let popup_shadow_color = ral(9004);
 
@@ -82,56 +88,60 @@ pub fn industrial(
     base_visuals.weak_text_color = Some(weak_text);
     base_visuals.disabled_alpha = 1.0;
     base_visuals.faint_bg_color = surface_muted;
-    base_visuals.extreme_bg_color = surface_hover;
+    base_visuals.extreme_bg_color = control_fill_hover;
     base_visuals.slider_trailing_fill = true;
     base_visuals.selection = Selection {
-        bg_fill: accent,
-        stroke: Stroke::new(1.5, foreground),
+        bg_fill: selection_fill,
+        stroke: Stroke::new(1.5, accent),
     };
     base_visuals.hyperlink_color = link;
     base_visuals.window_stroke = Stroke::new(1.0, border);
     base_visuals.menu_corner_radius = 0.0.into();
 
+    let border_stroke = Stroke::new(1.0, border);
+    let hover_stroke = Stroke::new(1.4, border);
+    let active_stroke = Stroke::new(1.4, accent);
+
     base_visuals.widgets = Widgets {
         noninteractive: WidgetVisuals {
             bg_fill: surface,
             weak_bg_fill: surface,
-            bg_stroke: Stroke::new(1.0, border),
+            bg_stroke: border_stroke,
             fg_stroke: Stroke::new(1.0, foreground),
-            corner_radius: 10.0.into(),
-            expansion: 1.0,
+            corner_radius: container_radius.into(),
+            expansion: 0.0,
         },
         inactive: WidgetVisuals {
-            bg_fill: surface,
-            weak_bg_fill: surface,
-            bg_stroke: Stroke::new(1.0, border),
+            bg_fill: control_fill,
+            weak_bg_fill: control_fill,
+            bg_stroke: border_stroke,
             fg_stroke: Stroke::new(1.0, foreground),
-            corner_radius: 10.0.into(),
-            expansion: 1.0,
+            corner_radius: control_radius.into(),
+            expansion: 0.0,
         },
         hovered: WidgetVisuals {
-            bg_fill: surface_hover,
-            weak_bg_fill: surface_hover,
-            bg_stroke: Stroke::new(1.0, accent),
-            fg_stroke: Stroke::new(1.2, foreground),
-            corner_radius: 10.0.into(),
-            expansion: 2.0,
+            bg_fill: control_fill_hover,
+            weak_bg_fill: control_fill_hover,
+            bg_stroke: hover_stroke,
+            fg_stroke: Stroke::new(1.0, foreground),
+            corner_radius: control_radius.into(),
+            expansion: 0.0,
         },
         active: WidgetVisuals {
-            bg_fill: accent,
-            weak_bg_fill: accent,
-            bg_stroke: Stroke::new(1.0, accent),
-            fg_stroke: Stroke::new(1.4, foreground),
-            corner_radius: 10.0.into(),
-            expansion: 2.0,
+            bg_fill: control_fill_active,
+            weak_bg_fill: control_fill_active,
+            bg_stroke: active_stroke,
+            fg_stroke: Stroke::new(1.0, foreground),
+            corner_radius: control_radius.into(),
+            expansion: 0.0,
         },
         open: WidgetVisuals {
-            bg_fill: background,
-            weak_bg_fill: background,
-            bg_stroke: Stroke::new(1.0, border),
+            bg_fill: control_fill_hover,
+            weak_bg_fill: control_fill_hover,
+            bg_stroke: active_stroke,
             fg_stroke: Stroke::new(1.0, foreground),
-            corner_radius: 10.0.into(),
-            expansion: 1.0,
+            corner_radius: control_radius.into(),
+            expansion: 0.0,
         },
     };
 
