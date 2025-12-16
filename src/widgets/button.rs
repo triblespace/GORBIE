@@ -246,7 +246,6 @@ impl Widget for ToggleButton<'_> {
         let is_down = enabled && response.is_pointer_button_down_on();
         let hovered = response.hovered() || response.has_focus();
         let toggled_on = *self.on;
-        let visually_down = toggled_on || is_down;
 
         let fill = if enabled { base_fill } else { disabled_fill };
         let stroke_color = if enabled && hovered {

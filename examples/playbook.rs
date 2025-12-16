@@ -160,7 +160,7 @@ fn playbook(nb: &mut Notebook) {
             widgets::ProgressBar::new(progress)
                 .text("SIGNAL")
                 .segments(60)
-                .scale_labels([(0.0, "0"), (0.7, "70"), (0.9, "90"), (1.0, "100")])
+                .scale_labels([(0.0, "0 (off)"), (0.7, "70!"), (0.9, "90"), (1.0, "100")])
                 .zone(0.0..=0.7, green)
                 .zone(0.7..=0.9, yellow)
                 .zone(0.9..=1.0, red),
