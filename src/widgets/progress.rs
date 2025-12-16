@@ -166,7 +166,7 @@ impl Widget for ProgressBar {
         });
 
         if ui.is_rect_visible(outer_rect) {
-            let (slot_area_rect, scale_rect) = if has_scale {
+            let (mut slot_area_rect, scale_rect) = if has_scale {
                 let scale_row_height = scale_row_height.min(outer_rect.height()).at_least(0.0);
                 let slot_area_rect = Rect::from_min_max(
                     outer_rect.left_top(),
@@ -192,6 +192,29 @@ impl Widget for ProgressBar {
             };
             let stroke = Stroke::new(1.0, stroke_color);
 
+            let mut label = None;
+            if let Some(text) = text {
+                let label_max_width = slot_area_rect.width() * 0.35;
+                let galley = text.into_galley(
+                    ui,
+                    Some(TextWrapMode::Truncate),
+                    label_max_width,
+                    TextStyle::Small,
+                );
+                let label_gap = ui.spacing().item_spacing.x;
+
+                let label_w = galley.size().x;
+                if label_w + label_gap + 32.0 < slot_area_rect.width() {
+                    let label_rect = Rect::from_min_max(
+                        slot_area_rect.left_top(),
+                        pos2(slot_area_rect.left() + label_w, slot_area_rect.bottom()),
+                    );
+                    slot_area_rect.min.x =
+                        (label_rect.right() + label_gap).min(slot_area_rect.max.x);
+                    label = Some((label_rect, galley));
+                }
+            }
+
             let slot_margin = slot_area_rect.height().at_most(28.0) * 0.18;
             let slot_rect = slot_area_rect.shrink2(vec2(0.0, slot_margin));
             let slot_radius = 0.0;
@@ -202,29 +225,7 @@ impl Widget for ProgressBar {
 
             let fill_color = fill.unwrap_or(accent);
             let fill_inset = 2.0;
-            let mut meter_rect = slot_rect.shrink(fill_inset);
-
-            let mut label = None;
-            if let Some(text) = text {
-                let galley = text.into_galley(
-                    ui,
-                    Some(TextWrapMode::Extend),
-                    f32::INFINITY,
-                    TextStyle::Button,
-                );
-
-                let plate_padding = vec2(8.0, 2.0);
-                let plate_size = galley.size() + plate_padding * 2.0;
-                let plate_rect = Rect::from_center_size(
-                    pos2(meter_rect.left() + plate_size.x / 2.0, slot_rect.center().y),
-                    plate_size,
-                );
-                if plate_rect.is_positive() {
-                    let reserved_gap = (meter_rect.height() * 0.25).clamp(2.0, 6.0);
-                    meter_rect.min.x = (plate_rect.right() + reserved_gap).min(meter_rect.max.x);
-                    label = Some((plate_rect, plate_padding, galley));
-                }
-            }
+            let meter_rect = slot_rect.shrink(fill_inset);
 
             if meter_rect.is_positive() {
                 let segment_height = meter_rect.height();
@@ -298,19 +299,13 @@ impl Widget for ProgressBar {
                 }
             }
 
-            if let Some((plate_rect, plate_padding, galley)) = label {
-                let plate_rect = plate_rect.intersect(slot_rect);
-
-                painter.rect_filled(plate_rect, 0.0, ui.visuals().window_fill);
-                painter.rect_stroke(
-                    plate_rect,
-                    0.0,
-                    Stroke::new(1.0, outline),
-                    egui::StrokeKind::Inside,
+            if let Some((label_rect, galley)) = label {
+                let label_color = ui.visuals().weak_text_color();
+                let text_pos = pos2(
+                    label_rect.left(),
+                    slot_rect.center().y - galley.size().y / 2.0,
                 );
-
-                let text_pos = plate_rect.left_top() + plate_padding;
-                painter.galley(text_pos, galley, ui.visuals().text_color());
+                painter.galley(text_pos, galley, label_color);
             }
 
             if has_scale && scale_rect.is_positive() && meter_rect.is_positive() {
