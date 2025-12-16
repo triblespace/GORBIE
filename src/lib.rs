@@ -161,6 +161,8 @@ impl eframe::App for Notebook {
                                             ui.scope(|ui| {
                                                 let dark_mode = ui.visuals().dark_mode;
                                                 let bg = ui.visuals().window_fill;
+                                                let outline =
+                                                    ui.visuals().widgets.noninteractive.bg_stroke;
 
                                                 if dark_mode {
                                                     let widgets = &mut ui.visuals_mut().widgets;
@@ -169,6 +171,12 @@ impl eframe::App for Notebook {
                                                     widgets.hovered.bg_fill = bg;
                                                     widgets.hovered.weak_bg_fill = bg;
                                                 }
+
+                                                let visuals = ui.visuals_mut();
+                                                visuals.window_fill = crate::themes::ral(1003);
+                                                visuals.window_stroke = outline;
+                                                visuals.override_text_color =
+                                                    Some(crate::themes::ral(9011));
 
                                                 global_theme_switch(ui);
                                             });
@@ -283,10 +291,15 @@ impl eframe::App for Notebook {
                                                             .wrap_mode(egui::TextWrapMode::Wrap),
                                                         );
                                                     });
-                                                    inner
+                                                    let resp = inner
                                                         .response
-                                                        .interact(egui::Sense::click())
-                                                        .on_hover_text("Hide code note")
+                                                        .interact(egui::Sense::click());
+                                                    show_postit_tooltip(
+                                                        ui,
+                                                        &resp,
+                                                        "Hide code note",
+                                                    );
+                                                    resp
                                                 } else {
                                                     let (rect, resp) = ui.allocate_exact_size(
                                                         flag_size,
@@ -300,7 +313,7 @@ impl eframe::App for Notebook {
                                                         .noninteractive
                                                         .bg_stroke
                                                         .color;
-                                                    let accent = ui.visuals().hyperlink_color;
+                                                    let accent = ui.visuals().selection.bg_fill;
                                                     let stroke_color =
                                                         if resp.hovered() || resp.has_focus() {
                                                             accent
@@ -325,7 +338,12 @@ impl eframe::App for Notebook {
                                                         ui.visuals().text_color(),
                                                     );
 
-                                                    resp.on_hover_text("Show code note")
+                                                    show_postit_tooltip(
+                                                        ui,
+                                                        &resp,
+                                                        "Show code note",
+                                                    );
+                                                    resp
                                                 }
                                             })
                                             .inner;
@@ -371,6 +389,38 @@ fn paint_dot_grid(ui: &egui::Ui, rect: egui::Rect, scroll_y: f32) {
         }
         y += spacing;
     }
+}
+
+fn show_postit_tooltip(ui: &egui::Ui, response: &egui::Response, text: &str) {
+    let outline = ui.visuals().widgets.noninteractive.bg_stroke.color;
+    let shadow_color = crate::themes::ral(9004);
+    let shadow = egui::epaint::Shadow {
+        offset: [4, 4],
+        blur: 0,
+        spread: 0,
+        color: shadow_color,
+    };
+
+    let frame = egui::Frame::new()
+        .fill(crate::themes::ral(1003))
+        .stroke(egui::Stroke::new(1.0, outline))
+        .shadow(shadow)
+        .corner_radius(0.0)
+        .inner_margin(egui::Margin::same(10));
+
+    let mut tooltip = egui::containers::Tooltip::for_enabled(response);
+    tooltip.popup = tooltip.popup.frame(frame);
+    tooltip.show(|ui| {
+        ui.set_max_width(ui.spacing().tooltip_width);
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(text)
+                    .monospace()
+                    .color(crate::themes::ral(9011)),
+            )
+            .wrap_mode(egui::TextWrapMode::Extend),
+        );
+    });
 }
 
 #[macro_export]

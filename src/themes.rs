@@ -78,7 +78,8 @@ pub fn industrial(
     let surface_hover = blend(surface, accent, 0.08);
     let border = blend(foreground, background, 0.4);
     let weak_text = blend(foreground, background, 0.55);
-    let popup_shadow_color = blend(background, ral(9011), 0.22);
+    let link = ral(5005);
+    let popup_shadow_color = ral(9004);
 
     base_visuals.window_fill = background;
     base_visuals.panel_fill = background;
@@ -93,7 +94,9 @@ pub fn industrial(
         bg_fill: accent,
         stroke: Stroke::new(1.5, foreground),
     };
-    base_visuals.hyperlink_color = accent;
+    base_visuals.hyperlink_color = link;
+    base_visuals.window_stroke = Stroke::new(1.0, border);
+    base_visuals.menu_corner_radius = 0.0.into();
 
     base_visuals.widgets = Widgets {
         noninteractive: WidgetVisuals {
