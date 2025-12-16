@@ -111,61 +111,61 @@ fn playbook(nb: &mut Notebook) {
         );
     });
 
-    state!(
-        nb,
-        (),
-        (0.5_f32).into(),
-        |ui, value: &mut NotifiedState<_>| {
-            md!(
+    state!(nb, (), ((0.5_f32).into(), false), |ui,
+                                               state: &mut (
+        NotifiedState<f32>,
+        bool
+    )| {
+        let (value, toggle_on) = state;
+        md!(
                 ui,
                 "## Widget Playbook\n\nA quick showcase of our custom widgets (slider + segmented meter). The value is normalized to `[0, 1]`."
             );
 
-            md!(ui, "### Buttons");
-            ui.horizontal(|ui| {
-                let _ = ui.add(widgets::Button::new("BUTTON"));
-                let _ = ui.add(widgets::Button::new("SMALL").small());
-                ui.add_enabled(false, widgets::Button::new("DISABLED"));
-                let _ = ui.add(widgets::Button::new("SELECTED").selected(true));
-                let _ = ui.add(widgets::Button::new("TOGGLE"));
-            });
+        md!(ui, "### Buttons");
+        ui.horizontal(|ui| {
+            let _ = ui.add(widgets::Button::new("BUTTON"));
+            let _ = ui.add(widgets::Button::new("SMALL").small());
+            ui.add_enabled(false, widgets::Button::new("DISABLED"));
+            let _ = ui.add(widgets::Button::new("SELECTED").selected(true));
+            let _ = ui.add(widgets::ToggleButton::new(toggle_on, "TOGGLE"));
+        });
 
-            if ui
-                .add(widgets::Slider::new(value.deref_mut(), 0.0..=1.0).text("LEVEL"))
-                .changed()
-            {
-                value.notify();
-            }
+        if ui
+            .add(widgets::Slider::new(value.deref_mut(), 0.0..=1.0).text("LEVEL"))
+            .changed()
+        {
+            value.notify();
+        }
 
-            let progress = **value;
-            md!(ui, "Value: `{progress:.3}`");
+        let progress = **value;
+        md!(ui, "Value: `{progress:.3}`");
 
-            ui.add(
-                widgets::ProgressBar::new(progress)
-                    .text("OUTPUT")
-                    .scale_percent(),
-            );
+        ui.add(
+            widgets::ProgressBar::new(progress)
+                .text("OUTPUT")
+                .scale_percent(),
+        );
 
-            let green = GORBIE::themes::ral(6024);
-            let yellow = GORBIE::themes::ral(1023);
-            let red = GORBIE::themes::ral(3020);
+        let green = GORBIE::themes::ral(6024);
+        let yellow = GORBIE::themes::ral(1023);
+        let red = GORBIE::themes::ral(3020);
 
-            md!(
+        md!(
                 ui,
                 "### Multi‑color meter\n\nThis uses normalized color zones (green/yellow/red) and a custom segment count."
             );
 
-            ui.add(
-                widgets::ProgressBar::new(progress)
-                    .text("SIGNAL")
-                    .segments(60)
-                    .scale_labels([(0.0, "0"), (0.7, "70"), (0.9, "90"), (1.0, "100")])
-                    .zone(0.0..=0.7, green)
-                    .zone(0.7..=0.9, yellow)
-                    .zone(0.9..=1.0, red),
-            );
-        }
-    );
+        ui.add(
+            widgets::ProgressBar::new(progress)
+                .text("SIGNAL")
+                .segments(60)
+                .scale_labels([(0.0, "0"), (0.7, "70"), (0.9, "90"), (1.0, "100")])
+                .zone(0.0..=0.7, green)
+                .zone(0.7..=0.9, yellow)
+                .zone(0.9..=1.0, red),
+        );
+    });
 }
 
 fn main() {

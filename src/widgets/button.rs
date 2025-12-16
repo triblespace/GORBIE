@@ -148,3 +148,179 @@ impl Widget for Button {
         response
     }
 }
+
+#[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
+pub struct ToggleButton<'a> {
+    on: &'a mut bool,
+    text: WidgetText,
+    small: bool,
+    fill: Option<Color32>,
+    light: Option<Color32>,
+}
+
+impl<'a> ToggleButton<'a> {
+    pub fn new(on: &'a mut bool, text: impl Into<WidgetText>) -> Self {
+        Self {
+            on,
+            text: text.into(),
+            small: false,
+            fill: None,
+            light: None,
+        }
+    }
+
+    pub fn small(mut self) -> Self {
+        self.small = true;
+        self
+    }
+
+    pub fn fill(mut self, fill: Color32) -> Self {
+        self.fill = Some(fill);
+        self
+    }
+
+    pub fn light(mut self, color: Color32) -> Self {
+        self.light = Some(color);
+        self
+    }
+}
+
+impl Widget for ToggleButton<'_> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let enabled = ui.is_enabled();
+        let gstyle = GorbieSliderStyle::from(ui.style().as_ref());
+        let shadow_offset = gstyle.shadow_offset;
+        let shadow_inset = vec2(shadow_offset.x.max(0.0), shadow_offset.y.max(0.0));
+
+        let padding = if self.small {
+            ui.spacing().button_padding * 0.7
+        } else {
+            ui.spacing().button_padding
+        };
+        let text_style = if self.small {
+            TextStyle::Small
+        } else {
+            TextStyle::Button
+        };
+
+        let label_text = self.text.text().to_string();
+        let max_text_width =
+            (ui.available_width() - padding.x * 2.0 - shadow_inset.x).at_least(0.0);
+        let galley = self.text.into_galley(
+            ui,
+            Some(egui::TextWrapMode::Truncate),
+            max_text_width,
+            text_style,
+        );
+
+        let mut body_size = galley.size() + padding * 2.0;
+        let min_body_height = if self.small {
+            (ui.spacing().interact_size.y - 6.0).at_least(0.0)
+        } else {
+            ui.spacing().interact_size.y
+        };
+        body_size.y = body_size.y.at_least(min_body_height);
+
+        let desired_size = body_size + shadow_inset;
+        let (outer_rect, mut response) = ui.allocate_exact_size(desired_size, Sense::click());
+
+        if response.clicked() && enabled {
+            *self.on = !*self.on;
+            response.mark_changed();
+        }
+
+        response.widget_info(move || WidgetInfo::labeled(WidgetType::Button, enabled, &label_text));
+
+        if !ui.is_rect_visible(outer_rect) {
+            return response;
+        }
+
+        let visuals = ui.visuals();
+        let outline = gstyle.rail_fill;
+        let accent = visuals.selection.stroke.color;
+        let shadow_color = gstyle.shadow;
+
+        let base_fill = self.fill.unwrap_or(gstyle.knob);
+        let disabled_fill = crate::themes::blend(base_fill, visuals.window_fill, 0.65);
+
+        let is_down = enabled && response.is_pointer_button_down_on();
+        let hovered = response.hovered() || response.has_focus();
+        let toggled_on = *self.on;
+        let visually_down = toggled_on || is_down;
+
+        let fill = if enabled { base_fill } else { disabled_fill };
+        let stroke_color = if enabled && hovered {
+            accent
+        } else {
+            outline
+        };
+
+        let body_rect_up =
+            Rect::from_min_max(outer_rect.min, outer_rect.max - shadow_inset).intersect(outer_rect);
+        let body_rect = if is_down {
+            body_rect_up.translate(shadow_offset)
+        } else if toggled_on {
+            body_rect_up.translate(shadow_offset / 2.0 )
+        } else {
+            body_rect_up
+        };
+
+        let rounding = 2.0;
+        let painter = ui.painter();
+
+        if enabled && !is_down {
+            let offset = if toggled_on {
+                shadow_offset / 2.0
+            } else {
+                shadow_offset
+            };
+            painter.rect_filled(body_rect.translate(offset), rounding, shadow_color);
+        }
+
+        painter.rect_filled(body_rect, rounding, fill);
+        painter.rect_stroke(
+            body_rect,
+            rounding,
+            Stroke::new(1.0, stroke_color),
+            egui::StrokeKind::Inside,
+        );
+
+        let text_color = if enabled {
+            crate::themes::ral(9011)
+        } else {
+            crate::themes::blend(crate::themes::ral(9011), fill, 0.55)
+        };
+        let text_pos = pos2(
+            body_rect.center().x - galley.size().x / 2.0,
+            body_rect.center().y - galley.size().y / 2.0,
+        );
+        painter.galley(text_pos, galley, text_color);
+
+        let led_height = if self.small { 1.5 } else { 2.0 };
+        let led_inset_x = 2.0;
+        let led_inset_y = 2.0;
+        let led_rect = Rect::from_min_max(
+            pos2(
+                body_rect.left() + led_inset_x,
+                body_rect.top() + led_inset_y,
+            ),
+            pos2(
+                body_rect.right() - led_inset_x,
+                (body_rect.top() + led_inset_y + led_height).min(body_rect.bottom()),
+            ),
+        );
+        if led_rect.is_positive() {
+            let on_color = self.light.unwrap_or(crate::themes::ral(2005));
+            let off_color = crate::themes::blend(gstyle.rail_bg, fill, 0.25);
+
+            let mut led_fill = if toggled_on { on_color } else { off_color };
+            if !enabled {
+                led_fill = crate::themes::blend(led_fill, visuals.window_fill, 0.6);
+            }
+
+            painter.rect_filled(led_rect, 1.0, led_fill);
+        }
+
+        response
+    }
+}
