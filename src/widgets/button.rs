@@ -3,6 +3,8 @@ use eframe::egui::{
     WidgetInfo, WidgetText, WidgetType,
 };
 
+use crate::themes::GorbieSliderStyle;
+
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct Button {
     text: WidgetText,
@@ -47,7 +49,8 @@ impl Widget for Button {
         } = self;
 
         let enabled = ui.is_enabled();
-        let shadow_offset = vec2(2.0, 2.0);
+        let gstyle = GorbieSliderStyle::from(ui.style().as_ref());
+        let shadow_offset = gstyle.shadow_offset;
         let shadow_inset = vec2(shadow_offset.x.max(0.0), shadow_offset.y.max(0.0));
 
         let padding = if small {
@@ -91,29 +94,23 @@ impl Widget for Button {
         }
 
         let visuals = ui.visuals();
-        let ink = visuals.widgets.inactive.fg_stroke.color;
-        let outline = visuals.widgets.noninteractive.bg_stroke.color;
+        let outline = gstyle.rail_fill;
         let accent = visuals.selection.stroke.color;
-        let shadow_color = crate::themes::ral(9004);
+        let shadow_color = gstyle.shadow;
 
-        let base_fill = fill.unwrap_or(visuals.window_fill);
-        let hover_fill = crate::themes::blend(base_fill, ink, 0.05);
-        let active_fill = crate::themes::blend(hover_fill, crate::themes::ral(9011), 0.12);
+        let base_fill = fill.unwrap_or(gstyle.knob);
+        let disabled_fill = crate::themes::blend(base_fill, visuals.window_fill, 0.65);
 
         let is_down = enabled && response.is_pointer_button_down_on();
         let hovered = response.hovered() || response.has_focus();
 
-        let (fill, stroke_color, stroke_width) = if !enabled {
-            (base_fill, outline, 1.0)
-        } else if selected {
-            (visuals.selection.bg_fill, accent, 1.4)
-        } else if is_down {
-            (active_fill, accent, 1.4)
-        } else if hovered {
-            (hover_fill, accent, 1.4)
+        let fill = if enabled { base_fill } else { disabled_fill };
+        let stroke_color = if enabled && (selected || hovered || is_down) {
+            accent
         } else {
-            (base_fill, outline, 1.0)
+            outline
         };
+        let stroke_width = 1.0;
 
         let mut body_rect =
             Rect::from_min_max(outer_rect.min, outer_rect.max - shadow_inset).intersect(outer_rect);
@@ -138,9 +135,9 @@ impl Widget for Button {
         );
 
         let text_color = if enabled {
-            visuals.text_color()
+            crate::themes::ral(9011)
         } else {
-            visuals.weak_text_color()
+            crate::themes::blend(crate::themes::ral(9011), fill, 0.55)
         };
         let text_pos = pos2(
             body_rect.center().x - galley.size().x / 2.0,

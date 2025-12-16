@@ -423,12 +423,9 @@ impl<'a> Slider<'a> {
         self
     }
 
-    /// Display trailing color behind the slider's circle. Default is OFF.
+    /// Display trailing fill behind the handle. Default is OFF.
     ///
-    /// This setting can be enabled globally for all sliders with [`crate::Visuals::slider_trailing_fill`].
-    /// Toggling it here will override the above setting ONLY for this individual slider.
-    ///
-    /// The fill color will be taken from `selection.bg_fill` in your [`crate::Visuals`], the same as a [`crate::ProgressBar`].
+    /// Gorbie's slider uses `GorbieSliderStyle::rail_fill` for this fill.
     #[inline]
     pub fn trailing_fill(mut self, trailing_fill: bool) -> Self {
         self.trailing_fill = Some(trailing_fill);
@@ -868,7 +865,7 @@ impl Slider<'_> {
             let value = self.get_value();
 
             let outline = gstyle.rail_fill;
-            let accent = ui.visuals().selection.bg_fill;
+            let accent = ui.visuals().selection.stroke.color;
             let active_stroke_color =
                 if response.dragged() || response.hovered() || response.has_focus() {
                     accent
@@ -1066,7 +1063,7 @@ impl Slider<'_> {
         let mut value = self.get_value();
 
         let outline_stroke = ui.visuals().widgets.noninteractive.bg_stroke;
-        let accent = ui.visuals().selection.bg_fill;
+        let accent = ui.visuals().selection.stroke.color;
         let plate_fill = crate::themes::ral(9003);
         let plate_text = crate::themes::ral(9011);
 

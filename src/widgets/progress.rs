@@ -184,9 +184,10 @@ impl Widget for ProgressBar {
             let gstyle = GorbieSliderStyle::from(ui.style().as_ref());
 
             let outline = gstyle.rail_fill;
-            let accent = ui.visuals().selection.bg_fill;
+            let accent_stroke = ui.visuals().selection.stroke.color;
+            let default_fill = ui.visuals().selection.bg_fill;
             let stroke_color = if response.hovered() || response.has_focus() {
-                accent
+                accent_stroke
             } else {
                 outline
             };
@@ -223,7 +224,7 @@ impl Widget for ProgressBar {
             painter.rect_filled(slot_rect, slot_radius, gstyle.rail_bg);
             painter.rect_stroke(slot_rect, slot_radius, stroke, egui::StrokeKind::Inside);
 
-            let fill_color = fill.unwrap_or(accent);
+            let fill_color = fill.unwrap_or(default_fill);
             let fill_inset = 2.0;
             let meter_rect = slot_rect.shrink(fill_inset);
 

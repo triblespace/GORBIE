@@ -313,7 +313,8 @@ impl eframe::App for Notebook {
                                                         .noninteractive
                                                         .bg_stroke
                                                         .color;
-                                                    let accent = ui.visuals().selection.bg_fill;
+                                                    let accent =
+                                                        ui.visuals().selection.stroke.color;
                                                     let stroke_color =
                                                         if resp.hovered() || resp.has_focus() {
                                                             accent
