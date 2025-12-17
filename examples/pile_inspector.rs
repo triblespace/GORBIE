@@ -219,9 +219,14 @@ fn pile_inspector(nb: &mut Notebook) {
             return;
         };
 
+        const MIN_BUCKET_EXP: u32 = 6; // 64B (pile record alignment).
+        const MAX_BUCKET_EXP: u32 = 36; // 64 GiB and above go into the last bucket.
+
         let mut buckets = std::collections::BTreeMap::<u32, (u64, u64)>::new(); // exp -> (count, bytes)
         let mut valid_blobs = 0u64;
         let mut total_bytes = 0u64;
+        let mut saw_underflow = false;
+        let mut saw_overflow = false;
 
         for blob in &snapshot.blobs {
             let Some(len) = blob.length else {
@@ -230,7 +235,10 @@ fn pile_inspector(nb: &mut Notebook) {
             valid_blobs += 1;
             total_bytes = total_bytes.saturating_add(len);
 
-            let exp = len.max(1).ilog2();
+            let raw_exp = len.max(1).ilog2();
+            let exp = raw_exp.clamp(MIN_BUCKET_EXP, MAX_BUCKET_EXP);
+            saw_underflow |= raw_exp < MIN_BUCKET_EXP;
+            saw_overflow |= raw_exp > MAX_BUCKET_EXP;
             let entry = buckets.entry(exp).or_insert((0, 0));
             entry.0 += 1;
             entry.1 = entry.1.saturating_add(len);
@@ -253,16 +261,36 @@ fn pile_inspector(nb: &mut Notebook) {
             }
         }
 
-        fn bucket_label(exp: u32) -> String {
+        fn bucket_label(
+            exp: u32,
+            min_exp: u32,
+            max_exp: u32,
+            underflowed: bool,
+            overflowed: bool,
+        ) -> String {
             let start = bucket_start(exp);
-            if start >= (1u64 << 30) {
-                format!("{}G", start >> 30)
-            } else if start >= (1u64 << 20) {
-                format!("{}M", start >> 20)
-            } else if start >= (1u64 << 10) {
-                format!("{}K", start >> 10)
+            let prefix = if underflowed && exp == min_exp {
+                "≤"
             } else {
-                format!("{start}B")
+                ""
+            };
+            let suffix = if overflowed && exp == max_exp {
+                "+"
+            } else {
+                ""
+            };
+
+            if start >= (1u64 << 30) {
+                let start_g = start >> 30;
+                format!("{prefix}{start_g}G{suffix}")
+            } else if start >= (1u64 << 20) {
+                let start_m = start >> 20;
+                format!("{prefix}{start_m}M{suffix}")
+            } else if start >= (1u64 << 10) {
+                let start_k = start >> 10;
+                format!("{prefix}{start_k}K{suffix}")
+            } else {
+                format!("{prefix}{start}B{suffix}")
             }
         }
 
@@ -275,8 +303,8 @@ fn pile_inspector(nb: &mut Notebook) {
             ));
         });
 
-        let first_exp = *buckets.keys().next().unwrap();
-        let last_exp = *buckets.keys().next_back().unwrap();
+        let first_exp = MIN_BUCKET_EXP;
+        let last_exp = MAX_BUCKET_EXP;
 
         let mut max_value = 0u64;
         for (_exp, (count, bytes)) in &buckets {
@@ -355,11 +383,15 @@ fn pile_inspector(nb: &mut Notebook) {
             painter.rect_filled(bar_rect, 0.0, fill);
             painter.rect_stroke(bar_rect, 0.0, bar_stroke, egui::StrokeKind::Inside);
 
-            let start = bucket_start(exp);
-            let end = bucket_end(exp);
-            let range = if end == u64::MAX {
+            let range = if saw_overflow && exp == MAX_BUCKET_EXP {
+                let start = bucket_start(exp);
                 format!("≥ {}", format_bytes(start))
+            } else if saw_underflow && exp == MIN_BUCKET_EXP {
+                let end = bucket_end(exp);
+                format!("≤ {}", format_bytes(end))
             } else {
+                let start = bucket_start(exp);
+                let end = bucket_end(exp);
                 format!("{}–{}", format_bytes(start), format_bytes(end))
             };
             let metric = if state.histogram_bytes {
@@ -384,7 +416,13 @@ fn pile_inspector(nb: &mut Notebook) {
             painter.text(
                 egui::pos2(x, tick_top + tick_len + tick_pad),
                 egui::Align2::CENTER_TOP,
-                bucket_label(exp),
+                bucket_label(
+                    exp,
+                    MIN_BUCKET_EXP,
+                    MAX_BUCKET_EXP,
+                    saw_underflow,
+                    saw_overflow,
+                ),
                 font_id.clone(),
                 ui.visuals().text_color(),
             );

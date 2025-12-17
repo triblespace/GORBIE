@@ -118,7 +118,7 @@ impl Widget for Button {
             body_rect = body_rect.translate(shadow_offset);
         }
 
-        let rounding = 2.0;
+        let rounding = 2;
         let painter = ui.painter();
 
         if enabled && !is_down {
@@ -441,10 +441,21 @@ impl Widget for ChoiceToggle<'_> {
             disabled_slot_fill
         };
 
+        let segment_gap = 2.0;
+        let half_gap = segment_gap * 0.5;
+
         let split_x = slot_rect.left() + slot_rect.width() / 2.0;
-        let left_slot = Rect::from_min_max(slot_rect.left_top(), pos2(split_x, slot_rect.bottom()));
-        let right_slot =
-            Rect::from_min_max(pos2(split_x, slot_rect.top()), slot_rect.right_bottom());
+        let left_slot = Rect::from_min_max(
+            slot_rect.left_top(),
+            pos2(
+                (split_x - half_gap).max(slot_rect.left()),
+                slot_rect.bottom(),
+            ),
+        );
+        let right_slot = Rect::from_min_max(
+            pos2((split_x + half_gap).min(slot_rect.right()), slot_rect.top()),
+            slot_rect.right_bottom(),
+        );
 
         let left_id = ui.make_persistent_id((response.id, "choice-toggle-left"));
         let right_id = ui.make_persistent_id((response.id, "choice-toggle-right"));
@@ -452,7 +463,19 @@ impl Widget for ChoiceToggle<'_> {
         let left_response = ui.interact(left_slot, left_id, Sense::click());
         let right_response = ui.interact(right_slot, right_id, Sense::click());
 
+        let pointer_pressed = enabled && ui.input(|i| i.pointer.any_pressed());
+
         let mut changed = false;
+        if pointer_pressed && left_response.is_pointer_button_down_on() && *self.value {
+            *self.value = false;
+            changed = true;
+        }
+        if pointer_pressed && right_response.is_pointer_button_down_on() && !*self.value {
+            *self.value = true;
+            changed = true;
+        }
+
+        // Fallback for non-pointer activation (e.g. keyboard).
         if enabled && left_response.clicked() && *self.value {
             *self.value = false;
             changed = true;
@@ -465,31 +488,32 @@ impl Widget for ChoiceToggle<'_> {
             response.mark_changed();
         }
 
-        let rounding = 2.0;
+        let slot_rounding = 2.0;
+        let segment_rounding: u8 = 2;
         let painter = ui.painter();
 
-        painter.rect_filled(slot_rect, rounding, slot_fill);
+        painter.rect_filled(slot_rect, slot_rounding, slot_fill);
         painter.rect_stroke(
             slot_rect,
-            rounding,
+            slot_rounding,
             Stroke::new(1.0, outline),
             egui::StrokeKind::Inside,
         );
 
-        painter.line_segment(
-            [
-                pos2(split_x, slot_rect.top()),
-                pos2(split_x, slot_rect.bottom()),
-            ],
-            Stroke::new(1.0, outline),
-        );
-
         let segment_margin = shadow_offset.x.max(shadow_offset.y).max(2.0);
+
+        #[derive(Clone, Copy)]
+        enum InnerEdge {
+            Left,
+            Right,
+        }
 
         fn draw_segment(
             ui: &Ui,
             gstyle: &GorbieSliderStyle,
             face_up: Rect,
+            rounding: egui::CornerRadius,
+            mask_stroke: Option<InnerEdge>,
             galley: std::sync::Arc<egui::Galley>,
             hovered: bool,
             is_down: bool,
@@ -508,14 +532,15 @@ impl Widget for ChoiceToggle<'_> {
             let fill = if enabled { base_fill } else { disabled_fill };
             let is_pressed = is_down || is_active;
 
+            let pressed_offset = vec2(0.0, shadow_offset.y.max(0.0));
             let face_rect = if is_pressed {
-                face_up.translate(shadow_offset)
+                face_up.translate(pressed_offset)
             } else {
                 face_up
             };
 
             if enabled && !is_pressed {
-                painter.rect_filled(face_rect.translate(shadow_offset), 2.0, shadow_color);
+                painter.rect_filled(face_rect.translate(shadow_offset), rounding, shadow_color);
             }
 
             let stroke_color = if enabled && (hovered || is_down) {
@@ -524,13 +549,35 @@ impl Widget for ChoiceToggle<'_> {
                 outline
             };
 
-            painter.rect_filled(face_rect, 2.0, fill);
+            painter.rect_filled(face_rect, rounding, fill);
             painter.rect_stroke(
                 face_rect,
-                2.0,
+                rounding,
                 Stroke::new(1.0, stroke_color),
                 egui::StrokeKind::Inside,
             );
+            if let Some(mask_stroke) = mask_stroke {
+                let stroke_width = 1.0;
+                let mask_rect = match mask_stroke {
+                    InnerEdge::Left => Rect::from_min_max(
+                        pos2(face_rect.left(), face_rect.top()),
+                        pos2(
+                            (face_rect.left() + stroke_width).min(face_rect.right()),
+                            face_rect.bottom(),
+                        ),
+                    ),
+                    InnerEdge::Right => Rect::from_min_max(
+                        pos2(
+                            (face_rect.right() - stroke_width).max(face_rect.left()),
+                            face_rect.top(),
+                        ),
+                        pos2(face_rect.right(), face_rect.bottom()),
+                    ),
+                };
+                if mask_rect.is_positive() {
+                    painter.rect_filled(mask_rect, 0, fill);
+                }
+            }
 
             let text_color = if enabled {
                 crate::themes::ral(9011)
@@ -565,12 +612,31 @@ impl Widget for ChoiceToggle<'_> {
                 if !enabled {
                     led_fill = crate::themes::blend(led_fill, ui.visuals().window_fill, 0.6);
                 }
-                painter.rect_filled(led_rect, 1.0, led_fill);
+                painter.rect_filled(led_rect, 1, led_fill);
             }
         }
 
-        let left_face_up = left_slot.shrink(segment_margin);
-        let right_face_up = right_slot.shrink(segment_margin);
+        let inner_margin = 0.0;
+        let left_face_up = Rect::from_min_max(
+            pos2(
+                left_slot.left() + segment_margin,
+                left_slot.top() + segment_margin,
+            ),
+            pos2(
+                left_slot.right() - inner_margin,
+                left_slot.bottom() - segment_margin,
+            ),
+        );
+        let right_face_up = Rect::from_min_max(
+            pos2(
+                right_slot.left() + inner_margin,
+                right_slot.top() + segment_margin,
+            ),
+            pos2(
+                right_slot.right() - segment_margin,
+                right_slot.bottom() - segment_margin,
+            ),
+        );
 
         let left_hovered = left_response.hovered() || left_response.has_focus();
         let right_hovered = right_response.hovered() || right_response.has_focus();
@@ -581,43 +647,103 @@ impl Widget for ChoiceToggle<'_> {
         let right_active = *self.value;
 
         let fill = if enabled { base_fill } else { disabled_fill };
+        let left_rounding = egui::CornerRadius {
+            nw: segment_rounding,
+            ne: 0,
+            sw: segment_rounding,
+            se: 0,
+        };
+        let right_rounding = egui::CornerRadius {
+            nw: 0,
+            ne: segment_rounding,
+            sw: 0,
+            se: segment_rounding,
+        };
+
         // Draw segments.
-        draw_segment(
-            ui,
-            &gstyle,
-            left_face_up,
-            off_galley,
-            left_hovered,
-            left_down,
-            left_active,
-            enabled,
-            fill,
-            disabled_fill,
-            outline,
-            accent,
-            shadow_color,
-            shadow_offset,
-            self.light,
-            self.small,
-        );
-        draw_segment(
-            ui,
-            &gstyle,
-            right_face_up,
-            on_galley,
-            right_hovered,
-            right_down,
-            right_active,
-            enabled,
-            fill,
-            disabled_fill,
-            outline,
-            accent,
-            shadow_color,
-            shadow_offset,
-            self.light,
-            self.small,
-        );
+        if left_active {
+            draw_segment(
+                ui,
+                &gstyle,
+                left_face_up,
+                left_rounding,
+                Some(InnerEdge::Right),
+                off_galley,
+                left_hovered,
+                left_down,
+                left_active,
+                enabled,
+                fill,
+                disabled_fill,
+                outline,
+                accent,
+                shadow_color,
+                shadow_offset,
+                self.light,
+                self.small,
+            );
+            draw_segment(
+                ui,
+                &gstyle,
+                right_face_up,
+                right_rounding,
+                Some(InnerEdge::Left),
+                on_galley,
+                right_hovered,
+                right_down,
+                right_active,
+                enabled,
+                fill,
+                disabled_fill,
+                outline,
+                accent,
+                shadow_color,
+                shadow_offset,
+                self.light,
+                self.small,
+            );
+        } else {
+            draw_segment(
+                ui,
+                &gstyle,
+                right_face_up,
+                right_rounding,
+                Some(InnerEdge::Left),
+                on_galley,
+                right_hovered,
+                right_down,
+                right_active,
+                enabled,
+                fill,
+                disabled_fill,
+                outline,
+                accent,
+                shadow_color,
+                shadow_offset,
+                self.light,
+                self.small,
+            );
+            draw_segment(
+                ui,
+                &gstyle,
+                left_face_up,
+                left_rounding,
+                Some(InnerEdge::Right),
+                off_galley,
+                left_hovered,
+                left_down,
+                left_active,
+                enabled,
+                fill,
+                disabled_fill,
+                outline,
+                accent,
+                shadow_color,
+                shadow_offset,
+                self.light,
+                self.small,
+            );
+        }
 
         response = response | left_response | right_response;
         response
