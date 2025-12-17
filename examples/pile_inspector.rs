@@ -69,96 +69,6 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-#[derive(Clone, Copy)]
-struct CountScale {
-    divisor: u64,
-    suffix: &'static str,
-}
-
-impl CountScale {
-    fn pick(max: u64) -> Self {
-        if max >= 1_000_000_000 {
-            Self {
-                divisor: 1_000_000_000,
-                suffix: "B",
-            }
-        } else if max >= 1_000_000 {
-            Self {
-                divisor: 1_000_000,
-                suffix: "M",
-            }
-        } else if max >= 1_000 {
-            Self {
-                divisor: 1_000,
-                suffix: "K",
-            }
-        } else {
-            Self {
-                divisor: 1,
-                suffix: "",
-            }
-        }
-    }
-
-    fn format(self, value: u64) -> String {
-        if value == 0 {
-            return "0".to_owned();
-        }
-
-        if self.divisor == 1 {
-            return format!("{value}");
-        }
-
-        let scaled = value as f64 / self.divisor as f64;
-        if (scaled.fract() - 0.0).abs() < f64::EPSILON {
-            format!("{}{suffix}", scaled as u64, suffix = self.suffix)
-        } else {
-            format!("{scaled:.1}{suffix}", suffix = self.suffix)
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct BytesScale {
-    divisor: u64,
-    suffix: &'static str,
-}
-
-impl BytesScale {
-    fn pick(step: u64) -> Self {
-        if step >= (1u64 << 30) {
-            Self {
-                divisor: 1u64 << 30,
-                suffix: "GiB",
-            }
-        } else if step >= (1u64 << 20) {
-            Self {
-                divisor: 1u64 << 20,
-                suffix: "MiB",
-            }
-        } else if step >= (1u64 << 10) {
-            Self {
-                divisor: 1u64 << 10,
-                suffix: "KiB",
-            }
-        } else {
-            Self {
-                divisor: 1,
-                suffix: "B",
-            }
-        }
-    }
-
-    fn format(self, value: u64) -> String {
-        if self.divisor == 1 {
-            return format!("{value} B");
-        }
-
-        let scaled = value / self.divisor;
-        format!("{scaled} {suffix}", suffix = self.suffix)
-    }
-}
-
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -392,231 +302,57 @@ fn pile_inspector(nb: &mut Notebook) {
                 "BYTES",
             ));
         });
-
-        let first_exp = MIN_BUCKET_EXP;
-        let last_exp = MAX_BUCKET_EXP;
+        let y_axis = if state.histogram_bytes {
+            widgets::HistogramYAxis::Bytes
+        } else {
+            widgets::HistogramYAxis::Count
+        };
 
         let mut max_value = 0u64;
-        for (_exp, (count, bytes)) in &buckets {
-            let value = if state.histogram_bytes {
-                *bytes
-            } else {
-                *count
-            };
+        let mut histogram_buckets: Vec<widgets::HistogramBucket<'static>> = Vec::new();
+        for exp in MIN_BUCKET_EXP..=MAX_BUCKET_EXP {
+            let (count, bytes) = buckets.get(&exp).copied().unwrap_or((0, 0));
+            let value = if state.histogram_bytes { bytes } else { count };
             max_value = max_value.max(value);
+
+            let mut bucket = widgets::HistogramBucket::new(
+                value,
+                bucket_label(exp, MIN_BUCKET_EXP, MAX_BUCKET_EXP, saw_underflow, saw_overflow),
+            );
+
+            if value > 0 {
+                let range = if saw_overflow && exp == MAX_BUCKET_EXP {
+                    let start = bucket_start(exp);
+                    format!("≥ {}", format_bytes(start))
+                } else if saw_underflow && exp == MIN_BUCKET_EXP {
+                    let end = bucket_end(exp);
+                    format!("≤ {}", format_bytes(end))
+                } else {
+                    let start = bucket_start(exp);
+                    let end = bucket_end(exp);
+                    format!("{}–{}", format_bytes(start), format_bytes(end))
+                };
+                let metric = if state.histogram_bytes {
+                    format_bytes(bytes)
+                } else {
+                    format!("{count}")
+                };
+                bucket = bucket.tooltip(format!("{range}\n{metric}"));
+            }
+
+            histogram_buckets.push(bucket);
         }
+
         if max_value == 0 {
             md!(ui, "_No data to plot._");
             return;
         }
 
-        let desired_width = ui.available_width().max(128.0);
-        let font_id = egui::TextStyle::Small.resolve(ui.style());
-        let tick_len = 4.0;
-        let tick_pad = 2.0;
-        let text_height = ui.fonts(|fonts| fonts.row_height(&font_id));
-        let label_row_h = tick_len + tick_pad + text_height;
-        let plot_h = 80.0;
-        let total_h = plot_h + label_row_h;
-
-        let (outer_rect, _resp) =
-            ui.allocate_exact_size(egui::vec2(desired_width, total_h), egui::Sense::hover());
-
-        fn paint_hatching(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32) {
-            let spacing = 8.0;
-            let stroke = egui::Stroke::new(1.0, color);
-
-            let h = rect.height();
-            let mut x = rect.left() - h;
-            while x < rect.right() + h {
-                painter.line_segment(
-                    [egui::pos2(x, rect.top()), egui::pos2(x + h, rect.bottom())],
-                    stroke,
-                );
-                x += spacing;
-            }
-        }
-
-        let visuals = ui.visuals();
-        let background = visuals.window_fill;
-        let outline = visuals.widgets.noninteractive.bg_stroke.color;
-        let stroke = egui::Stroke::new(1.0, outline);
-        let ink = visuals.widgets.noninteractive.fg_stroke.color;
-        let grid_color = GORBIE::themes::blend(background, ink, 0.22);
-        let y_label_color = ink;
-
-        fn nice_decimal_step(max_value: u64, segments: u64) -> u64 {
-            let segments = segments.max(1);
-            let raw_step = max_value.div_ceil(segments).max(1);
-            let magnitude = 10u64.pow(raw_step.ilog10());
-            for mult in [1u64, 2, 5, 10] {
-                let step = mult.saturating_mul(magnitude);
-                if step >= raw_step {
-                    return step;
-                }
-            }
-            10u64.saturating_mul(magnitude)
-        }
-
-        let y_segments = 4u64;
-        let y_step = if state.histogram_bytes {
-            max_value.div_ceil(y_segments).max(1).next_power_of_two()
-        } else {
-            nice_decimal_step(max_value, y_segments)
-        };
-        let y_max = y_step.saturating_mul(y_segments).max(1);
-        let y_ticks: Vec<u64> = (0..=y_segments).map(|i| y_step.saturating_mul(i)).collect();
-
-        let bytes_scale = if state.histogram_bytes {
-            Some(BytesScale::pick(y_step))
-        } else {
-            None
-        };
-        let count_scale = if state.histogram_bytes {
-            None
-        } else {
-            Some(CountScale::pick(y_max))
-        };
-
-        let y_label_width = ui.fonts(|fonts| {
-            y_ticks
-                .iter()
-                .map(|&value| {
-                    let text = match (bytes_scale, count_scale) {
-                        (Some(scale), _) => scale.format(value),
-                        (_, Some(scale)) => scale.format(value),
-                        _ => unreachable!(),
-                    };
-                    fonts
-                        .layout_no_wrap(text, font_id.clone(), y_label_color)
-                        .size()
-                        .x
-                })
-                .fold(0.0, f32::max)
-        });
-        let y_axis_w = (y_label_width + 10.0).clamp(24.0, 80.0);
-        let y_axis_pad = 6.0;
-
-        let plot_rect = egui::Rect::from_min_max(
-            egui::pos2(
-                (outer_rect.left() + y_axis_w + y_axis_pad).min(outer_rect.right()),
-                outer_rect.top(),
-            ),
-            egui::pos2(outer_rect.right(), outer_rect.bottom() - label_row_h),
+        ui.add(
+            widgets::Histogram::new(&histogram_buckets, y_axis)
+                .plot_height(80.0)
+                .max_x_labels(7),
         );
-        let plot_area = plot_rect.shrink(4.0);
-
-        let painter = ui.painter().with_clip_rect(outer_rect);
-        painter.rect_stroke(plot_rect, 0.0, stroke, egui::StrokeKind::Inside);
-
-        for value in &y_ticks {
-            let frac = (*value as f64 / y_max as f64) as f32;
-            let y = plot_area.bottom() - frac * plot_area.height();
-            painter.line_segment(
-                [
-                    egui::pos2(plot_area.left(), y),
-                    egui::pos2(plot_area.right(), y),
-                ],
-                egui::Stroke::new(1.0, grid_color),
-            );
-
-            let text = match (bytes_scale, count_scale) {
-                (Some(scale), _) => scale.format(*value),
-                (_, Some(scale)) => scale.format(*value),
-                _ => unreachable!(),
-            };
-            painter.text(
-                egui::pos2(plot_rect.left() - 4.0, y),
-                egui::Align2::RIGHT_CENTER,
-                text,
-                font_id.clone(),
-                y_label_color,
-            );
-        }
-
-        let bucket_count = (last_exp - first_exp + 1) as usize;
-        let gap = 2.0;
-        let bar_w = ((plot_area.width() - gap * (bucket_count.saturating_sub(1) as f32))
-            / bucket_count as f32)
-            .max(1.0);
-
-        for i in 0..bucket_count {
-            let exp = first_exp + i as u32;
-            let (count, bytes) = buckets.get(&exp).copied().unwrap_or((0, 0));
-            let value = if state.histogram_bytes { bytes } else { count };
-            if value == 0 {
-                continue;
-            }
-
-            let frac = (value as f64 / y_max as f64) as f32;
-            let bar_h = (frac * plot_area.height()).clamp(1.0, plot_area.height());
-
-            let x0 = plot_area.left() + i as f32 * (bar_w + gap);
-            let x1 = (x0 + bar_w).min(plot_area.right());
-            let bar_rect = egui::Rect::from_min_max(
-                egui::pos2(x0, plot_area.bottom() - bar_h),
-                egui::pos2(x1, plot_area.bottom()),
-            );
-
-            let id = ui.make_persistent_id(("pile_hist_bar", exp));
-            let resp = ui.interact(bar_rect, id, egui::Sense::hover());
-            let stroke_color = if resp.hovered() {
-                ui.visuals().selection.stroke.color
-            } else {
-                outline
-            };
-            let bar_stroke = egui::Stroke::new(1.0, stroke_color);
-
-            let hatch_rect = bar_rect.shrink(1.0);
-            if hatch_rect.is_positive() {
-                paint_hatching(&painter.with_clip_rect(hatch_rect), hatch_rect, ink);
-            }
-            painter.rect_stroke(bar_rect, 0.0, bar_stroke, egui::StrokeKind::Inside);
-
-            let range = if saw_overflow && exp == MAX_BUCKET_EXP {
-                let start = bucket_start(exp);
-                format!("≥ {}", format_bytes(start))
-            } else if saw_underflow && exp == MIN_BUCKET_EXP {
-                let end = bucket_end(exp);
-                format!("≤ {}", format_bytes(end))
-            } else {
-                let start = bucket_start(exp);
-                let end = bucket_end(exp);
-                format!("{}–{}", format_bytes(start), format_bytes(end))
-            };
-            let metric = if state.histogram_bytes {
-                format_bytes(bytes)
-            } else {
-                format!("{count}")
-            };
-            let _ = resp.on_hover_text(format!("{range}\n{metric}"));
-        }
-
-        let max_labels = 7usize;
-        let step = (bucket_count.div_ceil(max_labels)).max(1);
-
-        for i in (0..bucket_count).step_by(step) {
-            let exp = first_exp + i as u32;
-            let x = plot_area.left() + i as f32 * (bar_w + gap) + bar_w * 0.5;
-            let tick_top = plot_rect.bottom();
-            painter.line_segment(
-                [egui::pos2(x, tick_top), egui::pos2(x, tick_top + tick_len)],
-                egui::Stroke::new(1.0, outline),
-            );
-            painter.text(
-                egui::pos2(x, tick_top + tick_len + tick_pad),
-                egui::Align2::CENTER_TOP,
-                bucket_label(
-                    exp,
-                    MIN_BUCKET_EXP,
-                    MAX_BUCKET_EXP,
-                    saw_underflow,
-                    saw_overflow,
-                ),
-                font_id.clone(),
-                ink,
-            );
-        }
 
         md!(
             ui,
