@@ -69,6 +69,96 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
+#[derive(Clone, Copy)]
+struct CountScale {
+    divisor: u64,
+    suffix: &'static str,
+}
+
+impl CountScale {
+    fn pick(max: u64) -> Self {
+        if max >= 1_000_000_000 {
+            Self {
+                divisor: 1_000_000_000,
+                suffix: "B",
+            }
+        } else if max >= 1_000_000 {
+            Self {
+                divisor: 1_000_000,
+                suffix: "M",
+            }
+        } else if max >= 1_000 {
+            Self {
+                divisor: 1_000,
+                suffix: "K",
+            }
+        } else {
+            Self {
+                divisor: 1,
+                suffix: "",
+            }
+        }
+    }
+
+    fn format(self, value: u64) -> String {
+        if value == 0 {
+            return "0".to_owned();
+        }
+
+        if self.divisor == 1 {
+            return format!("{value}");
+        }
+
+        let scaled = value as f64 / self.divisor as f64;
+        if (scaled.fract() - 0.0).abs() < f64::EPSILON {
+            format!("{}{suffix}", scaled as u64, suffix = self.suffix)
+        } else {
+            format!("{scaled:.1}{suffix}", suffix = self.suffix)
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct BytesScale {
+    divisor: u64,
+    suffix: &'static str,
+}
+
+impl BytesScale {
+    fn pick(step: u64) -> Self {
+        if step >= (1u64 << 30) {
+            Self {
+                divisor: 1u64 << 30,
+                suffix: "GiB",
+            }
+        } else if step >= (1u64 << 20) {
+            Self {
+                divisor: 1u64 << 20,
+                suffix: "MiB",
+            }
+        } else if step >= (1u64 << 10) {
+            Self {
+                divisor: 1u64 << 10,
+                suffix: "KiB",
+            }
+        } else {
+            Self {
+                divisor: 1,
+                suffix: "B",
+            }
+        }
+    }
+
+    fn format(self, value: u64) -> String {
+        if self.divisor == 1 {
+            return format!("{value} B");
+        }
+
+        let scaled = value / self.divisor;
+        format!("{scaled} {suffix}", suffix = self.suffix)
+    }
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -332,24 +422,121 @@ fn pile_inspector(nb: &mut Notebook) {
         let (outer_rect, _resp) =
             ui.allocate_exact_size(egui::vec2(desired_width, total_h), egui::Sense::hover());
 
+        fn paint_hatching(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32) {
+            let spacing = 8.0;
+            let stroke = egui::Stroke::new(1.0, color);
+
+            let h = rect.height();
+            let mut x = rect.left() - h;
+            while x < rect.right() + h {
+                painter.line_segment(
+                    [egui::pos2(x, rect.top()), egui::pos2(x + h, rect.bottom())],
+                    stroke,
+                );
+                x += spacing;
+            }
+        }
+
+        let visuals = ui.visuals();
+        let background = visuals.window_fill;
+        let outline = visuals.widgets.noninteractive.bg_stroke.color;
+        let stroke = egui::Stroke::new(1.0, outline);
+        let ink = visuals.widgets.noninteractive.fg_stroke.color;
+        let grid_color = GORBIE::themes::blend(background, ink, 0.22);
+        let y_label_color = ink;
+
+        fn nice_decimal_step(max_value: u64, segments: u64) -> u64 {
+            let segments = segments.max(1);
+            let raw_step = max_value.div_ceil(segments).max(1);
+            let magnitude = 10u64.pow(raw_step.ilog10());
+            for mult in [1u64, 2, 5, 10] {
+                let step = mult.saturating_mul(magnitude);
+                if step >= raw_step {
+                    return step;
+                }
+            }
+            10u64.saturating_mul(magnitude)
+        }
+
+        let y_segments = 4u64;
+        let y_step = if state.histogram_bytes {
+            max_value.div_ceil(y_segments).max(1).next_power_of_two()
+        } else {
+            nice_decimal_step(max_value, y_segments)
+        };
+        let y_max = y_step.saturating_mul(y_segments).max(1);
+        let y_ticks: Vec<u64> = (0..=y_segments).map(|i| y_step.saturating_mul(i)).collect();
+
+        let bytes_scale = if state.histogram_bytes {
+            Some(BytesScale::pick(y_step))
+        } else {
+            None
+        };
+        let count_scale = if state.histogram_bytes {
+            None
+        } else {
+            Some(CountScale::pick(y_max))
+        };
+
+        let y_label_width = ui.fonts(|fonts| {
+            y_ticks
+                .iter()
+                .map(|&value| {
+                    let text = match (bytes_scale, count_scale) {
+                        (Some(scale), _) => scale.format(value),
+                        (_, Some(scale)) => scale.format(value),
+                        _ => unreachable!(),
+                    };
+                    fonts
+                        .layout_no_wrap(text, font_id.clone(), y_label_color)
+                        .size()
+                        .x
+                })
+                .fold(0.0, f32::max)
+        });
+        let y_axis_w = (y_label_width + 10.0).clamp(24.0, 80.0);
+        let y_axis_pad = 6.0;
+
         let plot_rect = egui::Rect::from_min_max(
-            outer_rect.left_top(),
+            egui::pos2(
+                (outer_rect.left() + y_axis_w + y_axis_pad).min(outer_rect.right()),
+                outer_rect.top(),
+            ),
             egui::pos2(outer_rect.right(), outer_rect.bottom() - label_row_h),
         );
-
-        let gstyle = GORBIE::themes::GorbieSliderStyle::from(ui.style().as_ref());
-        let outline = gstyle.rail_fill;
-        let stroke = egui::Stroke::new(1.0, outline);
-        let fill = ui.visuals().selection.bg_fill;
+        let plot_area = plot_rect.shrink(4.0);
 
         let painter = ui.painter().with_clip_rect(outer_rect);
-        painter.rect_filled(plot_rect, 0.0, gstyle.rail_bg);
         painter.rect_stroke(plot_rect, 0.0, stroke, egui::StrokeKind::Inside);
 
-        let inner = plot_rect.shrink(4.0);
+        for value in &y_ticks {
+            let frac = (*value as f64 / y_max as f64) as f32;
+            let y = plot_area.bottom() - frac * plot_area.height();
+            painter.line_segment(
+                [
+                    egui::pos2(plot_area.left(), y),
+                    egui::pos2(plot_area.right(), y),
+                ],
+                egui::Stroke::new(1.0, grid_color),
+            );
+
+            let text = match (bytes_scale, count_scale) {
+                (Some(scale), _) => scale.format(*value),
+                (_, Some(scale)) => scale.format(*value),
+                _ => unreachable!(),
+            };
+            painter.text(
+                egui::pos2(plot_rect.left() - 4.0, y),
+                egui::Align2::RIGHT_CENTER,
+                text,
+                font_id.clone(),
+                y_label_color,
+            );
+        }
+
         let bucket_count = (last_exp - first_exp + 1) as usize;
         let gap = 2.0;
-        let bar_w = ((inner.width() - gap * (bucket_count.saturating_sub(1) as f32))
+        let bar_w = ((plot_area.width() - gap * (bucket_count.saturating_sub(1) as f32))
             / bucket_count as f32)
             .max(1.0);
 
@@ -361,14 +548,14 @@ fn pile_inspector(nb: &mut Notebook) {
                 continue;
             }
 
-            let frac = (value as f64 / max_value as f64) as f32;
-            let bar_h = (frac * inner.height()).clamp(1.0, inner.height());
+            let frac = (value as f64 / y_max as f64) as f32;
+            let bar_h = (frac * plot_area.height()).clamp(1.0, plot_area.height());
 
-            let x0 = inner.left() + i as f32 * (bar_w + gap);
-            let x1 = (x0 + bar_w).min(inner.right());
+            let x0 = plot_area.left() + i as f32 * (bar_w + gap);
+            let x1 = (x0 + bar_w).min(plot_area.right());
             let bar_rect = egui::Rect::from_min_max(
-                egui::pos2(x0, inner.bottom() - bar_h),
-                egui::pos2(x1, inner.bottom()),
+                egui::pos2(x0, plot_area.bottom() - bar_h),
+                egui::pos2(x1, plot_area.bottom()),
             );
 
             let id = ui.make_persistent_id(("pile_hist_bar", exp));
@@ -380,7 +567,10 @@ fn pile_inspector(nb: &mut Notebook) {
             };
             let bar_stroke = egui::Stroke::new(1.0, stroke_color);
 
-            painter.rect_filled(bar_rect, 0.0, fill);
+            let hatch_rect = bar_rect.shrink(1.0);
+            if hatch_rect.is_positive() {
+                paint_hatching(&painter.with_clip_rect(hatch_rect), hatch_rect, ink);
+            }
             painter.rect_stroke(bar_rect, 0.0, bar_stroke, egui::StrokeKind::Inside);
 
             let range = if saw_overflow && exp == MAX_BUCKET_EXP {
@@ -407,7 +597,7 @@ fn pile_inspector(nb: &mut Notebook) {
 
         for i in (0..bucket_count).step_by(step) {
             let exp = first_exp + i as u32;
-            let x = inner.left() + i as f32 * (bar_w + gap) + bar_w * 0.5;
+            let x = plot_area.left() + i as f32 * (bar_w + gap) + bar_w * 0.5;
             let tick_top = plot_rect.bottom();
             painter.line_segment(
                 [egui::pos2(x, tick_top), egui::pos2(x, tick_top + tick_len)],
@@ -424,7 +614,7 @@ fn pile_inspector(nb: &mut Notebook) {
                     saw_overflow,
                 ),
                 font_id.clone(),
-                ui.visuals().text_color(),
+                ink,
             );
         }
 
