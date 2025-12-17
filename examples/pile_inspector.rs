@@ -1,0 +1,544 @@
+#!/usr/bin/env -S watchexec -r rust-script
+//! ```cargo
+//! [dependencies]
+//! GORBIE = { path = ".." }
+//! egui = "0.32"
+//! triblespace = { path = "../../triblespace-rs" }
+//! ```
+
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use triblespace::core::id::Id;
+use triblespace::core::repo::pile::Pile;
+use triblespace::core::repo::{BlobStore, BlobStoreList, BlobStoreMeta, BranchStore};
+use triblespace::core::value::RawValue;
+use GORBIE::dataflow::ComputedState;
+use GORBIE::md;
+use GORBIE::notebook;
+use GORBIE::state;
+use GORBIE::view;
+use GORBIE::widgets;
+use GORBIE::Notebook;
+
+#[derive(Clone, Debug)]
+struct BlobInfo {
+    hash: RawValue,
+    timestamp_ms: Option<u64>,
+    length: Option<u64>,
+}
+
+#[derive(Clone, Debug)]
+struct BranchInfo {
+    id: Id,
+    head: Option<RawValue>,
+}
+
+#[derive(Clone, Debug)]
+struct PileSnapshot {
+    path: PathBuf,
+    file_len: u64,
+    blobs: Vec<BlobInfo>,
+    branches: Vec<BranchInfo>,
+}
+
+fn hex_prefix(bytes: impl AsRef<[u8]>, prefix_len: usize) -> String {
+    let bytes = bytes.as_ref();
+    let prefix_len = prefix_len.min(bytes.len());
+    let mut out = String::with_capacity(prefix_len * 2);
+    for byte in bytes.iter().take(prefix_len) {
+        out.push_str(&format!("{byte:02X}"));
+    }
+    out
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
+
+    let b = bytes as f64;
+    if b >= GB {
+        format!("{:.2} GiB", b / GB)
+    } else if b >= MB {
+        format!("{:.2} MiB", b / MB)
+    } else if b >= KB {
+        format!("{:.2} KiB", b / KB)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn format_age(now_ms: u64, ts_ms: u64) -> String {
+    let delta_ms = now_ms.saturating_sub(ts_ms);
+    let delta_s = delta_ms / 1000;
+    if delta_s < 60 {
+        format!("{delta_s}s ago")
+    } else if delta_s < 60 * 60 {
+        format!("{}m ago", delta_s / 60)
+    } else if delta_s < 24 * 60 * 60 {
+        format!("{}h ago", delta_s / (60 * 60))
+    } else {
+        format!("{}d ago", delta_s / (24 * 60 * 60))
+    }
+}
+
+fn load_pile(path: PathBuf) -> Result<PileSnapshot, String> {
+    let mut pile: Pile = Pile::open(&path).map_err(|err| err.to_string())?;
+    pile.restore().map_err(|err| err.to_string())?;
+
+    let file_len = std::fs::metadata(&path)
+        .map_err(|err| err.to_string())?
+        .len();
+
+    let reader = pile.reader().map_err(|err| err.to_string())?;
+
+    let mut blobs = Vec::new();
+    for handle in reader.blobs().map(|res| res.map_err(|err| err.to_string())) {
+        let handle = handle?;
+        let meta = reader
+            .metadata(handle)
+            .map_err(|_infallible| "metadata() failed".to_owned())?;
+        let (timestamp_ms, length) = match meta {
+            Some(meta) => (Some(meta.timestamp), Some(meta.length)),
+            None => (None, None),
+        };
+        blobs.push(BlobInfo {
+            hash: handle.raw,
+            timestamp_ms,
+            length,
+        });
+    }
+
+    let mut branches = Vec::new();
+    let branch_iter = pile.branches().map_err(|err| err.to_string())?;
+    for id in branch_iter {
+        let id = id.map_err(|err| err.to_string())?;
+        let head = pile
+            .head(id)
+            .map_err(|err| err.to_string())?
+            .map(|handle| handle.raw);
+        branches.push(BranchInfo { id, head });
+    }
+
+    blobs.sort_by(|a, b| b.timestamp_ms.cmp(&a.timestamp_ms));
+
+    Ok(PileSnapshot {
+        path,
+        file_len,
+        blobs,
+        branches,
+    })
+}
+
+#[derive(Debug)]
+struct InspectorState {
+    pile_path: String,
+    max_rows: usize,
+    histogram_bytes: bool,
+    snapshot: ComputedState<Result<PileSnapshot, String>>,
+}
+
+impl Default for InspectorState {
+    fn default() -> Self {
+        Self {
+            pile_path: "./repo.pile".to_owned(),
+            max_rows: 200,
+            histogram_bytes: false,
+            snapshot: ComputedState::Undefined,
+        }
+    }
+}
+
+fn pile_inspector(nb: &mut Notebook) {
+    let default_path = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "./repo.pile".to_owned());
+
+    let inspector = state!(
+        nb,
+        (),
+        InspectorState {
+            pile_path: default_path,
+            max_rows: 200,
+            histogram_bytes: false,
+            snapshot: ComputedState::Undefined,
+        },
+        |ui, state| {
+            md!(
+                ui,
+                "# Triblespace pile inspector\n\nOpen a `.pile` file on disk and inspect its blob and branch indices.\n\nTip: pass a path as the first CLI arg to prefill this field."
+            );
+
+            ui.horizontal(|ui| {
+                ui.label("Pile path:");
+                ui.text_edit_singleline(&mut state.pile_path);
+                ui.label("Rows:");
+                ui.add(
+                    egui::DragValue::new(&mut state.max_rows)
+                        .range(10..=10_000)
+                        .speed(10.0),
+                );
+
+                let pile_path = PathBuf::from(state.pile_path.trim());
+                let snapshot = widgets::load_button(
+                    ui,
+                    &mut state.snapshot,
+                    "Open pile",
+                    "Refresh pile",
+                    move || load_pile(pile_path.clone()),
+                );
+
+                if let Some(snapshot) = snapshot {
+                    if let Err(err) = snapshot {
+                        ui.label(err.as_str());
+                    }
+                }
+            });
+        }
+    );
+
+    view!(nb, (inspector), move |ui| {
+        let mut state = inspector.write();
+
+        md!(ui, "## Blob size distribution");
+
+        let Some(result) = state.snapshot.ready() else {
+            md!(ui, "_Load a pile to see the distribution._");
+            return;
+        };
+        let Ok(snapshot) = result else {
+            md!(ui, "_Load a valid pile to see the distribution._");
+            return;
+        };
+
+        let mut buckets = std::collections::BTreeMap::<u32, (u64, u64)>::new(); // exp -> (count, bytes)
+        let mut valid_blobs = 0u64;
+        let mut total_bytes = 0u64;
+
+        for blob in &snapshot.blobs {
+            let Some(len) = blob.length else {
+                continue;
+            };
+            valid_blobs += 1;
+            total_bytes = total_bytes.saturating_add(len);
+
+            let exp = len.max(1).ilog2();
+            let entry = buckets.entry(exp).or_insert((0, 0));
+            entry.0 += 1;
+            entry.1 = entry.1.saturating_add(len);
+        }
+
+        if buckets.is_empty() {
+            md!(ui, "_No valid blob sizes found._");
+            return;
+        }
+
+        fn bucket_start(exp: u32) -> u64 {
+            1u64 << exp
+        }
+
+        fn bucket_end(exp: u32) -> u64 {
+            if exp >= 63 {
+                u64::MAX
+            } else {
+                (1u64 << (exp + 1)).saturating_sub(1)
+            }
+        }
+
+        fn bucket_label(exp: u32) -> String {
+            let start = bucket_start(exp);
+            if start >= (1u64 << 30) {
+                format!("{}G", start >> 30)
+            } else if start >= (1u64 << 20) {
+                format!("{}M", start >> 20)
+            } else if start >= (1u64 << 10) {
+                format!("{}K", start >> 10)
+            } else {
+                format!("{start}B")
+            }
+        }
+
+        ui.horizontal(|ui| {
+            ui.label("METRIC:");
+            ui.add(widgets::ChoiceToggle::new(
+                &mut state.histogram_bytes,
+                "COUNT",
+                "BYTES",
+            ));
+        });
+
+        let first_exp = *buckets.keys().next().unwrap();
+        let last_exp = *buckets.keys().next_back().unwrap();
+
+        let mut max_value = 0u64;
+        for (_exp, (count, bytes)) in &buckets {
+            let value = if state.histogram_bytes {
+                *bytes
+            } else {
+                *count
+            };
+            max_value = max_value.max(value);
+        }
+        if max_value == 0 {
+            md!(ui, "_No data to plot._");
+            return;
+        }
+
+        let desired_width = ui.available_width().max(128.0);
+        let font_id = egui::TextStyle::Small.resolve(ui.style());
+        let tick_len = 4.0;
+        let tick_pad = 2.0;
+        let text_height = ui.fonts(|fonts| fonts.row_height(&font_id));
+        let label_row_h = tick_len + tick_pad + text_height;
+        let plot_h = 80.0;
+        let total_h = plot_h + label_row_h;
+
+        let (outer_rect, _resp) =
+            ui.allocate_exact_size(egui::vec2(desired_width, total_h), egui::Sense::hover());
+
+        let plot_rect = egui::Rect::from_min_max(
+            outer_rect.left_top(),
+            egui::pos2(outer_rect.right(), outer_rect.bottom() - label_row_h),
+        );
+
+        let gstyle = GORBIE::themes::GorbieSliderStyle::from(ui.style().as_ref());
+        let outline = gstyle.rail_fill;
+        let stroke = egui::Stroke::new(1.0, outline);
+        let fill = ui.visuals().selection.bg_fill;
+
+        let painter = ui.painter().with_clip_rect(outer_rect);
+        painter.rect_filled(plot_rect, 0.0, gstyle.rail_bg);
+        painter.rect_stroke(plot_rect, 0.0, stroke, egui::StrokeKind::Inside);
+
+        let inner = plot_rect.shrink(4.0);
+        let bucket_count = (last_exp - first_exp + 1) as usize;
+        let gap = 2.0;
+        let bar_w = ((inner.width() - gap * (bucket_count.saturating_sub(1) as f32))
+            / bucket_count as f32)
+            .max(1.0);
+
+        for i in 0..bucket_count {
+            let exp = first_exp + i as u32;
+            let (count, bytes) = buckets.get(&exp).copied().unwrap_or((0, 0));
+            let value = if state.histogram_bytes { bytes } else { count };
+            if value == 0 {
+                continue;
+            }
+
+            let frac = (value as f64 / max_value as f64) as f32;
+            let bar_h = (frac * inner.height()).clamp(1.0, inner.height());
+
+            let x0 = inner.left() + i as f32 * (bar_w + gap);
+            let x1 = (x0 + bar_w).min(inner.right());
+            let bar_rect = egui::Rect::from_min_max(
+                egui::pos2(x0, inner.bottom() - bar_h),
+                egui::pos2(x1, inner.bottom()),
+            );
+
+            let id = ui.make_persistent_id(("pile_hist_bar", exp));
+            let resp = ui.interact(bar_rect, id, egui::Sense::hover());
+            let stroke_color = if resp.hovered() {
+                ui.visuals().selection.stroke.color
+            } else {
+                outline
+            };
+            let bar_stroke = egui::Stroke::new(1.0, stroke_color);
+
+            painter.rect_filled(bar_rect, 0.0, fill);
+            painter.rect_stroke(bar_rect, 0.0, bar_stroke, egui::StrokeKind::Inside);
+
+            let start = bucket_start(exp);
+            let end = bucket_end(exp);
+            let range = if end == u64::MAX {
+                format!("≥ {}", format_bytes(start))
+            } else {
+                format!("{}–{}", format_bytes(start), format_bytes(end))
+            };
+            let metric = if state.histogram_bytes {
+                format_bytes(bytes)
+            } else {
+                format!("{count}")
+            };
+            let _ = resp.on_hover_text(format!("{range}\n{metric}"));
+        }
+
+        let max_labels = 7usize;
+        let step = (bucket_count.div_ceil(max_labels)).max(1);
+
+        for i in (0..bucket_count).step_by(step) {
+            let exp = first_exp + i as u32;
+            let x = inner.left() + i as f32 * (bar_w + gap) + bar_w * 0.5;
+            let tick_top = plot_rect.bottom();
+            painter.line_segment(
+                [egui::pos2(x, tick_top), egui::pos2(x, tick_top + tick_len)],
+                egui::Stroke::new(1.0, outline),
+            );
+            painter.text(
+                egui::pos2(x, tick_top + tick_len + tick_pad),
+                egui::Align2::CENTER_TOP,
+                bucket_label(exp),
+                font_id.clone(),
+                ui.visuals().text_color(),
+            );
+        }
+
+        md!(
+            ui,
+            "_{} blobs, {} total._",
+            valid_blobs,
+            format_bytes(total_bytes)
+        );
+    });
+
+    view!(nb, (inspector), move |ui| {
+        let state = inspector.read();
+
+        md!(ui, "## Summary");
+
+        let now_ms = now_ms();
+        match &state.snapshot {
+            ComputedState::Undefined => {
+                md!(ui, "_No pile loaded yet._");
+            }
+            ComputedState::Init(_) => {
+                md!(ui, "_Loading…_");
+            }
+            ComputedState::Stale(_, _, _) => {
+                md!(ui, "_Refreshing…_");
+            }
+            ComputedState::Ready(result, _) => match result {
+                Ok(snapshot) => {
+                    let blob_count = snapshot.blobs.len();
+                    let branch_count = snapshot.branches.len();
+                    let oldest = snapshot
+                        .blobs
+                        .iter()
+                        .filter_map(|b| b.timestamp_ms)
+                        .min()
+                        .map(|ts| format_age(now_ms, ts));
+                    let newest = snapshot
+                        .blobs
+                        .iter()
+                        .filter_map(|b| b.timestamp_ms)
+                        .max()
+                        .map(|ts| format_age(now_ms, ts));
+
+                    let oldest = oldest.unwrap_or_else(|| "—".to_owned());
+                    let newest = newest.unwrap_or_else(|| "—".to_owned());
+
+                    md!(
+                        ui,
+                        "- Path: `{}`\n- Size: `{}`\n- Blobs: `{}`\n- Branches: `{}`\n- Oldest: `{}`\n- Newest: `{}`",
+                        snapshot.path.display(),
+                        format_bytes(snapshot.file_len),
+                        blob_count,
+                        branch_count,
+                        oldest,
+                        newest
+                    );
+                }
+                Err(err) => {
+                    md!(ui, "Error: `{err}`");
+                }
+            },
+        }
+    });
+
+    view!(nb, (inspector), move |ui| {
+        let state = inspector.read();
+
+        md!(ui, "## Branches");
+
+        let Some(result) = state.snapshot.ready() else {
+            md!(ui, "_Load a pile to see branches._");
+            return;
+        };
+        let Ok(snapshot) = result else {
+            md!(ui, "_Load a valid pile to see branches._");
+            return;
+        };
+
+        if snapshot.branches.is_empty() {
+            md!(ui, "_No branches found._");
+            return;
+        }
+
+        egui::Grid::new("pile-branches")
+            .num_columns(2)
+            .striped(false)
+            .show(ui, |ui| {
+                ui.strong("BRANCH");
+                ui.strong("HEAD");
+                ui.end_row();
+
+                for branch in &snapshot.branches {
+                    ui.monospace(hex_prefix(&branch.id, 6));
+                    match &branch.head {
+                        Some(raw) => ui.monospace(hex_prefix(raw, 6)),
+                        None => ui.label("—"),
+                    };
+                    ui.end_row();
+                }
+            });
+    });
+
+    view!(nb, (inspector), move |ui| {
+        let state = inspector.read();
+
+        md!(ui, "## Blobs");
+
+        let Some(result) = state.snapshot.ready() else {
+            md!(ui, "_Load a pile to see blobs._");
+            return;
+        };
+        let Ok(snapshot) = result else {
+            md!(ui, "_Load a valid pile to see blobs._");
+            return;
+        };
+
+        if snapshot.blobs.is_empty() {
+            md!(ui, "_No blobs found._");
+            return;
+        }
+
+        let max_rows = state.max_rows.max(1);
+        md!(ui, "_Showing up to {max_rows} blobs (most recent first)._");
+
+        let now_ms = now_ms();
+
+        egui::Grid::new("pile-blobs")
+            .num_columns(3)
+            .striped(false)
+            .show(ui, |ui| {
+                ui.strong("BLOB");
+                ui.strong("BYTES");
+                ui.strong("TIME");
+                ui.end_row();
+
+                for blob in snapshot.blobs.iter().take(max_rows) {
+                    ui.monospace(hex_prefix(&blob.hash, 6));
+                    match blob.length {
+                        Some(len) => ui.monospace(format_bytes(len)),
+                        None => ui.label("invalid"),
+                    };
+                    match blob.timestamp_ms {
+                        Some(ts) => ui.label(format_age(now_ms, ts)),
+                        None => ui.label("—"),
+                    };
+                    ui.end_row();
+                }
+            });
+    });
+}
+
+fn main() {
+    notebook!(pile_inspector);
+}

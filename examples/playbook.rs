@@ -111,12 +111,13 @@ fn playbook(nb: &mut Notebook) {
         );
     });
 
-    state!(nb, (), ((0.5_f32).into(), false), |ui,
-                                               state: &mut (
+    state!(nb, (), ((0.5_f32).into(), false, false), |ui,
+                                                      state: &mut (
         NotifiedState<f32>,
+        bool,
         bool
     )| {
-        let (value, toggle_on) = state;
+        let (value, toggle_on, choice_on) = state;
         md!(
                 ui,
                 "## Widget Playbook\n\nA quick showcase of our custom widgets (slider + segmented meter). The value is normalized to `[0, 1]`."
@@ -129,6 +130,11 @@ fn playbook(nb: &mut Notebook) {
             ui.add_enabled(false, widgets::Button::new("DISABLED"));
             let _ = ui.add(widgets::Button::new("SELECTED").selected(true));
             let _ = ui.add(widgets::ToggleButton::new(toggle_on, "TOGGLE"));
+        });
+
+        md!(ui, "### Choice toggle");
+        ui.horizontal(|ui| {
+            ui.add(widgets::ChoiceToggle::new(choice_on, "COUNT", "BYTES"));
         });
 
         if ui

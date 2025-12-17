@@ -14,6 +14,7 @@ pub mod progress;
 pub mod slider;
 
 pub use button::Button;
+pub use button::ChoiceToggle;
 pub use button::ToggleButton;
 pub use code::code_view;
 pub use collapsing_divider::collapsing_divider;
