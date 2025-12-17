@@ -69,6 +69,10 @@ impl Notebook {
 
         let mut native_options = eframe::NativeOptions::default();
         native_options.persist_window = true;
+        native_options.viewport = native_options
+            .viewport
+            .with_inner_size(egui::vec2(1200.0, 800.0))
+            .with_min_inner_size(egui::vec2(480.0, 360.0));
 
         eframe::run_native(
             name,

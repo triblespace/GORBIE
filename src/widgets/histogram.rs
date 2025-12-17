@@ -313,7 +313,7 @@ impl Widget for Histogram<'_> {
                 pos2(x1, plot_area.bottom()),
             );
 
-            let id = ui.make_persistent_id(("histogram_bar", i));
+            let id = response.id.with(("histogram_bar", i));
             let resp = ui.interact(bar_rect, id, Sense::hover());
             let stroke_color = if resp.hovered() {
                 ui.visuals().selection.stroke.color

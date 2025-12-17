@@ -23,6 +23,23 @@ fn to_hex(c: Color32) -> String {
     format!("#{r:02X}{g:02X}{b:02X}")
 }
 
+fn format_bytes(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
+
+    let b = bytes as f64;
+    if b >= GB {
+        format!("{:.2} GiB", b / GB)
+    } else if b >= MB {
+        format!("{:.2} MiB", b / MB)
+    } else if b >= KB {
+        format!("{:.2} KiB", b / KB)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
 fn swatch(ui: &mut egui::Ui, color: Color32, label: &str) {
     ui.vertical(|ui| {
         let (_id, rect) = ui.allocate_space(ui.spacing().interact_size);
@@ -111,13 +128,12 @@ fn playbook(nb: &mut Notebook) {
         );
     });
 
-    state!(nb, (), ((0.5_f32).into(), false, false), |ui,
-                                                      state: &mut (
-        NotifiedState<f32>,
-        bool,
-        bool
-    )| {
-        let (value, toggle_on, choice_on) = state;
+    state!(
+        nb,
+        (),
+        ((0.5_f32).into(), false, false),
+        |ui, state: &mut (NotifiedState<f32>, bool, bool)| {
+            let (value, toggle_on, choice_on) = state;
         md!(
                 ui,
                 "## Widget Playbook\n\nA quick showcase of our custom widgets (slider + segmented meter). The value is normalized to `[0, 1]`."
@@ -171,6 +187,55 @@ fn playbook(nb: &mut Notebook) {
                 .zone(0.7..=0.9, yellow)
                 .zone(0.9..=1.0, red),
         );
+
+        md!(
+            ui,
+            "### Histogram\n\nUses the choice toggle above to switch between COUNT and BYTES, and the slider to shift the synthetic distribution."
+        );
+
+        fn bucket_label(exp: u32) -> String {
+            let start = 1u64 << exp;
+            if start >= (1u64 << 30) {
+                format!("{}G", start >> 30)
+            } else if start >= (1u64 << 20) {
+                format!("{}M", start >> 20)
+            } else if start >= (1u64 << 10) {
+                format!("{}K", start >> 10)
+            } else {
+                format!("{start}B")
+            }
+        }
+
+        let y_axis = if *choice_on {
+            widgets::HistogramYAxis::Bytes
+        } else {
+            widgets::HistogramYAxis::Count
+        };
+
+        let min_exp = 6u32;
+        let max_exp = 24u32;
+        let exp_span = (max_exp - min_exp).max(1) as f32;
+        let center = min_exp as f32 + progress * exp_span;
+
+        let mut buckets = Vec::new();
+        for exp in min_exp..=max_exp {
+            let dist = (exp as f32 - center).abs();
+            let t = (1.0 - dist / exp_span).clamp(0.0, 1.0);
+            let count = (180.0 * (t * t)) as u64;
+            let bytes = count.saturating_mul(1u64 << exp);
+            let value = if *choice_on { bytes } else { count };
+            let label = bucket_label(exp);
+            buckets.push(
+                widgets::HistogramBucket::new(value, label.clone()).tooltip(format!(
+                    "bucket: {label}\ncount: {count}\nbytes: {}",
+                    format_bytes(bytes)
+                )),
+            );
+        }
+
+        ui.push_id("histogram-demo", |ui| {
+            ui.add(widgets::Histogram::new(&buckets, y_axis).plot_height(96.0));
+        });
     });
 }
 
