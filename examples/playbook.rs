@@ -23,6 +23,13 @@ fn to_hex(c: Color32) -> String {
     format!("#{r:02X}{g:02X}{b:02X}")
 }
 
+fn ral_lookup(code: u16) -> Option<(&'static str, Color32)> {
+    GORBIE::themes::ral::RAL_COLORS
+        .iter()
+        .find(|(num, _, _)| *num == code)
+        .map(|(_, name, color)| (*name, *color))
+}
+
 fn format_bytes(bytes: u64) -> String {
     const KB: f64 = 1024.0;
     const MB: f64 = 1024.0 * 1024.0;
@@ -40,12 +47,42 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-fn swatch(ui: &mut egui::Ui, color: Color32, label: &str) {
-    ui.vertical(|ui| {
-        let (_id, rect) = ui.allocate_space(ui.spacing().interact_size);
-        ui.painter().rect_filled(rect, 4.0, color);
-        ui.label(label);
-        ui.colored_label(color, to_hex(color));
+fn color_chip(ui: &mut egui::Ui, color: Color32) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter();
+        painter.rect_filled(rect, 0.0, color);
+        painter.rect_stroke(
+            rect,
+            0.0,
+            ui.visuals().window_stroke,
+            egui::StrokeKind::Inside,
+        );
+    }
+
+    response
+}
+
+fn ral_cell(ui: &mut egui::Ui, code: u16) {
+    let Some((name, color)) = ral_lookup(code) else {
+        ui.monospace(format!("RAL {code}"));
+        return;
+    };
+
+    ui.horizontal(|ui| {
+        let hex = to_hex(color);
+        let tooltip = format!("RAL {code} — {name}\n{hex}");
+        color_chip(ui, color).on_hover_text(tooltip);
+        ui.monospace(format!("RAL {code}"));
+    });
+}
+
+fn hex_cell(ui: &mut egui::Ui, color: Color32) {
+    let hex = to_hex(color);
+    ui.horizontal(|ui| {
+        color_chip(ui, color).on_hover_text(hex.clone());
+        ui.monospace(hex);
     });
 }
 
@@ -58,16 +95,15 @@ fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
 }
 
 fn playbook(nb: &mut Notebook) {
-    state!(nb, (), (), |ui, _| {
+    state!(nb, (), 7047_u16, |ui, ral_code| {
         md!(
             ui,
-            "# Palette Playbook\n\nA short story of how our industrial theme palette is constructed from four base tokens."
+            "# Palette Playbook\n\nBase tokens map semantic roles → RAL paint chips. Derived colors are small blends on top."
         );
 
         let light_foreground = GORBIE::themes::ral(9011);
         let light_background = GORBIE::themes::ral(7047);
         let light_surface = GORBIE::themes::ral(7047);
-        let accent = GORBIE::themes::ral(2009);
 
         let dark_foreground = GORBIE::themes::ral(9003);
         let dark_background = GORBIE::themes::ral(7046);
@@ -82,50 +118,89 @@ fn playbook(nb: &mut Notebook) {
         let dark_border = blend(dark_foreground, dark_background, 0.4);
         let dark_control_fill_hover = blend(dark_background, dark_foreground, 0.05);
 
-        ui.vertical(|ui| {
-            ui.group(|ui| {
-                md!(ui, "## Base tokens (light)");
-                ui.horizontal(|ui| {
-                    swatch(ui, light_foreground, "Foreground — RAL 9011");
-                    swatch(ui, light_background, "Background — RAL 7047 (Telegrey 4)");
-                    swatch(ui, light_surface, "Surface — RAL 7047");
-                    swatch(ui, accent, "Accent — RAL 2009");
-                });
+        ui.label(egui::RichText::new("TOKENS").monospace().strong());
+        egui::Grid::new("palette_tokens")
+            .num_columns(3)
+            .spacing(egui::vec2(16.0, 6.0))
+            .show(ui, |ui| {
+                ui.label("");
+                ui.monospace("LIGHT");
+                ui.monospace("DARK");
+                ui.end_row();
+
+                ui.monospace("FOREGROUND");
+                ral_cell(ui, 9011);
+                ral_cell(ui, 9003);
+                ui.end_row();
+
+                ui.monospace("BACKGROUND");
+                ral_cell(ui, 7047);
+                ral_cell(ui, 7046);
+                ui.end_row();
+
+                ui.monospace("SURFACE");
+                ral_cell(ui, 7047);
+                ral_cell(ui, 7047);
+                ui.end_row();
+
+                ui.monospace("ACCENT");
+                ral_cell(ui, 2009);
+                ral_cell(ui, 2009);
+                ui.end_row();
             });
 
-            ui.group(|ui| {
-                md!(ui, "## Derived samples (light, industrial)");
-                ui.horizontal(|ui| {
-                    swatch(ui, light_surface_muted, "faint_bg_color (muted)");
-                    swatch(ui, light_control_fill_hover, "extreme_bg_color (hover)");
-                    swatch(ui, light_border, "Border (stroke)");
-                });
-            });
+        ui.collapsing(egui::RichText::new("DERIVED").monospace(), |ui| {
+            egui::Grid::new("palette_derived")
+                .num_columns(3)
+                .spacing(egui::vec2(16.0, 6.0))
+                .show(ui, |ui| {
+                    ui.label("");
+                    ui.monospace("LIGHT");
+                    ui.monospace("DARK");
+                    ui.end_row();
 
-            ui.group(|ui| {
-                md!(ui, "## Base tokens (dark)");
-                ui.horizontal(|ui| {
-                    swatch(ui, dark_foreground, "Foreground — RAL 9003");
-                    swatch(ui, dark_background, "Background — RAL 7046 (Telegrey 2)");
-                    swatch(ui, dark_surface, "Surface — RAL 7047");
-                    swatch(ui, accent, "Accent — RAL 2009");
-                });
-            });
+                    ui.monospace("BORDER (FG/BG 0.4)");
+                    hex_cell(ui, light_border);
+                    hex_cell(ui, dark_border);
+                    ui.end_row();
 
-            ui.group(|ui| {
-                md!(ui, "## Derived samples (dark, industrial)");
-                ui.horizontal(|ui| {
-                    swatch(ui, dark_surface_muted, "faint_bg_color (muted)");
-                    swatch(ui, dark_control_fill_hover, "extreme_bg_color (hover)");
-                    swatch(ui, dark_border, "Border (stroke)");
+                    ui.monospace("MUTED SURFACE (S/BG 0.2)");
+                    hex_cell(ui, light_surface_muted);
+                    hex_cell(ui, dark_surface_muted);
+                    ui.end_row();
+
+                    ui.monospace("HOVER (BG/FG 0.05)");
+                    hex_cell(ui, light_control_fill_hover);
+                    hex_cell(ui, dark_control_fill_hover);
+                    ui.end_row();
                 });
-            });
         });
 
-        md!(
-            ui,
-            "---\nThese colors are the primitives we use to build the two themes. Both themes share the same accent (RAL 2009), and vary the base background to RAL 7047/7046."
-        );
+        ui.separator();
+        ui.label(egui::RichText::new("RAL PICKER").monospace().strong());
+        ui.horizontal(|ui| {
+            ui.monospace("RAL");
+            ui.add(
+                egui::DragValue::new(ral_code)
+                    .range(0u16..=9999u16)
+                    .speed(1),
+            );
+        });
+
+        let code = *ral_code;
+        if let Some((name, color)) = ral_lookup(code) {
+            ui.horizontal(|ui| {
+                let hex = to_hex(color);
+                color_chip(ui, color).on_hover_text(hex.clone());
+                ui.vertical(|ui| {
+                    ui.monospace(format!("RAL {code}"));
+                    ui.label(name);
+                    ui.monospace(hex);
+                });
+            });
+        } else {
+            ui.label(egui::RichText::new("Unknown RAL code").monospace());
+        }
     });
 
     state!(
