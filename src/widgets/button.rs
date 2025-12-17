@@ -327,12 +327,313 @@ pub struct ChoiceToggle<'a> {
     on_text: WidgetText,
     small: bool,
     fill: Option<Color32>,
+    light: Option<Color32>,
 }
 
 impl<'a> ChoiceToggle<'a> {
     /// A two-position selector that renders both options explicitly.
     ///
     /// `false` corresponds to the left/off option, and `true` corresponds to the right/on option.
+    pub fn new(
+        value: &'a mut bool,
+        off_text: impl Into<WidgetText>,
+        on_text: impl Into<WidgetText>,
+    ) -> Self {
+        Self {
+            value,
+            off_text: off_text.into(),
+            on_text: on_text.into(),
+            small: false,
+            fill: None,
+            light: None,
+        }
+    }
+
+    pub fn small(mut self) -> Self {
+        self.small = true;
+        self
+    }
+
+    pub fn fill(mut self, fill: Color32) -> Self {
+        self.fill = Some(fill);
+        self
+    }
+
+    pub fn light(mut self, color: Color32) -> Self {
+        self.light = Some(color);
+        self
+    }
+}
+
+impl Widget for ChoiceToggle<'_> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let enabled = ui.is_enabled();
+        let gstyle = GorbieSliderStyle::from(ui.style().as_ref());
+        let shadow_offset = gstyle.shadow_offset;
+        let shadow_inset = vec2(shadow_offset.x.max(0.0), shadow_offset.y.max(0.0));
+
+        let padding = if self.small {
+            ui.spacing().button_padding * 0.7
+        } else {
+            ui.spacing().button_padding
+        };
+        let text_style = if self.small {
+            TextStyle::Small
+        } else {
+            TextStyle::Button
+        };
+
+        let off_label = self.off_text.text().to_string();
+        let on_label = self.on_text.text().to_string();
+        let label_text = format!("{off_label}/{on_label}");
+
+        let max_text_width = ui.available_width().at_least(0.0);
+        let off_galley = self.off_text.into_galley(
+            ui,
+            Some(egui::TextWrapMode::Truncate),
+            max_text_width,
+            text_style.clone(),
+        );
+        let on_galley = self.on_text.into_galley(
+            ui,
+            Some(egui::TextWrapMode::Truncate),
+            max_text_width,
+            text_style,
+        );
+
+        let mut segment_size = vec2(off_galley.size().x, off_galley.size().y)
+            .max(vec2(on_galley.size().x, on_galley.size().y))
+            + padding * 2.0;
+        let min_body_height = if self.small {
+            (ui.spacing().interact_size.y - 6.0).at_least(0.0)
+        } else {
+            ui.spacing().interact_size.y
+        };
+        segment_size.y = segment_size.y.at_least(min_body_height);
+
+        let body_size = vec2(segment_size.x * 2.0, segment_size.y);
+        let desired_size = body_size + shadow_inset;
+        let (outer_rect, outer_response) = ui.allocate_exact_size(desired_size, Sense::hover());
+
+        let mut response = outer_response;
+        response.widget_info(move || {
+            WidgetInfo::labeled(WidgetType::Button, enabled, label_text.as_str())
+        });
+
+        if !ui.is_rect_visible(outer_rect) {
+            return response;
+        }
+
+        let visuals = ui.visuals();
+        let outline = gstyle.rail_fill;
+        let accent = visuals.selection.stroke.color;
+        let shadow_color = gstyle.shadow;
+
+        let base_fill = self.fill.unwrap_or(gstyle.knob);
+        let disabled_fill = crate::themes::blend(base_fill, visuals.window_fill, 0.65);
+        let disabled_slot_fill = crate::themes::blend(gstyle.rail_bg, visuals.window_fill, 0.65);
+
+        let slot_rect =
+            Rect::from_min_max(outer_rect.min, outer_rect.max - shadow_inset).intersect(outer_rect);
+        let slot_fill = if enabled {
+            gstyle.rail_bg
+        } else {
+            disabled_slot_fill
+        };
+
+        let split_x = slot_rect.left() + slot_rect.width() / 2.0;
+        let left_slot = Rect::from_min_max(slot_rect.left_top(), pos2(split_x, slot_rect.bottom()));
+        let right_slot =
+            Rect::from_min_max(pos2(split_x, slot_rect.top()), slot_rect.right_bottom());
+
+        let left_id = ui.make_persistent_id((response.id, "choice-toggle-left"));
+        let right_id = ui.make_persistent_id((response.id, "choice-toggle-right"));
+
+        let left_response = ui.interact(left_slot, left_id, Sense::click());
+        let right_response = ui.interact(right_slot, right_id, Sense::click());
+
+        let mut changed = false;
+        if enabled && left_response.clicked() && *self.value {
+            *self.value = false;
+            changed = true;
+        }
+        if enabled && right_response.clicked() && !*self.value {
+            *self.value = true;
+            changed = true;
+        }
+        if changed {
+            response.mark_changed();
+        }
+
+        let rounding = 2.0;
+        let painter = ui.painter();
+
+        painter.rect_filled(slot_rect, rounding, slot_fill);
+        painter.rect_stroke(
+            slot_rect,
+            rounding,
+            Stroke::new(1.0, outline),
+            egui::StrokeKind::Inside,
+        );
+
+        painter.line_segment(
+            [
+                pos2(split_x, slot_rect.top()),
+                pos2(split_x, slot_rect.bottom()),
+            ],
+            Stroke::new(1.0, outline),
+        );
+
+        let segment_margin = shadow_offset.x.max(shadow_offset.y).max(2.0);
+
+        fn draw_segment(
+            ui: &Ui,
+            gstyle: &GorbieSliderStyle,
+            face_up: Rect,
+            galley: std::sync::Arc<egui::Galley>,
+            hovered: bool,
+            is_down: bool,
+            is_active: bool,
+            enabled: bool,
+            base_fill: Color32,
+            disabled_fill: Color32,
+            outline: Color32,
+            accent: Color32,
+            shadow_color: Color32,
+            shadow_offset: egui::Vec2,
+            light: Option<Color32>,
+            small: bool,
+        ) {
+            let painter = ui.painter();
+            let fill = if enabled { base_fill } else { disabled_fill };
+            let is_pressed = is_down || is_active;
+
+            let face_rect = if is_pressed {
+                face_up.translate(shadow_offset)
+            } else {
+                face_up
+            };
+
+            if enabled && !is_pressed {
+                painter.rect_filled(face_rect.translate(shadow_offset), 2.0, shadow_color);
+            }
+
+            let stroke_color = if enabled && (hovered || is_down) {
+                accent
+            } else {
+                outline
+            };
+
+            painter.rect_filled(face_rect, 2.0, fill);
+            painter.rect_stroke(
+                face_rect,
+                2.0,
+                Stroke::new(1.0, stroke_color),
+                egui::StrokeKind::Inside,
+            );
+
+            let text_color = if enabled {
+                crate::themes::ral(9011)
+            } else {
+                crate::themes::blend(crate::themes::ral(9011), fill, 0.55)
+            };
+
+            let text_pos = pos2(
+                face_rect.center().x - galley.size().x / 2.0,
+                face_rect.center().y - galley.size().y / 2.0,
+            );
+            painter.galley(text_pos, galley, text_color);
+
+            let led_height = if small { 1.5 } else { 2.0 };
+            let led_inset_x = 2.0;
+            let led_inset_y = 2.0;
+            let led_rect = Rect::from_min_max(
+                pos2(
+                    face_rect.left() + led_inset_x,
+                    face_rect.top() + led_inset_y,
+                ),
+                pos2(
+                    face_rect.right() - led_inset_x,
+                    (face_rect.top() + led_inset_y + led_height).min(face_rect.bottom()),
+                ),
+            );
+            if led_rect.is_positive() {
+                let on_color = light.unwrap_or(crate::themes::ral(2005));
+                let off_color = crate::themes::blend(gstyle.rail_bg, fill, 0.25);
+
+                let mut led_fill = if is_active { on_color } else { off_color };
+                if !enabled {
+                    led_fill = crate::themes::blend(led_fill, ui.visuals().window_fill, 0.6);
+                }
+                painter.rect_filled(led_rect, 1.0, led_fill);
+            }
+        }
+
+        let left_face_up = left_slot.shrink(segment_margin);
+        let right_face_up = right_slot.shrink(segment_margin);
+
+        let left_hovered = left_response.hovered() || left_response.has_focus();
+        let right_hovered = right_response.hovered() || right_response.has_focus();
+        let left_down = enabled && left_response.is_pointer_button_down_on();
+        let right_down = enabled && right_response.is_pointer_button_down_on();
+
+        let left_active = !*self.value;
+        let right_active = *self.value;
+
+        let fill = if enabled { base_fill } else { disabled_fill };
+        // Draw segments.
+        draw_segment(
+            ui,
+            &gstyle,
+            left_face_up,
+            off_galley,
+            left_hovered,
+            left_down,
+            left_active,
+            enabled,
+            fill,
+            disabled_fill,
+            outline,
+            accent,
+            shadow_color,
+            shadow_offset,
+            self.light,
+            self.small,
+        );
+        draw_segment(
+            ui,
+            &gstyle,
+            right_face_up,
+            on_galley,
+            right_hovered,
+            right_down,
+            right_active,
+            enabled,
+            fill,
+            disabled_fill,
+            outline,
+            accent,
+            shadow_color,
+            shadow_offset,
+            self.light,
+            self.small,
+        );
+
+        response = response | left_response | right_response;
+        response
+    }
+}
+
+#[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
+pub struct SlideSwitch<'a> {
+    value: &'a mut bool,
+    off_text: WidgetText,
+    on_text: WidgetText,
+    small: bool,
+    fill: Option<Color32>,
+}
+
+impl<'a> SlideSwitch<'a> {
     pub fn new(
         value: &'a mut bool,
         off_text: impl Into<WidgetText>,
@@ -358,7 +659,7 @@ impl<'a> ChoiceToggle<'a> {
     }
 }
 
-impl Widget for ChoiceToggle<'_> {
+impl Widget for SlideSwitch<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let enabled = ui.is_enabled();
         let gstyle = GorbieSliderStyle::from(ui.style().as_ref());
@@ -474,7 +775,6 @@ impl Widget for ChoiceToggle<'_> {
         painter.rect_filled(body_rect_up, rounding, fill_rail);
         painter.rect_stroke(body_rect_up, rounding, stroke, egui::StrokeKind::Inside);
 
-        // Separator line between the two positions.
         painter.line_segment(
             [
                 pos2(split_x, body_rect_up.top()),
