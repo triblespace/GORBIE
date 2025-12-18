@@ -70,6 +70,30 @@ pub struct GorbieProgressBarStyle {
     pub fill_inset: f32,
 }
 
+/// Gorbie-specific semantic style for the `TextField` widget.
+#[derive(Clone, Debug)]
+pub struct GorbieTextFieldStyle {
+    pub fill: Color32,
+    pub outline: Color32,
+    pub accent: Color32,
+    pub shadow: Color32,
+    pub shadow_offset: Vec2,
+    pub rounding: f32,
+    pub scanline_height: f32,
+}
+
+/// Gorbie-specific semantic style for the `NumberField` widget.
+#[derive(Clone, Debug)]
+pub struct GorbieNumberFieldStyle {
+    pub fill: Color32,
+    pub outline: Color32,
+    pub accent: Color32,
+    pub shadow: Color32,
+    pub shadow_offset: Vec2,
+    pub rounding: f32,
+    pub scanline_height: f32,
+}
+
 /// Return a `GorbieSliderStyle` preset for light/dark mode based on our base tokens.
 pub fn slider_style(dark_mode: bool) -> GorbieSliderStyle {
     let outline = blend(ral(9011), ral(7047), 0.4);
@@ -160,6 +184,36 @@ impl From<&Style> for GorbieProgressBarStyle {
             accent: style.visuals.selection.stroke.color,
             off_towards_outline: 0.18,
             fill_inset: 2.0,
+        }
+    }
+}
+
+impl From<&Style> for GorbieTextFieldStyle {
+    fn from(style: &Style) -> Self {
+        let base = GorbieSliderStyle::from(style);
+        Self {
+            fill: base.knob,
+            outline: base.rail_fill,
+            accent: style.visuals.selection.stroke.color,
+            shadow: base.shadow,
+            shadow_offset: base.shadow_offset,
+            rounding: 0.0,
+            scanline_height: 3.0,
+        }
+    }
+}
+
+impl From<&Style> for GorbieNumberFieldStyle {
+    fn from(style: &Style) -> Self {
+        let base = GorbieSliderStyle::from(style);
+        Self {
+            fill: base.knob,
+            outline: base.rail_fill,
+            accent: style.visuals.selection.stroke.color,
+            shadow: base.shadow,
+            shadow_offset: base.shadow_offset,
+            rounding: 0.0,
+            scanline_height: 3.0,
         }
     }
 }

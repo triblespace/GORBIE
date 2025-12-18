@@ -180,11 +180,11 @@ fn playbook(nb: &mut Notebook) {
         ui.label(egui::RichText::new("RAL PICKER").monospace().strong());
         ui.horizontal(|ui| {
             ui.monospace("RAL");
-            ui.add(
+            ui.add(widgets::NumberField::new(
                 egui::DragValue::new(ral_code)
                     .range(0u16..=9999u16)
                     .speed(1),
-            );
+            ));
         });
 
         let code = *ral_code;
@@ -203,12 +203,13 @@ fn playbook(nb: &mut Notebook) {
         }
     });
 
-    state!(
-        nb,
-        (),
-        ((0.5_f32).into(), false, false),
-        |ui, state: &mut (NotifiedState<f32>, bool, bool)| {
-            let (value, toggle_on, choice_on) = state;
+    state!(nb, (), ((0.5_f32).into(), false, false), |ui,
+                                                      state: &mut (
+        NotifiedState<f32>,
+        bool,
+        bool
+    )| {
+        let (value, toggle_on, choice_on) = state;
         md!(
                 ui,
                 "## Widget Playbook\n\nA quick showcase of our custom widgets (slider + segmented meter). The value is normalized to `[0, 1]`."

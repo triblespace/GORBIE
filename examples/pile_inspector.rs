@@ -179,13 +179,13 @@ fn pile_inspector(nb: &mut Notebook) {
 
             ui.horizontal(|ui| {
                 ui.label("Pile path:");
-                ui.text_edit_singleline(&mut state.pile_path);
+                ui.add(widgets::TextField::singleline(&mut state.pile_path));
                 ui.label("Rows:");
-                ui.add(
+                ui.add(widgets::NumberField::new(
                     egui::DragValue::new(&mut state.max_rows)
                         .range(10..=10_000)
                         .speed(10.0),
-                );
+                ));
 
                 let pile_path = PathBuf::from(state.pile_path.trim());
                 let snapshot = widgets::load_button(
@@ -317,7 +317,13 @@ fn pile_inspector(nb: &mut Notebook) {
 
             let mut bucket = widgets::HistogramBucket::new(
                 value,
-                bucket_label(exp, MIN_BUCKET_EXP, MAX_BUCKET_EXP, saw_underflow, saw_overflow),
+                bucket_label(
+                    exp,
+                    MIN_BUCKET_EXP,
+                    MAX_BUCKET_EXP,
+                    saw_underflow,
+                    saw_overflow,
+                ),
             );
 
             if value > 0 {

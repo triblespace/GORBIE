@@ -1058,70 +1058,32 @@ impl Slider<'_> {
         };
 
         let mut value = self.get_value();
+        let mut dv = DragValue::new(&mut value)
+            .speed(speed)
+            .min_decimals(self.min_decimals)
+            .max_decimals_opt(self.max_decimals)
+            .suffix(self.suffix.clone())
+            .prefix(self.prefix.clone())
+            .update_while_editing(self.update_while_editing);
 
-        let outline_stroke = ui.visuals().widgets.noninteractive.bg_stroke;
-        let accent = ui.visuals().selection.stroke.color;
-        let plate_fill = crate::themes::ral(9003);
-        let plate_text = crate::themes::ral(9011);
+        match self.clamping {
+            SliderClamping::Never => {}
+            SliderClamping::Edits => {
+                dv = dv.range(self.range.clone()).clamp_existing_to_range(false);
+            }
+            SliderClamping::Always => {
+                dv = dv.range(self.range.clone()).clamp_existing_to_range(true);
+            }
+        }
 
-        let response = ui
-            .scope(|ui| {
-                let visuals = ui.visuals_mut();
-                visuals.override_text_color = Some(plate_text);
-                visuals.text_edit_bg_color = Some(plate_fill);
-                visuals.extreme_bg_color = plate_fill;
+        if let Some(fmt) = &self.custom_formatter {
+            dv = dv.custom_formatter(fmt);
+        };
+        if let Some(parser) = &self.custom_parser {
+            dv = dv.custom_parser(parser);
+        };
 
-                let widgets = &mut visuals.widgets;
-                let hover_stroke = Stroke::new(1.0, accent);
-
-                widgets.inactive.bg_stroke = outline_stroke;
-                widgets.inactive.bg_fill = plate_fill;
-                widgets.inactive.weak_bg_fill = plate_fill;
-                widgets.inactive.corner_radius = 0.0.into();
-
-                widgets.hovered.bg_stroke = hover_stroke;
-                widgets.hovered.bg_fill = plate_fill;
-                widgets.hovered.weak_bg_fill = plate_fill;
-                widgets.hovered.corner_radius = 0.0.into();
-
-                widgets.active.bg_stroke = hover_stroke;
-                widgets.active.bg_fill = plate_fill;
-                widgets.active.weak_bg_fill = plate_fill;
-                widgets.active.corner_radius = 0.0.into();
-
-                widgets.open.bg_stroke = outline_stroke;
-                widgets.open.bg_fill = plate_fill;
-                widgets.open.weak_bg_fill = plate_fill;
-                widgets.open.corner_radius = 0.0.into();
-
-                let mut dv = DragValue::new(&mut value)
-                    .speed(speed)
-                    .min_decimals(self.min_decimals)
-                    .max_decimals_opt(self.max_decimals)
-                    .suffix(self.suffix.clone())
-                    .prefix(self.prefix.clone())
-                    .update_while_editing(self.update_while_editing);
-
-                match self.clamping {
-                    SliderClamping::Never => {}
-                    SliderClamping::Edits => {
-                        dv = dv.range(self.range.clone()).clamp_existing_to_range(false);
-                    }
-                    SliderClamping::Always => {
-                        dv = dv.range(self.range.clone()).clamp_existing_to_range(true);
-                    }
-                }
-
-                if let Some(fmt) = &self.custom_formatter {
-                    dv = dv.custom_formatter(fmt);
-                };
-                if let Some(parser) = &self.custom_parser {
-                    dv = dv.custom_parser(parser);
-                };
-
-                ui.add(dv)
-            })
-            .inner;
+        let response = ui.add(crate::widgets::NumberField::new(dv));
         if value != self.get_value() {
             self.set_value(value);
         }

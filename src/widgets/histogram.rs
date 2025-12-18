@@ -74,7 +74,11 @@ impl CountScale {
 
         let scaled = value as f64 / self.divisor as f64;
         if (scaled.fract() - 0.0).abs() < f64::EPSILON {
-            format!("{scaled}{suffix}", scaled = scaled as u64, suffix = self.suffix)
+            format!(
+                "{scaled}{suffix}",
+                scaled = scaled as u64,
+                suffix = self.suffix
+            )
         } else {
             format!("{scaled:.1}{suffix}", suffix = self.suffix)
         }
@@ -225,10 +229,7 @@ impl Widget for Histogram<'_> {
         let max_value = buckets.iter().map(|bucket| bucket.value).max().unwrap_or(0);
 
         let y_step = match y_axis {
-            HistogramYAxis::Bytes => max_value
-                .div_ceil(y_segments)
-                .max(1)
-                .next_power_of_two(),
+            HistogramYAxis::Bytes => max_value.div_ceil(y_segments).max(1).next_power_of_two(),
             HistogramYAxis::Count => nice_decimal_step(max_value, y_segments),
         };
         let y_max = y_step.saturating_mul(y_segments).max(1);

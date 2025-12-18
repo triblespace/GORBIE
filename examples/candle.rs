@@ -9,6 +9,7 @@ use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::state;
 use GORBIE::view;
+use GORBIE::widgets;
 use GORBIE::Notebook;
 
 fn candle(nb: &mut Notebook) {
@@ -20,7 +21,7 @@ In this notebook we're going to use huggingfaces `candle` crate, to create a sim
 
         ui.horizontal(|ui| {
             ui.label("Prompt:");
-            ui.text_edit_singleline(value);
+            ui.add(widgets::TextField::singleline(value));
             if ui.button("Send").clicked() {
                 // send the prompt to the chatbot
             }
