@@ -30,6 +30,22 @@ fn ral_lookup(code: u16) -> Option<(&'static str, Color32)> {
         .map(|(_, name, color)| (*name, *color))
 }
 
+fn closest_ral_from_rgb(rgb: [u8; 3]) -> u16 {
+    let (r, g, b) = (rgb[0] as i32, rgb[1] as i32, rgb[2] as i32);
+    GORBIE::themes::ral::RAL_COLORS
+        .iter()
+        .map(|(code, _, color)| {
+            let dr = r - color.r() as i32;
+            let dg = g - color.g() as i32;
+            let db = b - color.b() as i32;
+            let dist2 = (dr * dr + dg * dg + db * db) as u32;
+            (*code, dist2)
+        })
+        .min_by_key(|(_, dist2)| *dist2)
+        .map(|(code, _)| code)
+        .unwrap_or(0)
+}
+
 fn format_bytes(bytes: u64) -> String {
     const KB: f64 = 1024.0;
     const MB: f64 = 1024.0 * 1024.0;
@@ -94,12 +110,32 @@ fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
     Color32::from_rgb(r, g, bch)
 }
 
+#[derive(Debug)]
+struct PaletteState {
+    ral_code: u16,
+    rgb: [u8; 3],
+}
+
+impl Default for PaletteState {
+    fn default() -> Self {
+        let color = GORBIE::themes::ral(7047);
+        Self {
+            ral_code: 7047_u16,
+            rgb: [color.r(), color.g(), color.b()],
+        }
+    }
+}
+
 fn playbook(nb: &mut Notebook) {
-    state!(nb, (), 7047_u16, |ui, ral_code| {
-        md!(
-            ui,
-            "# Palette Playbook\n\nBase tokens map semantic roles → RAL paint chips. Derived colors are small blends on top."
-        );
+    state!(
+        nb,
+        (),
+        PaletteState::default(),
+        |ui, state| {
+            md!(
+                ui,
+                "# Palette Playbook\n\nBase tokens map semantic roles → RAL paint chips. Derived colors are small blends on top."
+            );
 
         let light_foreground = GORBIE::themes::ral(9011);
         let light_background = GORBIE::themes::ral(7047);
@@ -179,15 +215,53 @@ fn playbook(nb: &mut Notebook) {
         ui.separator();
         ui.label(egui::RichText::new("RAL PICKER").monospace().strong());
         ui.horizontal(|ui| {
+            ui.monospace("RGB");
+
+            let mut rgb_changed = false;
+            ui.monospace("R");
+            rgb_changed |= ui
+                .add(widgets::NumberField::new(
+                    egui::DragValue::new(&mut state.rgb[0])
+                        .range(0u8..=255u8)
+                        .speed(1),
+                ))
+                .changed();
+            ui.monospace("G");
+            rgb_changed |= ui
+                .add(widgets::NumberField::new(
+                    egui::DragValue::new(&mut state.rgb[1])
+                        .range(0u8..=255u8)
+                        .speed(1),
+                ))
+                .changed();
+            ui.monospace("B");
+            rgb_changed |= ui
+                .add(widgets::NumberField::new(
+                    egui::DragValue::new(&mut state.rgb[2])
+                        .range(0u8..=255u8)
+                        .speed(1),
+                ))
+                .changed();
+
+            if rgb_changed {
+                state.ral_code = closest_ral_from_rgb(state.rgb);
+            }
+
+            ui.add_space(16.0);
             ui.monospace("RAL");
-            ui.add(widgets::NumberField::new(
-                egui::DragValue::new(ral_code)
+            let ral_response = ui.add(widgets::NumberField::new(
+                egui::DragValue::new(&mut state.ral_code)
                     .range(0u16..=9999u16)
                     .speed(1),
             ));
+            if ral_response.changed() {
+                if let Some((_, color)) = ral_lookup(state.ral_code) {
+                    state.rgb = [color.r(), color.g(), color.b()];
+                }
+            }
         });
 
-        let code = *ral_code;
+        let code = state.ral_code;
         if let Some((name, color)) = ral_lookup(code) {
             ui.horizontal(|ui| {
                 let hex = to_hex(color);
@@ -197,6 +271,29 @@ fn playbook(nb: &mut Notebook) {
                     ui.label(name);
                     ui.monospace(hex);
                 });
+
+                ui.add_space(16.0);
+
+                let r = color.r() as u64;
+                let g = color.g() as u64;
+                let b = color.b() as u64;
+                let r_pct = ((r as f64 / 255.0) * 100.0).round() as u64;
+                let g_pct = ((g as f64 / 255.0) * 100.0).round() as u64;
+                let b_pct = ((b as f64 / 255.0) * 100.0).round() as u64;
+
+                let buckets = [
+                    widgets::HistogramBucket::new(r_pct, "R").tooltip(format!("{r} / 255 ({r_pct}%)")),
+                    widgets::HistogramBucket::new(g_pct, "G").tooltip(format!("{g} / 255 ({g_pct}%)")),
+                    widgets::HistogramBucket::new(b_pct, "B").tooltip(format!("{b} / 255 ({b_pct}%)")),
+                ];
+
+                ui.add(
+                    widgets::Histogram::new(&buckets, widgets::HistogramYAxis::Count)
+                        .desired_width(240.0)
+                        .plot_height(72.0)
+                        .y_segments(5)
+                        .max_x_labels(3),
+                );
             });
         } else {
             ui.label(egui::RichText::new("Unknown RAL code").monospace());

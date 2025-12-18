@@ -76,8 +76,6 @@ pub struct GorbieTextFieldStyle {
     pub fill: Color32,
     pub outline: Color32,
     pub accent: Color32,
-    pub shadow: Color32,
-    pub shadow_offset: Vec2,
     pub rounding: f32,
     pub scanline_height: f32,
 }
@@ -88,8 +86,6 @@ pub struct GorbieNumberFieldStyle {
     pub fill: Color32,
     pub outline: Color32,
     pub accent: Color32,
-    pub shadow: Color32,
-    pub shadow_offset: Vec2,
     pub rounding: f32,
     pub scanline_height: f32,
 }
@@ -190,13 +186,11 @@ impl From<&Style> for GorbieProgressBarStyle {
 
 impl From<&Style> for GorbieTextFieldStyle {
     fn from(style: &Style) -> Self {
-        let base = GorbieSliderStyle::from(style);
+        let dark_mode = style.visuals.dark_mode;
         Self {
-            fill: base.knob,
-            outline: base.rail_fill,
+            fill: if dark_mode { ral(9004) } else { ral(6027) },
+            outline: if dark_mode { ral(6027) } else { ral(9011) },
             accent: style.visuals.selection.stroke.color,
-            shadow: base.shadow,
-            shadow_offset: base.shadow_offset,
             rounding: 0.0,
             scanline_height: 3.0,
         }
@@ -205,13 +199,11 @@ impl From<&Style> for GorbieTextFieldStyle {
 
 impl From<&Style> for GorbieNumberFieldStyle {
     fn from(style: &Style) -> Self {
-        let base = GorbieSliderStyle::from(style);
+        let dark_mode = style.visuals.dark_mode;
         Self {
-            fill: base.knob,
-            outline: base.rail_fill,
+            fill: if dark_mode { ral(9004) } else { ral(6027) },
+            outline: if dark_mode { ral(6027) } else { ral(9011) },
             accent: style.visuals.selection.stroke.color,
-            shadow: base.shadow,
-            shadow_offset: base.shadow_offset,
             rounding: 0.0,
             scanline_height: 3.0,
         }
@@ -388,6 +380,12 @@ pub fn industrial_fonts() -> FontDefinitions {
             "../assets/fonts/Inconsolata/Inconsolata-VariableFont_wdth,wght.ttf"
         ))),
     );
+    fonts.font_data.insert(
+        "LCD".to_owned(),
+        std::sync::Arc::new(FontData::from_static(include_bytes!(
+            "../assets/fonts/Jersey_15/Jersey15-Regular.ttf"
+        ))),
+    );
 
     fonts.families.clear();
     fonts
@@ -400,6 +398,9 @@ pub fn industrial_fonts() -> FontDefinitions {
         FontFamily::Name("Inconsolata".into()),
         vec!["Inconsolata".to_owned()],
     );
+    fonts
+        .families
+        .insert(FontFamily::Name("LCD".into()), vec!["LCD".to_owned()]);
 
     fonts
 }
@@ -413,6 +414,10 @@ pub fn industrial_text_styles() -> Vec<(TextStyle, FontId)> {
         (
             TextStyle::Body,
             FontId::new(16.0, FontFamily::Name("Inconsolata".into())),
+        ),
+        (
+            TextStyle::Name("LCD".into()),
+            FontId::new(16.0, FontFamily::Name("LCD".into())),
         ),
         (
             TextStyle::Monospace,

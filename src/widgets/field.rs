@@ -2,31 +2,6 @@ use eframe::egui::{self, pos2, Color32, DragValue, Rect, Response, Stroke, TextE
 
 use crate::themes::{GorbieNumberFieldStyle, GorbieTextFieldStyle};
 
-fn paint_shadow_strips(painter: &egui::Painter, rect: Rect, offset: egui::Vec2, color: Color32) {
-    let dx = offset.x.max(0.0);
-    let dy = offset.y.max(0.0);
-
-    if dx > 0.0 {
-        let right_strip = Rect::from_min_max(
-            pos2(rect.right(), rect.top() + dy),
-            pos2(rect.right() + dx, rect.bottom() + dy),
-        );
-        if right_strip.is_positive() {
-            painter.rect_filled(right_strip, 0.0, color);
-        }
-    }
-
-    if dy > 0.0 {
-        let bottom_strip = Rect::from_min_max(
-            pos2(rect.left() + dx, rect.bottom()),
-            pos2(rect.right() + dx, rect.bottom() + dy),
-        );
-        if bottom_strip.is_positive() {
-            painter.rect_filled(bottom_strip, 0.0, color);
-        }
-    }
-}
-
 fn paint_scanline(painter: &egui::Painter, rect: Rect, color: Color32, height: f32) {
     let inset = 1.0;
     let available_h = (rect.height() - inset * 2.0).max(0.0);
@@ -35,10 +10,9 @@ fn paint_scanline(painter: &egui::Painter, rect: Rect, color: Color32, height: f
         return;
     }
 
-    let scan_rect = Rect::from_min_max(
-        pos2(rect.left() + inset, rect.top() + inset),
-        pos2(rect.right() - inset, rect.top() + inset + height),
-    );
+    let y1 = rect.bottom() - inset;
+    let y0 = y1 - height;
+    let scan_rect = Rect::from_min_max(pos2(rect.left() + inset, y0), pos2(rect.right() - inset, y1));
     if scan_rect.is_positive() {
         painter.rect_filled(scan_rect, 0.0, color);
     }
@@ -73,6 +47,7 @@ impl Widget for NumberField<'_> {
         let enabled = ui.is_enabled();
         let gstyle =
             gorbie_style.unwrap_or_else(|| GorbieNumberFieldStyle::from(ui.style().as_ref()));
+        let dark_mode = ui.visuals().dark_mode;
 
         let outline = gstyle.outline;
         let accent = gstyle.accent;
@@ -81,14 +56,21 @@ impl Widget for NumberField<'_> {
         } else {
             crate::themes::blend(gstyle.fill, ui.visuals().window_fill, 0.65)
         };
-        let text_color = if enabled {
-            crate::themes::ral(9011)
+        let base_text_color = if dark_mode {
+            crate::themes::ral(6027)
         } else {
-            crate::themes::blend(crate::themes::ral(9011), fill, 0.55)
+            crate::themes::ral(9011)
+        };
+        let text_color = if enabled {
+            base_text_color
+        } else {
+            crate::themes::blend(base_text_color, fill, 0.55)
         };
 
         let response = ui
             .scope(|ui| {
+                ui.style_mut().drag_value_text_style = egui::TextStyle::Name("LCD".into());
+
                 let visuals = ui.visuals_mut();
                 visuals.override_text_color = Some(text_color);
                 visuals.text_edit_bg_color = Some(fill);
@@ -123,16 +105,8 @@ impl Widget for NumberField<'_> {
                 if ui.is_rect_visible(response.rect) {
                     let painter = ui.painter();
 
-                    if enabled {
-                        paint_shadow_strips(
-                            painter,
-                            response.rect,
-                            gstyle.shadow_offset,
-                            gstyle.shadow,
-                        );
-                    }
                     if enabled && response.has_focus() {
-                        paint_scanline(painter, response.rect, accent, gstyle.scanline_height);
+                        paint_scanline(painter, response.rect, base_text_color, gstyle.scanline_height);
                     }
                 }
 
@@ -185,6 +159,7 @@ impl Widget for TextField<'_> {
         let enabled = ui.is_enabled();
         let gstyle =
             gorbie_style.unwrap_or_else(|| GorbieTextFieldStyle::from(ui.style().as_ref()));
+        let dark_mode = ui.visuals().dark_mode;
 
         let outline = gstyle.outline;
         let accent = gstyle.accent;
@@ -193,10 +168,15 @@ impl Widget for TextField<'_> {
         } else {
             crate::themes::blend(gstyle.fill, ui.visuals().window_fill, 0.65)
         };
-        let text_color = if enabled {
-            crate::themes::ral(9011)
+        let base_text_color = if dark_mode {
+            crate::themes::ral(6027)
         } else {
-            crate::themes::blend(crate::themes::ral(9011), fill, 0.55)
+            crate::themes::ral(9011)
+        };
+        let text_color = if enabled {
+            base_text_color
+        } else {
+            crate::themes::blend(base_text_color, fill, 0.55)
         };
 
         ui.scope(|ui| {
@@ -231,6 +211,7 @@ impl Widget for TextField<'_> {
 
             let response = ui.add(
                 inner
+                    .font(egui::TextStyle::Name("LCD".into()))
                     .frame(true)
                     .margin(ui.spacing().button_padding)
                     .min_size(ui.spacing().interact_size),
@@ -239,16 +220,8 @@ impl Widget for TextField<'_> {
             if ui.is_rect_visible(response.rect) {
                 let painter = ui.painter();
 
-                if enabled {
-                    paint_shadow_strips(
-                        painter,
-                        response.rect,
-                        gstyle.shadow_offset,
-                        gstyle.shadow,
-                    );
-                }
                 if enabled && response.has_focus() {
-                    paint_scanline(painter, response.rect, accent, gstyle.scanline_height);
+                    paint_scanline(painter, response.rect, base_text_color, gstyle.scanline_height);
                 }
             }
 
