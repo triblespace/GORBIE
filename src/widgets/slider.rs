@@ -30,9 +30,6 @@ use eframe::egui::Widget;
 use eframe::egui::WidgetInfo;
 use eframe::egui::WidgetText;
 
-use crate::themes::GorbieSliderStyle;
-use egui::Style as EguiStyle;
-
 // Local helper: clamp value to range (originally in egui::widgets::drag_value)
 fn clamp_value_to_range(value: f64, range: RangeInclusive<f64>) -> f64 {
     let start = *range.start();
@@ -1234,22 +1231,6 @@ impl Widget for Slider<'_> {
         };
 
         inner_response.inner | inner_response.response
-    }
-}
-
-// Implement From<&egui::Style> for GorbieSliderStyle so callers can use `Into`/`From`.
-impl From<&EguiStyle> for GorbieSliderStyle {
-    fn from(_style: &EguiStyle) -> Self {
-        let outline = crate::themes::blend(crate::themes::ral(9011), crate::themes::ral(7047), 0.4);
-
-        GorbieSliderStyle {
-            rail_bg: crate::themes::ral(9004),
-            rail_fill: outline,
-            knob: crate::themes::ral(9003),
-            shadow: crate::themes::ral(9004),
-            shadow_offset: egui::vec2(2.0, 2.0),
-            knob_extra_radius: 0.0,
-        }
     }
 }
 

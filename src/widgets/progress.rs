@@ -3,7 +3,7 @@ use eframe::egui::{
     TextWrapMode, Ui, Widget, WidgetInfo, WidgetText, WidgetType,
 };
 
-use crate::themes::GorbieSliderStyle;
+use crate::themes::GorbieProgressBarStyle;
 
 #[derive(Clone, Debug)]
 struct ScaleLabel {
@@ -34,6 +34,7 @@ pub struct ProgressBar {
     segments: Option<usize>,
     scale_labels: Vec<ScaleLabel>,
     zones: Vec<MeterZone>,
+    gorbie_style: Option<GorbieProgressBarStyle>,
 }
 
 impl ProgressBar {
@@ -48,6 +49,7 @@ impl ProgressBar {
             segments: None,
             scale_labels: Vec::new(),
             zones: Vec::new(),
+            gorbie_style: None,
         }
     }
 
@@ -134,6 +136,7 @@ impl Widget for ProgressBar {
             segments,
             scale_labels,
             zones,
+            gorbie_style,
         } = self;
 
         let label_text = text.as_ref().map(|text| text.text().to_string());
@@ -181,10 +184,11 @@ impl Widget for ProgressBar {
                 (outer_rect, Rect::NOTHING)
             };
 
-            let gstyle = GorbieSliderStyle::from(ui.style().as_ref());
+            let gstyle =
+                gorbie_style.unwrap_or_else(|| GorbieProgressBarStyle::from(ui.style().as_ref()));
 
-            let outline = gstyle.rail_fill;
-            let accent_stroke = ui.visuals().selection.stroke.color;
+            let outline = gstyle.outline;
+            let accent_stroke = gstyle.accent;
             let default_fill = ui.visuals().selection.bg_fill;
             let stroke_color = if response.hovered() || response.has_focus() {
                 accent_stroke
@@ -225,7 +229,7 @@ impl Widget for ProgressBar {
             painter.rect_stroke(slot_rect, slot_radius, stroke, egui::StrokeKind::Inside);
 
             let fill_color = fill.unwrap_or(default_fill);
-            let fill_inset = 2.0;
+            let fill_inset = gstyle.fill_inset;
             let meter_rect = slot_rect.shrink(fill_inset);
 
             if meter_rect.is_positive() {
@@ -269,7 +273,8 @@ impl Widget for ProgressBar {
                 let full_segments = filled.floor() as usize;
                 let partial = filled - full_segments as f32;
 
-                let off_color = crate::themes::blend(gstyle.rail_bg, outline, 0.18);
+                let off_color =
+                    crate::themes::blend(gstyle.rail_bg, outline, gstyle.off_towards_outline);
                 let has_zones = !zones.is_empty();
                 for i in 0..segment_count {
                     let segment_fill_color = if has_zones {
@@ -336,5 +341,13 @@ impl Widget for ProgressBar {
         }
 
         response
+    }
+}
+
+impl crate::themes::Styled for ProgressBar {
+    type Style = GorbieProgressBarStyle;
+
+    fn set_style(&mut self, style: Option<Self::Style>) {
+        self.gorbie_style = style;
     }
 }

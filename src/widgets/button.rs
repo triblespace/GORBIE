@@ -3,7 +3,7 @@ use eframe::egui::{
     WidgetInfo, WidgetText, WidgetType,
 };
 
-use crate::themes::GorbieSliderStyle;
+use crate::themes::{GorbieButtonStyle, GorbieChoiceToggleStyle, GorbieToggleButtonStyle};
 
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct Button {
@@ -11,6 +11,7 @@ pub struct Button {
     small: bool,
     selected: bool,
     fill: Option<Color32>,
+    gorbie_style: Option<GorbieButtonStyle>,
 }
 
 impl Button {
@@ -20,6 +21,7 @@ impl Button {
             small: false,
             selected: false,
             fill: None,
+            gorbie_style: None,
         }
     }
 
@@ -46,10 +48,11 @@ impl Widget for Button {
             small,
             selected,
             fill,
+            gorbie_style,
         } = self;
 
         let enabled = ui.is_enabled();
-        let gstyle = GorbieSliderStyle::from(ui.style().as_ref());
+        let gstyle = gorbie_style.unwrap_or_else(|| GorbieButtonStyle::from(ui.style().as_ref()));
         let shadow_offset = gstyle.shadow_offset;
         let shadow_inset = vec2(shadow_offset.x.max(0.0), shadow_offset.y.max(0.0));
 
@@ -94,11 +97,11 @@ impl Widget for Button {
         }
 
         let visuals = ui.visuals();
-        let outline = gstyle.rail_fill;
-        let accent = visuals.selection.stroke.color;
+        let outline = gstyle.outline;
+        let accent = gstyle.accent;
         let shadow_color = gstyle.shadow;
 
-        let base_fill = fill.unwrap_or(gstyle.knob);
+        let base_fill = fill.unwrap_or(gstyle.fill);
         let disabled_fill = crate::themes::blend(base_fill, visuals.window_fill, 0.65);
 
         let is_down = enabled && response.is_pointer_button_down_on();
@@ -118,7 +121,7 @@ impl Widget for Button {
             body_rect = body_rect.translate(shadow_offset);
         }
 
-        let rounding = 2;
+        let rounding = gstyle.rounding;
         let painter = ui.painter();
 
         if enabled && !is_down {
@@ -149,6 +152,14 @@ impl Widget for Button {
     }
 }
 
+impl crate::themes::Styled for Button {
+    type Style = GorbieButtonStyle;
+
+    fn set_style(&mut self, style: Option<Self::Style>) {
+        self.gorbie_style = style;
+    }
+}
+
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct ToggleButton<'a> {
     on: &'a mut bool,
@@ -156,6 +167,7 @@ pub struct ToggleButton<'a> {
     small: bool,
     fill: Option<Color32>,
     light: Option<Color32>,
+    gorbie_style: Option<GorbieToggleButtonStyle>,
 }
 
 impl<'a> ToggleButton<'a> {
@@ -166,6 +178,7 @@ impl<'a> ToggleButton<'a> {
             small: false,
             fill: None,
             light: None,
+            gorbie_style: None,
         }
     }
 
@@ -187,26 +200,36 @@ impl<'a> ToggleButton<'a> {
 
 impl Widget for ToggleButton<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
+        let Self {
+            on,
+            text,
+            small,
+            fill,
+            light,
+            gorbie_style,
+        } = self;
+
         let enabled = ui.is_enabled();
-        let gstyle = GorbieSliderStyle::from(ui.style().as_ref());
+        let gstyle =
+            gorbie_style.unwrap_or_else(|| GorbieToggleButtonStyle::from(ui.style().as_ref()));
         let shadow_offset = gstyle.shadow_offset;
         let shadow_inset = vec2(shadow_offset.x.max(0.0), shadow_offset.y.max(0.0));
 
-        let padding = if self.small {
+        let padding = if small {
             ui.spacing().button_padding * 0.7
         } else {
             ui.spacing().button_padding
         };
-        let text_style = if self.small {
+        let text_style = if small {
             TextStyle::Small
         } else {
             TextStyle::Button
         };
 
-        let label_text = self.text.text().to_string();
+        let label_text = text.text().to_string();
         let max_text_width =
             (ui.available_width() - padding.x * 2.0 - shadow_inset.x).at_least(0.0);
-        let galley = self.text.into_galley(
+        let galley = text.into_galley(
             ui,
             Some(egui::TextWrapMode::Truncate),
             max_text_width,
@@ -225,7 +248,7 @@ impl Widget for ToggleButton<'_> {
         let (outer_rect, mut response) = ui.allocate_exact_size(desired_size, Sense::click());
 
         if response.clicked() && enabled {
-            *self.on = !*self.on;
+            *on = !*on;
             response.mark_changed();
         }
 
@@ -236,16 +259,16 @@ impl Widget for ToggleButton<'_> {
         }
 
         let visuals = ui.visuals();
-        let outline = gstyle.rail_fill;
-        let accent = visuals.selection.stroke.color;
+        let outline = gstyle.outline;
+        let accent = gstyle.accent;
         let shadow_color = gstyle.shadow;
 
-        let base_fill = self.fill.unwrap_or(gstyle.knob);
+        let base_fill = fill.unwrap_or(gstyle.fill);
         let disabled_fill = crate::themes::blend(base_fill, visuals.window_fill, 0.65);
 
         let is_down = enabled && response.is_pointer_button_down_on();
         let hovered = response.hovered() || response.has_focus();
-        let toggled_on = *self.on;
+        let toggled_on = *on;
 
         let fill = if enabled { base_fill } else { disabled_fill };
         let stroke_color = if enabled && hovered { accent } else { outline };
@@ -260,7 +283,7 @@ impl Widget for ToggleButton<'_> {
             body_rect_up
         };
 
-        let rounding = 2.0;
+        let rounding = gstyle.rounding;
         let painter = ui.painter();
 
         if enabled && !is_down {
@@ -291,7 +314,7 @@ impl Widget for ToggleButton<'_> {
         );
         painter.galley(text_pos, galley, text_color);
 
-        let led_height = if self.small { 1.5 } else { 2.0 };
+        let led_height = if small { 1.5 } else { 2.0 };
         let led_inset_x = 2.0;
         let led_inset_y = 2.0;
         let led_rect = Rect::from_min_max(
@@ -305,8 +328,8 @@ impl Widget for ToggleButton<'_> {
             ),
         );
         if led_rect.is_positive() {
-            let on_color = self.light.unwrap_or(crate::themes::ral(2005));
-            let off_color = crate::themes::blend(gstyle.rail_bg, fill, 0.25);
+            let on_color = light.unwrap_or(gstyle.led_on);
+            let off_color = crate::themes::blend(gstyle.rail_bg, fill, gstyle.led_off_towards_fill);
 
             let mut led_fill = if toggled_on { on_color } else { off_color };
             if !enabled {
@@ -320,6 +343,14 @@ impl Widget for ToggleButton<'_> {
     }
 }
 
+impl crate::themes::Styled for ToggleButton<'_> {
+    type Style = GorbieToggleButtonStyle;
+
+    fn set_style(&mut self, style: Option<Self::Style>) {
+        self.gorbie_style = style;
+    }
+}
+
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct ChoiceToggle<'a> {
     value: &'a mut bool,
@@ -328,6 +359,7 @@ pub struct ChoiceToggle<'a> {
     small: bool,
     fill: Option<Color32>,
     light: Option<Color32>,
+    gorbie_style: Option<GorbieChoiceToggleStyle>,
 }
 
 impl<'a> ChoiceToggle<'a> {
@@ -346,6 +378,7 @@ impl<'a> ChoiceToggle<'a> {
             small: false,
             fill: None,
             light: None,
+            gorbie_style: None,
         }
     }
 
@@ -367,34 +400,45 @@ impl<'a> ChoiceToggle<'a> {
 
 impl Widget for ChoiceToggle<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
+        let Self {
+            value,
+            off_text,
+            on_text,
+            small,
+            fill,
+            light,
+            gorbie_style,
+        } = self;
+
         let enabled = ui.is_enabled();
-        let gstyle = GorbieSliderStyle::from(ui.style().as_ref());
+        let gstyle =
+            gorbie_style.unwrap_or_else(|| GorbieChoiceToggleStyle::from(ui.style().as_ref()));
         let shadow_offset = gstyle.shadow_offset;
         let shadow_inset = vec2(shadow_offset.x.max(0.0), shadow_offset.y.max(0.0));
 
-        let padding = if self.small {
+        let padding = if small {
             ui.spacing().button_padding * 0.7
         } else {
             ui.spacing().button_padding
         };
-        let text_style = if self.small {
+        let text_style = if small {
             TextStyle::Small
         } else {
             TextStyle::Button
         };
 
-        let off_label = self.off_text.text().to_string();
-        let on_label = self.on_text.text().to_string();
+        let off_label = off_text.text().to_string();
+        let on_label = on_text.text().to_string();
         let label_text = format!("{off_label}/{on_label}");
 
         let max_text_width = ui.available_width().at_least(0.0);
-        let off_galley = self.off_text.into_galley(
+        let off_galley = off_text.into_galley(
             ui,
             Some(egui::TextWrapMode::Truncate),
             max_text_width,
             text_style.clone(),
         );
-        let on_galley = self.on_text.into_galley(
+        let on_galley = on_text.into_galley(
             ui,
             Some(egui::TextWrapMode::Truncate),
             max_text_width,
@@ -425,11 +469,11 @@ impl Widget for ChoiceToggle<'_> {
         }
 
         let visuals = ui.visuals();
-        let outline = gstyle.rail_fill;
-        let accent = visuals.selection.stroke.color;
+        let outline = gstyle.outline;
+        let accent = gstyle.accent;
         let shadow_color = gstyle.shadow;
 
-        let base_fill = self.fill.unwrap_or(gstyle.knob);
+        let base_fill = fill.unwrap_or(gstyle.fill);
         let disabled_fill = crate::themes::blend(base_fill, visuals.window_fill, 0.65);
         let disabled_slot_fill = crate::themes::blend(gstyle.rail_bg, visuals.window_fill, 0.65);
 
@@ -441,7 +485,7 @@ impl Widget for ChoiceToggle<'_> {
             disabled_slot_fill
         };
 
-        let segment_gap = 2.0;
+        let segment_gap = gstyle.segment_gap;
         let half_gap = segment_gap * 0.5;
 
         let split_x = slot_rect.left() + slot_rect.width() / 2.0;
@@ -466,30 +510,30 @@ impl Widget for ChoiceToggle<'_> {
         let pointer_pressed = enabled && ui.input(|i| i.pointer.any_pressed());
 
         let mut changed = false;
-        if pointer_pressed && left_response.is_pointer_button_down_on() && *self.value {
-            *self.value = false;
+        if pointer_pressed && left_response.is_pointer_button_down_on() && *value {
+            *value = false;
             changed = true;
         }
-        if pointer_pressed && right_response.is_pointer_button_down_on() && !*self.value {
-            *self.value = true;
+        if pointer_pressed && right_response.is_pointer_button_down_on() && !*value {
+            *value = true;
             changed = true;
         }
 
         // Fallback for non-pointer activation (e.g. keyboard).
-        if enabled && left_response.clicked() && *self.value {
-            *self.value = false;
+        if enabled && left_response.clicked() && *value {
+            *value = false;
             changed = true;
         }
-        if enabled && right_response.clicked() && !*self.value {
-            *self.value = true;
+        if enabled && right_response.clicked() && !*value {
+            *value = true;
             changed = true;
         }
         if changed {
             response.mark_changed();
         }
 
-        let slot_rounding = 2.0;
-        let segment_rounding: u8 = 2;
+        let slot_rounding = gstyle.slot_rounding;
+        let segment_rounding = gstyle.segment_rounding;
         let painter = ui.painter();
 
         painter.rect_filled(slot_rect, slot_rounding, slot_fill);
@@ -510,7 +554,7 @@ impl Widget for ChoiceToggle<'_> {
 
         fn draw_segment(
             ui: &Ui,
-            gstyle: &GorbieSliderStyle,
+            gstyle: &GorbieChoiceToggleStyle,
             face_up: Rect,
             rounding: egui::CornerRadius,
             mask_stroke: Option<InnerEdge>,
@@ -605,8 +649,9 @@ impl Widget for ChoiceToggle<'_> {
                 ),
             );
             if led_rect.is_positive() {
-                let on_color = light.unwrap_or(crate::themes::ral(2005));
-                let off_color = crate::themes::blend(gstyle.rail_bg, fill, 0.25);
+                let on_color = light.unwrap_or(gstyle.led_on);
+                let off_color =
+                    crate::themes::blend(gstyle.rail_bg, fill, gstyle.led_off_towards_fill);
 
                 let mut led_fill = if is_active { on_color } else { off_color };
                 if !enabled {
@@ -643,8 +688,8 @@ impl Widget for ChoiceToggle<'_> {
         let left_down = enabled && left_response.is_pointer_button_down_on();
         let right_down = enabled && right_response.is_pointer_button_down_on();
 
-        let left_active = !*self.value;
-        let right_active = *self.value;
+        let left_active = !*value;
+        let right_active = *value;
 
         let fill = if enabled { base_fill } else { disabled_fill };
         let left_rounding = egui::CornerRadius {
@@ -679,8 +724,8 @@ impl Widget for ChoiceToggle<'_> {
                 accent,
                 shadow_color,
                 shadow_offset,
-                self.light,
-                self.small,
+                light,
+                small,
             );
             draw_segment(
                 ui,
@@ -699,8 +744,8 @@ impl Widget for ChoiceToggle<'_> {
                 accent,
                 shadow_color,
                 shadow_offset,
-                self.light,
-                self.small,
+                light,
+                small,
             );
         } else {
             draw_segment(
@@ -720,8 +765,8 @@ impl Widget for ChoiceToggle<'_> {
                 accent,
                 shadow_color,
                 shadow_offset,
-                self.light,
-                self.small,
+                light,
+                small,
             );
             draw_segment(
                 ui,
@@ -740,12 +785,20 @@ impl Widget for ChoiceToggle<'_> {
                 accent,
                 shadow_color,
                 shadow_offset,
-                self.light,
-                self.small,
+                light,
+                small,
             );
         }
 
         response = response | left_response | right_response;
         response
+    }
+}
+
+impl crate::themes::Styled for ChoiceToggle<'_> {
+    type Style = GorbieChoiceToggleStyle;
+
+    fn set_style(&mut self, style: Option<Self::Style>) {
+        self.gorbie_style = style;
     }
 }

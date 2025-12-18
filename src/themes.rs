@@ -19,6 +19,57 @@ pub struct GorbieSliderStyle {
     pub knob_extra_radius: f32,
 }
 
+/// Gorbie-specific semantic style for the `Button` widget.
+#[derive(Clone, Debug)]
+pub struct GorbieButtonStyle {
+    pub fill: Color32,
+    pub outline: Color32,
+    pub accent: Color32,
+    pub shadow: Color32,
+    pub shadow_offset: Vec2,
+    pub rounding: f32,
+}
+
+/// Gorbie-specific semantic style for the `ToggleButton` widget.
+#[derive(Clone, Debug)]
+pub struct GorbieToggleButtonStyle {
+    pub fill: Color32,
+    pub outline: Color32,
+    pub accent: Color32,
+    pub shadow: Color32,
+    pub shadow_offset: Vec2,
+    pub rounding: f32,
+    pub rail_bg: Color32,
+    pub led_on: Color32,
+    pub led_off_towards_fill: f32,
+}
+
+/// Gorbie-specific semantic style for the `ChoiceToggle` widget.
+#[derive(Clone, Debug)]
+pub struct GorbieChoiceToggleStyle {
+    pub fill: Color32,
+    pub outline: Color32,
+    pub accent: Color32,
+    pub shadow: Color32,
+    pub shadow_offset: Vec2,
+    pub slot_rounding: f32,
+    pub segment_rounding: u8,
+    pub rail_bg: Color32,
+    pub segment_gap: f32,
+    pub led_on: Color32,
+    pub led_off_towards_fill: f32,
+}
+
+/// Gorbie-specific semantic style for the `ProgressBar` widget.
+#[derive(Clone, Debug)]
+pub struct GorbieProgressBarStyle {
+    pub rail_bg: Color32,
+    pub outline: Color32,
+    pub accent: Color32,
+    pub off_towards_outline: f32,
+    pub fill_inset: f32,
+}
+
 /// Return a `GorbieSliderStyle` preset for light/dark mode based on our base tokens.
 pub fn slider_style(dark_mode: bool) -> GorbieSliderStyle {
     let outline = blend(ral(9011), ral(7047), 0.4);
@@ -40,6 +91,75 @@ pub fn slider_style(dark_mode: bool) -> GorbieSliderStyle {
             shadow: ral(9004),
             shadow_offset: egui::vec2(2.0, 2.0),
             knob_extra_radius: 0.0,
+        }
+    }
+}
+
+impl From<&Style> for GorbieSliderStyle {
+    fn from(style: &Style) -> Self {
+        slider_style(style.visuals.dark_mode)
+    }
+}
+
+impl From<&Style> for GorbieButtonStyle {
+    fn from(style: &Style) -> Self {
+        let base = GorbieSliderStyle::from(style);
+        Self {
+            fill: base.knob,
+            outline: base.rail_fill,
+            accent: style.visuals.selection.stroke.color,
+            shadow: base.shadow,
+            shadow_offset: base.shadow_offset,
+            rounding: 2.0,
+        }
+    }
+}
+
+impl From<&Style> for GorbieToggleButtonStyle {
+    fn from(style: &Style) -> Self {
+        let base = GorbieSliderStyle::from(style);
+        Self {
+            fill: base.knob,
+            outline: base.rail_fill,
+            accent: style.visuals.selection.stroke.color,
+            shadow: base.shadow,
+            shadow_offset: base.shadow_offset,
+            rounding: 2.0,
+            rail_bg: base.rail_bg,
+            led_on: ral(2005),
+            led_off_towards_fill: 0.25,
+        }
+    }
+}
+
+impl From<&Style> for GorbieChoiceToggleStyle {
+    fn from(style: &Style) -> Self {
+        let base = GorbieSliderStyle::from(style);
+        Self {
+            fill: base.knob,
+            outline: base.rail_fill,
+            accent: style.visuals.selection.stroke.color,
+            shadow: base.shadow,
+            shadow_offset: base.shadow_offset,
+            slot_rounding: 2.0,
+            segment_rounding: 2,
+            rail_bg: base.rail_bg,
+            segment_gap: 2.0,
+            led_on: ral(2005),
+            led_off_towards_fill: 0.25,
+        }
+    }
+}
+
+impl From<&Style> for GorbieProgressBarStyle {
+    fn from(style: &Style) -> Self {
+        let base = GorbieSliderStyle::from(style);
+        Self {
+            rail_bg: base.rail_bg,
+            outline: base.rail_fill,
+            accent: style.visuals.selection.stroke.color,
+            off_towards_outline: 0.18,
+            fill_inset: 2.0,
         }
     }
 }
