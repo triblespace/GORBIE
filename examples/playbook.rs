@@ -110,6 +110,215 @@ fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
     Color32::from_rgb(r, g, bch)
 }
 
+fn paint_hatching(painter: &egui::Painter, rect: egui::Rect, color: Color32) {
+    let spacing = 8.0;
+    let stroke = egui::Stroke::new(1.0, color);
+
+    let h = rect.height();
+    let mut x = rect.left() - h;
+    while x < rect.right() + h {
+        painter.line_segment(
+            [egui::pos2(x, rect.top()), egui::pos2(x + h, rect.bottom())],
+            stroke,
+        );
+        x += spacing;
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct RgbHistogramEditorResult {
+    changed: bool,
+    interaction_ended: bool,
+}
+
+fn rgb_histogram_editor(ui: &mut egui::Ui, rgb: &mut [u8; 3]) -> RgbHistogramEditorResult {
+    let desired_width = 240.0;
+    let plot_height = 72.0;
+    let y_segments = 5_u64;
+    let y_max = 100_u64;
+    let max_x_labels = 3_usize;
+
+    let font_id = egui::TextStyle::Small.resolve(ui.style());
+    let tick_len = 4.0;
+    let tick_pad = 2.0;
+    let text_height = ui.fonts(|fonts| fonts.row_height(&font_id));
+    let label_row_h = tick_len + tick_pad + text_height;
+
+    let total_h = plot_height + label_row_h;
+    let (outer_rect, response) =
+        ui.allocate_exact_size(egui::vec2(desired_width, total_h), egui::Sense::hover());
+    if !ui.is_rect_visible(outer_rect) {
+        return RgbHistogramEditorResult::default();
+    }
+
+    let visuals = ui.visuals();
+    let background = visuals.window_fill;
+    let outline = visuals.widgets.noninteractive.bg_stroke.color;
+    let ink = visuals.widgets.noninteractive.fg_stroke.color;
+    let stroke = egui::Stroke::new(1.0, outline);
+    let grid_color = blend(background, ink, 0.22);
+
+    let y_ticks: Vec<u64> = (0..=y_segments)
+        .map(|i| (y_max / y_segments).saturating_mul(i))
+        .collect();
+
+    let y_label_width = ui.fonts(|fonts| {
+        y_ticks
+            .iter()
+            .map(|value| {
+                fonts
+                    .layout_no_wrap(format!("{value}"), font_id.clone(), ink)
+                    .size()
+                    .x
+            })
+            .fold(0.0, f32::max)
+    });
+    let y_axis_w = (y_label_width + 10.0).clamp(24.0, 80.0);
+    let y_axis_pad = 6.0;
+
+    let plot_rect = egui::Rect::from_min_max(
+        egui::pos2(
+            (outer_rect.left() + y_axis_w + y_axis_pad).min(outer_rect.right()),
+            outer_rect.top(),
+        ),
+        egui::pos2(outer_rect.right(), outer_rect.bottom() - label_row_h),
+    );
+    let plot_area = plot_rect.shrink(4.0);
+
+    let painter = ui.painter().with_clip_rect(outer_rect);
+    painter.rect_stroke(plot_rect, 0.0, stroke, egui::StrokeKind::Inside);
+
+    for value in &y_ticks {
+        let frac = (*value as f64 / y_max as f64) as f32;
+        let y = plot_area.bottom() - frac * plot_area.height();
+
+        painter.line_segment(
+            [egui::pos2(plot_area.left(), y), egui::pos2(plot_area.right(), y)],
+            egui::Stroke::new(1.0, grid_color),
+        );
+        painter.text(
+            egui::pos2(plot_rect.left() - 4.0, y),
+            egui::Align2::RIGHT_CENTER,
+            format!("{value}"),
+            font_id.clone(),
+            ink,
+        );
+    }
+
+    if !plot_area.is_positive() {
+        return RgbHistogramEditorResult::default();
+    }
+
+    let channel_colors = [
+        GORBIE::themes::ral(3020),
+        GORBIE::themes::ral(6024),
+        GORBIE::themes::ral(5005),
+    ];
+    let channel_names = ["R", "G", "B"];
+
+    let bucket_count = 3_usize;
+    let gap = 2.0;
+    let bar_w = ((plot_area.width() - gap * (bucket_count.saturating_sub(1) as f32))
+        / bucket_count as f32)
+        .max(1.0);
+
+    let mut changed = false;
+    let mut interaction_ended = false;
+
+    for i in 0..bucket_count {
+        let x0 = plot_area.left() + i as f32 * (bar_w + gap);
+        let x1 = (x0 + bar_w).min(plot_area.right());
+
+        let column_rect = egui::Rect::from_min_max(
+            egui::pos2(x0, plot_area.top()),
+            egui::pos2(x1, plot_area.bottom()),
+        );
+        if !column_rect.is_positive() {
+            continue;
+        }
+
+        let id = response.id.with(("rgb_histogram_bar", i));
+        let resp = ui.interact(column_rect, id, egui::Sense::click_and_drag());
+        let hovered = resp.hovered();
+        let dragged = resp.dragged();
+        let drag_stopped = resp.drag_stopped();
+        let clicked = resp.clicked();
+
+        if hovered || dragged {
+            ui.output_mut(|output| output.cursor_icon = egui::CursorIcon::ResizeVertical);
+        }
+
+        if clicked || dragged || drag_stopped {
+            if let Some(pointer) = resp.interact_pointer_pos() {
+                let t = ((plot_area.bottom() - pointer.y) / plot_area.height()).clamp(0.0, 1.0);
+                let next = (t * 255.0).round() as u8;
+                if rgb[i] != next {
+                    rgb[i] = next;
+                    changed = true;
+                }
+            }
+        }
+
+        interaction_ended |= clicked || drag_stopped;
+
+        let value = rgb[i] as u64;
+        let pct = ((value as f64 / 255.0) * 100.0).round() as u64;
+        let tooltip = format!("{}: {value} / 255 ({pct}%)", channel_names[i]);
+        let _ = resp.on_hover_text(tooltip);
+
+        if value == 0 {
+            continue;
+        }
+
+        let bar_h = ((value as f32 / 255.0) * plot_area.height()).clamp(1.0, plot_area.height());
+        let bar_rect = egui::Rect::from_min_max(
+            egui::pos2(x0, plot_area.bottom() - bar_h),
+            egui::pos2(x1, plot_area.bottom()),
+        );
+
+        let stroke_color = if hovered || dragged {
+            ui.visuals().selection.stroke.color
+        } else {
+            outline
+        };
+        let bar_stroke = egui::Stroke::new(1.0, stroke_color);
+
+        let hatch_rect = bar_rect.shrink(1.0);
+        if hatch_rect.is_positive() {
+            paint_hatching(
+                &painter.with_clip_rect(hatch_rect),
+                hatch_rect,
+                channel_colors[i],
+            );
+        }
+        painter.rect_stroke(bar_rect, 0.0, bar_stroke, egui::StrokeKind::Inside);
+    }
+
+    if max_x_labels > 0 {
+        let tick_top = plot_rect.bottom();
+
+        for i in 0..bucket_count {
+            let x = plot_area.left() + i as f32 * (bar_w + gap) + bar_w * 0.5;
+            painter.line_segment(
+                [egui::pos2(x, tick_top), egui::pos2(x, tick_top + tick_len)],
+                egui::Stroke::new(1.0, outline),
+            );
+            painter.text(
+                egui::pos2(x, tick_top + tick_len + tick_pad),
+                egui::Align2::CENTER_TOP,
+                channel_names[i],
+                font_id.clone(),
+                ink,
+            );
+        }
+    }
+
+    RgbHistogramEditorResult {
+        changed,
+        interaction_ended,
+    }
+}
+
 #[derive(Debug)]
 struct PaletteState {
     ral_code: u16,
@@ -261,43 +470,36 @@ fn playbook(nb: &mut Notebook) {
             }
         });
 
-        let code = state.ral_code;
-        if let Some((name, color)) = ral_lookup(code) {
-            ui.horizontal(|ui| {
-                let hex = to_hex(color);
-                color_chip(ui, color).on_hover_text(hex.clone());
-                ui.vertical(|ui| {
-                    ui.monospace(format!("RAL {code}"));
-                    ui.label(name);
-                    ui.monospace(hex);
-                });
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                let rgb_edit = rgb_histogram_editor(ui, &mut state.rgb);
+                if rgb_edit.changed || rgb_edit.interaction_ended {
+                    state.ral_code = closest_ral_from_rgb(state.rgb);
+                }
+                if rgb_edit.interaction_ended {
+                    if let Some((_, color)) = ral_lookup(state.ral_code) {
+                        state.rgb = [color.r(), color.g(), color.b()];
+                    }
+                }
 
                 ui.add_space(16.0);
 
-                let r = color.r() as u64;
-                let g = color.g() as u64;
-                let b = color.b() as u64;
-                let r_pct = ((r as f64 / 255.0) * 100.0).round() as u64;
-                let g_pct = ((g as f64 / 255.0) * 100.0).round() as u64;
-                let b_pct = ((b as f64 / 255.0) * 100.0).round() as u64;
-
-                let buckets = [
-                    widgets::HistogramBucket::new(r_pct, "R").tooltip(format!("{r} / 255 ({r_pct}%)")),
-                    widgets::HistogramBucket::new(g_pct, "G").tooltip(format!("{g} / 255 ({g_pct}%)")),
-                    widgets::HistogramBucket::new(b_pct, "B").tooltip(format!("{b} / 255 ({b_pct}%)")),
-                ];
-
-                ui.add(
-                    widgets::Histogram::new(&buckets, widgets::HistogramYAxis::Count)
-                        .desired_width(240.0)
-                        .plot_height(72.0)
-                        .y_segments(5)
-                        .max_x_labels(3),
-                );
+                ui.horizontal(|ui| {
+                    let code = state.ral_code;
+                    if let Some((name, color)) = ral_lookup(code) {
+                        let hex = to_hex(color);
+                        color_chip(ui, color).on_hover_text(hex.clone());
+                        ui.vertical(|ui| {
+                            ui.monospace(format!("RAL {code}"));
+                            ui.label(name);
+                            ui.monospace(hex);
+                        });
+                    } else {
+                        ui.label(egui::RichText::new("Unknown RAL code").monospace());
+                    }
+                });
             });
-        } else {
-            ui.label(egui::RichText::new("Unknown RAL code").monospace());
-        }
+        });
     });
 
     state!(nb, (), ((0.5_f32).into(), false, false), |ui,

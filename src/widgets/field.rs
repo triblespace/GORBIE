@@ -3,7 +3,7 @@ use eframe::egui::{self, pos2, Color32, DragValue, Rect, Response, Stroke, TextE
 use crate::themes::{GorbieNumberFieldStyle, GorbieTextFieldStyle};
 
 fn paint_scanline(painter: &egui::Painter, rect: Rect, color: Color32, height: f32) {
-    let inset = 1.0;
+    let inset = 2.0;
     let available_h = (rect.height() - inset * 2.0).max(0.0);
     let height = height.min(available_h);
     if height <= 0.0 {
@@ -50,7 +50,6 @@ impl Widget for NumberField<'_> {
         let dark_mode = ui.visuals().dark_mode;
 
         let outline = gstyle.outline;
-        let accent = gstyle.accent;
         let fill = if enabled {
             gstyle.fill
         } else {
@@ -78,19 +77,19 @@ impl Widget for NumberField<'_> {
 
                 let widgets = &mut visuals.widgets;
                 let outline_stroke = Stroke::new(1.0, outline);
-                let accent_stroke = Stroke::new(1.0, accent);
+                visuals.selection.stroke = outline_stroke;
 
                 widgets.inactive.bg_stroke = outline_stroke;
                 widgets.inactive.bg_fill = fill;
                 widgets.inactive.weak_bg_fill = fill;
                 widgets.inactive.corner_radius = gstyle.rounding.into();
 
-                widgets.hovered.bg_stroke = accent_stroke;
+                widgets.hovered.bg_stroke = outline_stroke;
                 widgets.hovered.bg_fill = fill;
                 widgets.hovered.weak_bg_fill = fill;
                 widgets.hovered.corner_radius = gstyle.rounding.into();
 
-                widgets.active.bg_stroke = accent_stroke;
+                widgets.active.bg_stroke = outline_stroke;
                 widgets.active.bg_fill = fill;
                 widgets.active.weak_bg_fill = fill;
                 widgets.active.corner_radius = gstyle.rounding.into();
@@ -162,7 +161,6 @@ impl Widget for TextField<'_> {
         let dark_mode = ui.visuals().dark_mode;
 
         let outline = gstyle.outline;
-        let accent = gstyle.accent;
         let fill = if enabled {
             gstyle.fill
         } else {
@@ -187,19 +185,19 @@ impl Widget for TextField<'_> {
 
             let widgets = &mut visuals.widgets;
             let outline_stroke = Stroke::new(1.0, outline);
-            let accent_stroke = Stroke::new(1.0, accent);
+            visuals.selection.stroke = outline_stroke;
 
             widgets.inactive.bg_stroke = outline_stroke;
             widgets.inactive.bg_fill = fill;
             widgets.inactive.weak_bg_fill = fill;
             widgets.inactive.corner_radius = gstyle.rounding.into();
 
-            widgets.hovered.bg_stroke = accent_stroke;
+            widgets.hovered.bg_stroke = outline_stroke;
             widgets.hovered.bg_fill = fill;
             widgets.hovered.weak_bg_fill = fill;
             widgets.hovered.corner_radius = gstyle.rounding.into();
 
-            widgets.active.bg_stroke = accent_stroke;
+            widgets.active.bg_stroke = outline_stroke;
             widgets.active.bg_fill = fill;
             widgets.active.weak_bg_fill = fill;
             widgets.active.corner_radius = gstyle.rounding.into();
