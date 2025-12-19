@@ -351,35 +351,39 @@ impl crate::themes::Styled for ToggleButton<'_> {
     }
 }
 
+struct ChoiceToggleOption<T> {
+    value: T,
+    text: WidgetText,
+}
+
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
-pub struct ChoiceToggle<'a> {
-    value: &'a mut bool,
-    off_text: WidgetText,
-    on_text: WidgetText,
+pub struct ChoiceToggle<'a, T> {
+    value: &'a mut T,
+    options: Vec<ChoiceToggleOption<T>>,
     small: bool,
     fill: Option<Color32>,
     light: Option<Color32>,
     gorbie_style: Option<GorbieChoiceToggleStyle>,
 }
 
-impl<'a> ChoiceToggle<'a> {
-    /// A two-position selector that renders both options explicitly.
-    ///
-    /// `false` corresponds to the left/off option, and `true` corresponds to the right/on option.
-    pub fn new(
-        value: &'a mut bool,
-        off_text: impl Into<WidgetText>,
-        on_text: impl Into<WidgetText>,
-    ) -> Self {
+impl<'a, T> ChoiceToggle<'a, T> {
+    pub fn new(value: &'a mut T) -> Self {
         Self {
             value,
-            off_text: off_text.into(),
-            on_text: on_text.into(),
+            options: Vec::new(),
             small: false,
             fill: None,
             light: None,
             gorbie_style: None,
         }
+    }
+
+    pub fn choice(mut self, value: T, text: impl Into<WidgetText>) -> Self {
+        self.options.push(ChoiceToggleOption {
+            value,
+            text: text.into(),
+        });
+        self
     }
 
     pub fn small(mut self) -> Self {
@@ -398,17 +402,39 @@ impl<'a> ChoiceToggle<'a> {
     }
 }
 
-impl Widget for ChoiceToggle<'_> {
+impl<'a> ChoiceToggle<'a, bool> {
+    /// A two-position selector that renders both options explicitly.
+    ///
+    /// `false` corresponds to the left/off option, and `true` corresponds to the right/on option.
+    pub fn binary(
+        value: &'a mut bool,
+        off_text: impl Into<WidgetText>,
+        on_text: impl Into<WidgetText>,
+    ) -> Self {
+        ChoiceToggle::new(value)
+            .choice(false, off_text)
+            .choice(true, on_text)
+    }
+}
+
+impl<T> Widget for ChoiceToggle<'_, T>
+where
+    T: Clone + PartialEq,
+{
     fn ui(self, ui: &mut Ui) -> Response {
         let Self {
             value,
-            off_text,
-            on_text,
+            options,
             small,
             fill,
             light,
             gorbie_style,
         } = self;
+
+        if options.is_empty() {
+            let (_rect, response) = ui.allocate_exact_size(vec2(0.0, 0.0), Sense::hover());
+            return response;
+        }
 
         let enabled = ui.is_enabled();
         let gstyle =
@@ -427,35 +453,51 @@ impl Widget for ChoiceToggle<'_> {
             TextStyle::Button
         };
 
-        let off_label = off_text.text().to_string();
-        let on_label = on_text.text().to_string();
-        let label_text = format!("{off_label}/{on_label}");
-
+        let wrap_mode = Some(egui::TextWrapMode::Truncate);
         let max_text_width = ui.available_width().at_least(0.0);
-        let off_galley = off_text.into_galley(
-            ui,
-            Some(egui::TextWrapMode::Truncate),
-            max_text_width,
-            text_style.clone(),
-        );
-        let on_galley = on_text.into_galley(
-            ui,
-            Some(egui::TextWrapMode::Truncate),
-            max_text_width,
-            text_style,
-        );
 
-        let mut segment_size = vec2(off_galley.size().x, off_galley.size().y)
-            .max(vec2(on_galley.size().x, on_galley.size().y))
-            + padding * 2.0;
-        let min_body_height = if self.small {
+        struct RenderedChoice<T> {
+            value: T,
+            galley: std::sync::Arc<egui::Galley>,
+        }
+
+        let mut label_text = String::new();
+        let mut choices: Vec<RenderedChoice<T>> = Vec::with_capacity(options.len());
+
+        for (idx, option) in options.into_iter().enumerate() {
+            if idx > 0 {
+                label_text.push('/');
+            }
+            label_text.push_str(option.text.text().as_ref());
+
+            let galley = option
+                .text
+                .into_galley(ui, wrap_mode, max_text_width, text_style.clone());
+            choices.push(RenderedChoice {
+                value: option.value,
+                galley,
+            });
+        }
+
+        let segment_count = choices.len();
+        let segment_gap = gstyle.segment_gap;
+
+        let mut segment_size = vec2(0.0, 0.0);
+        for choice in &choices {
+            segment_size = segment_size.max(choice.galley.size());
+        }
+        segment_size += padding * 2.0;
+
+        let min_body_height = if small {
             (ui.spacing().interact_size.y - 6.0).at_least(0.0)
         } else {
             ui.spacing().interact_size.y
         };
         segment_size.y = segment_size.y.at_least(min_body_height);
 
-        let body_size = vec2(segment_size.x * 2.0, segment_size.y);
+        let body_width = segment_size.x * segment_count as f32
+            + segment_gap * (segment_count.saturating_sub(1) as f32);
+        let body_size = vec2(body_width, segment_size.y);
         let desired_size = body_size + shadow_inset;
         let (outer_rect, outer_response) = ui.allocate_exact_size(desired_size, Sense::hover());
 
@@ -485,51 +527,49 @@ impl Widget for ChoiceToggle<'_> {
             disabled_slot_fill
         };
 
-        let segment_gap = gstyle.segment_gap;
-        let half_gap = segment_gap * 0.5;
+        let mut segment_slots = Vec::with_capacity(segment_count);
+        let mut segment_responses = Vec::with_capacity(segment_count);
 
-        let split_x = slot_rect.left() + slot_rect.width() / 2.0;
-        let left_slot = Rect::from_min_max(
-            slot_rect.left_top(),
-            pos2(
-                (split_x - half_gap).max(slot_rect.left()),
-                slot_rect.bottom(),
-            ),
-        );
-        let right_slot = Rect::from_min_max(
-            pos2((split_x + half_gap).min(slot_rect.right()), slot_rect.top()),
-            slot_rect.right_bottom(),
-        );
+        for idx in 0..segment_count {
+            let x0 = slot_rect.left() + idx as f32 * (segment_size.x + segment_gap);
+            let x1 = (x0 + segment_size.x).min(slot_rect.right());
 
-        let left_id = ui.make_persistent_id((response.id, "choice-toggle-left"));
-        let right_id = ui.make_persistent_id((response.id, "choice-toggle-right"));
+            let segment_slot =
+                Rect::from_min_max(pos2(x0, slot_rect.top()), pos2(x1, slot_rect.bottom()));
+            segment_slots.push(segment_slot);
 
-        let left_response = ui.interact(left_slot, left_id, Sense::click());
-        let right_response = ui.interact(right_slot, right_id, Sense::click());
+            let id = ui.make_persistent_id((response.id, "choice-toggle", idx));
+            segment_responses.push(ui.interact(segment_slot, id, Sense::click()));
+        }
 
         let pointer_pressed = enabled && ui.input(|i| i.pointer.any_pressed());
 
         let mut changed = false;
-        if pointer_pressed && left_response.is_pointer_button_down_on() && *value {
-            *value = false;
-            changed = true;
-        }
-        if pointer_pressed && right_response.is_pointer_button_down_on() && !*value {
-            *value = true;
-            changed = true;
+        if pointer_pressed {
+            for (idx, segment_response) in segment_responses.iter().enumerate() {
+                if segment_response.is_pointer_button_down_on() {
+                    let next_value = &choices[idx].value;
+                    if next_value != &*value {
+                        *value = next_value.clone();
+                        changed = true;
+                    }
+                    break;
+                }
+            }
         }
 
         // Fallback for non-pointer activation (e.g. keyboard).
-        if enabled && left_response.clicked() && *value {
-            *value = false;
-            changed = true;
-        }
-        if enabled && right_response.clicked() && !*value {
-            *value = true;
-            changed = true;
-        }
-        if changed {
-            response.mark_changed();
+        if enabled && !changed {
+            for (idx, segment_response) in segment_responses.iter().enumerate() {
+                if segment_response.clicked() {
+                    let next_value = &choices[idx].value;
+                    if next_value != &*value {
+                        *value = next_value.clone();
+                        changed = true;
+                    }
+                    break;
+                }
+            }
         }
 
         let slot_rounding = gstyle.slot_rounding;
@@ -547,14 +587,14 @@ impl Widget for ChoiceToggle<'_> {
         let segment_margin = shadow_offset.x.max(shadow_offset.y).max(2.0);
 
         #[derive(Clone, Copy)]
-        enum InnerEdge {
-            Left,
-            Right,
+        struct MaskStroke {
+            left: bool,
+            right: bool,
         }
 
         let draw_segment = |face_up: Rect,
                             rounding: egui::CornerRadius,
-                            mask_stroke: Option<InnerEdge>,
+                            mask_stroke: MaskStroke,
                             galley: std::sync::Arc<egui::Galley>,
                             hovered: bool,
                             is_down: bool,
@@ -587,24 +627,28 @@ impl Widget for ChoiceToggle<'_> {
                 Stroke::new(1.0, stroke_color),
                 egui::StrokeKind::Inside,
             );
-            if let Some(mask_stroke) = mask_stroke {
-                let stroke_width = 1.0;
-                let mask_rect = match mask_stroke {
-                    InnerEdge::Left => Rect::from_min_max(
-                        pos2(face_rect.left(), face_rect.top()),
-                        pos2(
-                            (face_rect.left() + stroke_width).min(face_rect.right()),
-                            face_rect.bottom(),
-                        ),
+            let stroke_width = 1.0;
+
+            if mask_stroke.left {
+                let mask_rect = Rect::from_min_max(
+                    pos2(face_rect.left(), face_rect.top()),
+                    pos2(
+                        (face_rect.left() + stroke_width).min(face_rect.right()),
+                        face_rect.bottom(),
                     ),
-                    InnerEdge::Right => Rect::from_min_max(
-                        pos2(
-                            (face_rect.right() - stroke_width).max(face_rect.left()),
-                            face_rect.top(),
-                        ),
-                        pos2(face_rect.right(), face_rect.bottom()),
+                );
+                if mask_rect.is_positive() {
+                    painter.rect_filled(mask_rect, 0, fill);
+                }
+            }
+            if mask_stroke.right {
+                let mask_rect = Rect::from_min_max(
+                    pos2(
+                        (face_rect.right() - stroke_width).max(face_rect.left()),
+                        face_rect.top(),
                     ),
-                };
+                    pos2(face_rect.right(), face_rect.bottom()),
+                );
                 if mask_rect.is_positive() {
                     painter.rect_filled(mask_rect, 0, fill);
                 }
@@ -648,96 +692,86 @@ impl Widget for ChoiceToggle<'_> {
             }
         };
 
-        let inner_margin = 0.0;
-        let left_face_up = Rect::from_min_max(
-            pos2(
-                left_slot.left() + segment_margin,
-                left_slot.top() + segment_margin,
-            ),
-            pos2(
-                left_slot.right() - inner_margin,
-                left_slot.bottom() - segment_margin,
-            ),
-        );
-        let right_face_up = Rect::from_min_max(
-            pos2(
-                right_slot.left() + inner_margin,
-                right_slot.top() + segment_margin,
-            ),
-            pos2(
-                right_slot.right() - segment_margin,
-                right_slot.bottom() - segment_margin,
-            ),
-        );
+        let active_index = choices
+            .iter()
+            .position(|choice| choice.value == *value)
+            .unwrap_or(0);
 
-        let left_hovered = left_response.hovered() || left_response.has_focus();
-        let right_hovered = right_response.hovered() || right_response.has_focus();
-        let left_down = enabled && left_response.is_pointer_button_down_on();
-        let right_down = enabled && right_response.is_pointer_button_down_on();
-
-        let left_active = !*value;
-        let right_active = *value;
-
-        let left_rounding = egui::CornerRadius {
-            nw: segment_rounding,
-            ne: 0,
-            sw: segment_rounding,
-            se: 0,
-        };
-        let right_rounding = egui::CornerRadius {
-            nw: 0,
-            ne: segment_rounding,
-            sw: 0,
-            se: segment_rounding,
-        };
-
-        // Draw segments.
-        if left_active {
-            draw_segment(
-                left_face_up,
-                left_rounding,
-                Some(InnerEdge::Right),
-                off_galley,
-                left_hovered,
-                left_down,
-                left_active,
-            );
-            draw_segment(
-                right_face_up,
-                right_rounding,
-                Some(InnerEdge::Left),
-                on_galley,
-                right_hovered,
-                right_down,
-                right_active,
-            );
+        let mut draw_order: Vec<usize> = if shadow_offset.x >= 0.0 {
+            (0..segment_count).collect()
         } else {
-            draw_segment(
-                right_face_up,
-                right_rounding,
-                Some(InnerEdge::Left),
-                on_galley,
-                right_hovered,
-                right_down,
-                right_active,
+            (0..segment_count).rev().collect()
+        };
+        if let Some(pos) = draw_order.iter().position(|&idx| idx == active_index) {
+            let active = draw_order.remove(pos);
+            draw_order.push(active);
+        }
+
+        for idx in draw_order {
+            let slot = segment_slots[idx];
+            let left_inset = if idx == 0 { segment_margin } else { 0.0 };
+            let right_inset = if idx + 1 == segment_count {
+                segment_margin
+            } else {
+                0.0
+            };
+
+            let face_up = Rect::from_min_max(
+                pos2(slot.left() + left_inset, slot.top() + segment_margin),
+                pos2(
+                    (slot.right() - right_inset).max(slot.left() + left_inset),
+                    (slot.bottom() - segment_margin).max(slot.top() + segment_margin),
+                ),
             );
+
+            let rounding = egui::CornerRadius {
+                nw: if idx == 0 { segment_rounding } else { 0 },
+                ne: if idx + 1 == segment_count {
+                    segment_rounding
+                } else {
+                    0
+                },
+                sw: if idx == 0 { segment_rounding } else { 0 },
+                se: if idx + 1 == segment_count {
+                    segment_rounding
+                } else {
+                    0
+                },
+            };
+
+            let hovered = segment_responses[idx].hovered() || segment_responses[idx].has_focus();
+            let is_down = enabled && segment_responses[idx].is_pointer_button_down_on();
+            let is_active = idx == active_index;
+
+            let mask_stroke = MaskStroke {
+                left: idx > 0,
+                right: idx + 1 < segment_count,
+            };
+
             draw_segment(
-                left_face_up,
-                left_rounding,
-                Some(InnerEdge::Right),
-                off_galley,
-                left_hovered,
-                left_down,
-                left_active,
+                face_up,
+                rounding,
+                mask_stroke,
+                choices[idx].galley.clone(),
+                hovered,
+                is_down,
+                is_active,
             );
         }
 
-        response = response | left_response | right_response;
+        for segment_response in segment_responses {
+            response |= segment_response;
+        }
+
+        if changed {
+            response.mark_changed();
+        }
+
         response
     }
 }
 
-impl crate::themes::Styled for ChoiceToggle<'_> {
+impl<T> crate::themes::Styled for ChoiceToggle<'_, T> {
     type Style = GorbieChoiceToggleStyle;
 
     fn set_style(&mut self, style: Option<Self::Style>) {

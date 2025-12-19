@@ -20,12 +20,10 @@ pub mod prelude;
 pub mod themes;
 pub mod widgets;
 
-use eframe::egui::{self};
-use egui_theme_switch::global_theme_switch;
-
 use crate::themes::industrial_dark;
 use crate::themes::industrial_fonts;
 use crate::themes::industrial_light;
+use eframe::egui::{self};
 
 /// A notebook is a collection of cards.
 /// Each card is a piece of content that can be displayed in the notebook.
@@ -161,28 +159,26 @@ impl eframe::App for Notebook {
                                         egui::Layout::right_to_left(egui::Align::Center),
                                         |ui| {
                                             ui.add_space(16.0);
-                                            ui.scope(|ui| {
-                                                let dark_mode = ui.visuals().dark_mode;
-                                                let bg = ui.visuals().window_fill;
-                                                let outline =
-                                                    ui.visuals().widgets.noninteractive.bg_stroke;
-
-                                                if dark_mode {
-                                                    let widgets = &mut ui.visuals_mut().widgets;
-                                                    widgets.inactive.bg_fill = bg;
-                                                    widgets.inactive.weak_bg_fill = bg;
-                                                    widgets.hovered.bg_fill = bg;
-                                                    widgets.hovered.weak_bg_fill = bg;
-                                                }
-
-                                                let visuals = ui.visuals_mut();
-                                                visuals.window_fill = crate::themes::ral(1003);
-                                                visuals.window_stroke = outline;
-                                                visuals.override_text_color =
-                                                    Some(crate::themes::ral(9011));
-
-                                                global_theme_switch(ui);
-                                            });
+                                            let mut preference =
+                                                ui.ctx().options(|opt| opt.theme_preference);
+                                            if ui
+                                                .add(
+                                                    widgets::ChoiceToggle::new(&mut preference)
+                                                        .choice(
+                                                            egui::ThemePreference::System,
+                                                            "SYS",
+                                                        )
+                                                        .choice(egui::ThemePreference::Dark, "DARK")
+                                                        .choice(
+                                                            egui::ThemePreference::Light,
+                                                            "LIGHT",
+                                                        )
+                                                        .small(),
+                                                )
+                                                .changed()
+                                            {
+                                                ui.ctx().set_theme(preference);
+                                            }
                                         },
                                     );
                                 });

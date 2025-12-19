@@ -16,7 +16,6 @@ ctrlc = {version="3.4", features=["termination"]}
 egui_commonmark = { path = "vendor/egui_commonmark", features = ["macros", "better_syntax_highlighting", "svg", "fetch"] }
 image = { version = "0.25", features = ["png", "jpeg"] }
 polars = "0.50.0"
-egui-theme-switch = "0.4.0"
 
 [features]
 serde = []

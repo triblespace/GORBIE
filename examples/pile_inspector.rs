@@ -294,7 +294,7 @@ fn pile_inspector(nb: &mut Notebook) {
 
         ui.horizontal(|ui| {
             ui.label("METRIC:");
-            ui.add(widgets::ChoiceToggle::new(
+            ui.add(widgets::ChoiceToggle::binary(
                 &mut state.histogram_bytes,
                 "COUNT",
                 "BYTES",

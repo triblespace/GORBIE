@@ -524,7 +524,7 @@ fn playbook(nb: &mut Notebook) {
 
         md!(ui, "### Choice toggle");
         ui.horizontal(|ui| {
-            ui.add(widgets::ChoiceToggle::new(choice_on, "COUNT", "BYTES"));
+            ui.add(widgets::ChoiceToggle::binary(choice_on, "COUNT", "BYTES"));
         });
 
         if ui

@@ -9,7 +9,6 @@ dependencies = [
  "ctrlc",
  "eframe",
  "egui",
- "egui-theme-switch",
  "egui_commonmark",
  "egui_extras",
  "image",
@@ -1395,15 +1394,6 @@ dependencies = [
  "serde",
  "smallvec",
  "unicode-segmentation",
-]
-
-[[package]]
-name = "egui-theme-switch"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3729f981ec3e2417c59b31e6703e953a8beebf75d6176b506eac6414b22285f0"
-dependencies = [
- "egui",
 ]
 
 [[package]]
