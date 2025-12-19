@@ -193,7 +193,10 @@ fn rgb_histogram_editor(ui: &mut egui::Ui, rgb: &mut [u8; 3]) -> RgbHistogramEdi
         let y = plot_area.bottom() - frac * plot_area.height();
 
         painter.line_segment(
-            [egui::pos2(plot_area.left(), y), egui::pos2(plot_area.right(), y)],
+            [
+                egui::pos2(plot_area.left(), y),
+                egui::pos2(plot_area.right(), y),
+            ],
             egui::Stroke::new(1.0, grid_color),
         );
         painter.text(
@@ -336,12 +339,8 @@ impl Default for PaletteState {
 }
 
 fn playbook(nb: &mut Notebook) {
-    state!(
-        nb,
-        (),
-        PaletteState::default(),
-        |ui, state| {
-            md!(
+    state!(nb, (), PaletteState::default(), |ui, state| {
+        md!(
                 ui,
                 "# Palette Playbook\n\nBase tokens map semantic roles → RAL paint chips. Derived colors are small blends on top."
             );
@@ -429,27 +428,27 @@ fn playbook(nb: &mut Notebook) {
             let mut rgb_changed = false;
             ui.monospace("R");
             rgb_changed |= ui
-                .add(widgets::NumberField::new(
-                    egui::DragValue::new(&mut state.rgb[0])
+                .add(
+                    widgets::NumberField::new(&mut state.rgb[0])
                         .range(0u8..=255u8)
-                        .speed(1),
-                ))
+                        .speed(1.0),
+                )
                 .changed();
             ui.monospace("G");
             rgb_changed |= ui
-                .add(widgets::NumberField::new(
-                    egui::DragValue::new(&mut state.rgb[1])
+                .add(
+                    widgets::NumberField::new(&mut state.rgb[1])
                         .range(0u8..=255u8)
-                        .speed(1),
-                ))
+                        .speed(1.0),
+                )
                 .changed();
             ui.monospace("B");
             rgb_changed |= ui
-                .add(widgets::NumberField::new(
-                    egui::DragValue::new(&mut state.rgb[2])
+                .add(
+                    widgets::NumberField::new(&mut state.rgb[2])
                         .range(0u8..=255u8)
-                        .speed(1),
-                ))
+                        .speed(1.0),
+                )
                 .changed();
 
             if rgb_changed {
@@ -458,11 +457,11 @@ fn playbook(nb: &mut Notebook) {
 
             ui.add_space(16.0);
             ui.monospace("RAL");
-            let ral_response = ui.add(widgets::NumberField::new(
-                egui::DragValue::new(&mut state.ral_code)
+            let ral_response = ui.add(
+                widgets::NumberField::new(&mut state.ral_code)
                     .range(0u16..=9999u16)
-                    .speed(1),
-            ));
+                    .speed(1.0),
+            );
             if ral_response.changed() {
                 if let Some((_, color)) = ral_lookup(state.ral_code) {
                     state.rgb = [color.r(), color.g(), color.b()];

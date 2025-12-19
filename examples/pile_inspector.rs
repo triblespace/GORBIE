@@ -181,11 +181,11 @@ fn pile_inspector(nb: &mut Notebook) {
                 ui.label("Pile path:");
                 ui.add(widgets::TextField::singleline(&mut state.pile_path));
                 ui.label("Rows:");
-                ui.add(widgets::NumberField::new(
-                    egui::DragValue::new(&mut state.max_rows)
+                ui.add(
+                    widgets::NumberField::new(&mut state.max_rows)
                         .range(10..=10_000)
                         .speed(10.0),
-                ));
+                );
 
                 let pile_path = PathBuf::from(state.pile_path.trim());
                 let snapshot = widgets::load_button(

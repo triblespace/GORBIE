@@ -11,7 +11,6 @@ use eframe::egui::remap_clamp;
 use eframe::egui::style::HandleShape;
 use eframe::egui::vec2;
 use eframe::egui::Color32;
-use eframe::egui::DragValue;
 use eframe::egui::EventFilter;
 use eframe::egui::Key;
 use eframe::egui::Label;
@@ -1058,7 +1057,7 @@ impl Slider<'_> {
         };
 
         let mut value = self.get_value();
-        let mut dv = DragValue::new(&mut value)
+        let mut number_field = crate::widgets::NumberField::new(&mut value)
             .speed(speed)
             .min_decimals(self.min_decimals)
             .max_decimals_opt(self.max_decimals)
@@ -1069,21 +1068,25 @@ impl Slider<'_> {
         match self.clamping {
             SliderClamping::Never => {}
             SliderClamping::Edits => {
-                dv = dv.range(self.range.clone()).clamp_existing_to_range(false);
+                number_field = number_field
+                    .range_f64(self.range.clone())
+                    .clamp_existing_to_range(false);
             }
             SliderClamping::Always => {
-                dv = dv.range(self.range.clone()).clamp_existing_to_range(true);
+                number_field = number_field
+                    .range_f64(self.range.clone())
+                    .clamp_existing_to_range(true);
             }
         }
 
-        if let Some(fmt) = &self.custom_formatter {
-            dv = dv.custom_formatter(fmt);
+        if let Some(fmt) = self.custom_formatter.as_deref() {
+            number_field = number_field.custom_formatter(fmt);
         };
-        if let Some(parser) = &self.custom_parser {
-            dv = dv.custom_parser(parser);
+        if let Some(parser) = self.custom_parser.as_deref() {
+            number_field = number_field.custom_parser(parser);
         };
 
-        let response = ui.add(crate::widgets::NumberField::new(dv));
+        let response = ui.add(number_field);
         if value != self.get_value() {
             self.set_value(value);
         }
