@@ -3,7 +3,7 @@ use std::ops::RangeInclusive;
 
 use eframe::egui::{
     self, pos2, vec2, Align, Align2, Color32, CursorIcon, Event, EventFilter, FontId, Id, Key,
-    Margin, NumExt as _, Rect, Response, Stroke, StrokeKind, Ui, Vec2, Widget,
+    Margin, NumExt as _, Pos2, Rect, Response, Stroke, StrokeKind, Ui, Vec2, Widget,
 };
 
 use egui::text::{CCursor, CCursorRange, LayoutJob};
@@ -68,6 +68,44 @@ fn selection_rects(galley: &egui::Galley, cursor_range: egui::text::CCursorRange
     }
 
     rects
+}
+
+#[derive(Debug, Clone, Copy)]
+struct GalleyPlacement {
+    rect: Rect,
+    pos: Pos2,
+}
+
+fn place_galley(galley: &egui::Galley, rect: Rect, align: Align2) -> GalleyPlacement {
+    let placement_rect = align
+        .align_size_within_rect(galley.size(), rect)
+        .intersect(rect);
+    let galley_pos = placement_rect.min - galley.rect.min.to_vec2();
+
+    GalleyPlacement {
+        rect: placement_rect,
+        pos: galley_pos,
+    }
+}
+
+fn is_scrollable_singleline(
+    clip_text: bool,
+    rect: Rect,
+    placement_rect: Rect,
+    galley: &egui::Galley,
+) -> bool {
+    clip_text && placement_rect.left() == rect.left() && galley.rect.left() == 0.0
+}
+
+fn cursor_rect_in_galley(galley: &egui::Galley, cursor: CCursor) -> Rect {
+    let cursor = galley.layout_from_cursor(cursor);
+    galley.rows.get(cursor.row).map_or_else(
+        || Rect::ZERO,
+        |row| {
+            let x = row.pos.x + row.x_offset(cursor.column);
+            Rect::from_min_max(pos2(x, row.min_y()), pos2(x, row.max_y()))
+        },
+    )
 }
 
 fn paint_field_frame(
@@ -248,10 +286,10 @@ fn lcd_text_edit(
     paint_field_frame(ui.painter(), outer_rect, fill, outline, rounding);
 
     let mut state = LcdTextEditState::load(ui.ctx(), id);
-    let galley_placement_rect = align.align_size_within_rect(galley.size(), rect).intersect(rect);
-    let galley_pos_unscrolled = galley_placement_rect.min - galley.rect.min.to_vec2();
-    let align_offset = rect.left() - galley_placement_rect.min.x;
-    let scrollable_singleline = clip_text && align_offset == 0.0 && galley.rect.left() == 0.0;
+    let galley_placement = place_galley(&galley, rect, align);
+    let galley_pos_unscrolled = galley_placement.pos;
+    let scrollable_singleline =
+        is_scrollable_singleline(clip_text, rect, galley_placement.rect, &galley);
 
     if interactive {
         if let Some(pointer_pos) = response.interact_pointer_pos() {
@@ -260,9 +298,8 @@ fn lcd_text_edit(
             } else {
                 0.0
             };
-            let cursor_at_pointer = galley.cursor_from_pos(
-                pointer_pos - galley_pos_unscrolled + vec2(scroll_offset, 0.0),
-            );
+            let cursor_at_pointer = galley
+                .cursor_from_pos(pointer_pos - galley_pos_unscrolled + vec2(scroll_offset, 0.0));
 
             let is_being_dragged = ui.ctx().is_being_dragged(response.id);
             let did_interact = state.cursor.pointer_interaction(
@@ -429,10 +466,10 @@ fn lcd_text_edit(
         }
     }
 
-    let galley_placement_rect = align.align_size_within_rect(galley.size(), rect).intersect(rect);
-    let mut galley_pos = galley_placement_rect.min - galley.rect.min.to_vec2();
-    let align_offset = rect.left() - galley_placement_rect.min.x;
-    let scrollable_singleline = clip_text && align_offset == 0.0 && galley.rect.left() == 0.0;
+    let galley_placement = place_galley(&galley, rect, align);
+    let mut galley_pos = galley_placement.pos;
+    let scrollable_singleline =
+        is_scrollable_singleline(clip_text, rect, galley_placement.rect, &galley);
 
     if scrollable_singleline {
         let cursor_pos = if has_focus {
@@ -465,26 +502,15 @@ fn lcd_text_edit(
     let text_painter = ui.painter_at(text_clip_rect);
 
     if interactive && has_focus {
+        let mut highlight_rects = Vec::new();
+        let mut invert_text_rects = Vec::new();
+
         if !cursor_range.is_empty() {
-            let selection_rects = selection_rects(&galley, cursor_range);
-
-            for selection_rect in &selection_rects {
+            for selection_rect in selection_rects(&galley, cursor_range) {
                 let selection_rect = selection_rect.translate(galley_pos.to_vec2());
                 if selection_rect.is_positive() {
-                    text_painter.rect_filled(selection_rect, 0.0, ink);
-                }
-            }
-
-            text_painter.galley(galley_pos, galley.clone(), text_color);
-
-            for selection_rect in selection_rects {
-                let selection_rect = selection_rect.translate(galley_pos.to_vec2());
-                if selection_rect.is_positive() {
-                    let clip = text_clip_rect.intersect(selection_rect);
-                    if clip.is_positive() {
-                        let overlay = ui.painter_at(clip);
-                        overlay.galley_with_override_text_color(galley_pos, galley.clone(), fill);
-                    }
+                    highlight_rects.push(selection_rect);
+                    invert_text_rects.push(selection_rect);
                 }
             }
         } else {
@@ -494,15 +520,14 @@ fn lcd_text_edit(
             }
 
             let show_block = if ui.visuals().text_cursor.blink {
-                let on_duration = ui.visuals().text_cursor.on_duration;
-                let off_duration = ui.visuals().text_cursor.off_duration;
-                let total_duration = on_duration + off_duration;
+                let cursor_style = &ui.visuals().text_cursor;
+                let total_duration = cursor_style.on_duration + cursor_style.off_duration;
 
                 let time_since_last_interaction = (now - state.last_interaction_time).max(0.0);
                 let time_in_cycle = (time_since_last_interaction % (total_duration as f64)) as f32;
 
-                let (show, wake_in) = if time_in_cycle < on_duration {
-                    (true, on_duration - time_in_cycle)
+                let (show, wake_in) = if time_in_cycle < cursor_style.on_duration {
+                    (true, cursor_style.on_duration - time_in_cycle)
                 } else {
                     (false, total_duration - time_in_cycle)
                 };
@@ -513,59 +538,50 @@ fn lcd_text_edit(
                 true
             };
 
-	            let cursor = cursor_range.primary;
-	            let char_count = text.as_str().chars().count();
-	            let caret_rect = if show_block {
-	                let cursor_rect_in_galley = |cursor: CCursor| {
-	                    let cursor = galley.layout_from_cursor(cursor);
-	                    galley
-	                        .rows
-	                        .get(cursor.row)
-	                        .map_or_else(|| Rect::ZERO, |row| {
-	                            let x = row.pos.x + row.x_offset(cursor.column);
-	                            Rect::from_min_max(pos2(x, row.min_y()), pos2(x, row.max_y()))
-	                        })
-	                };
+            if show_block {
+                let cursor = cursor_range.primary;
+                let char_count = text.as_str().chars().count();
+                let cursor_rect = cursor_rect_in_galley(&galley, cursor);
+                let glyph_width = ui.fonts(|fonts| fonts.glyph_width(&font_id, '0'));
 
-	                let cursor_rect = cursor_rect_in_galley(cursor);
+                let cursor_width = if cursor.index < char_count {
+                    let next = cursor_rect_in_galley(&galley, cursor + 1);
+                    let width = next.min.x - cursor_rect.min.x;
+                    if width > 0.0 {
+                        width
+                    } else {
+                        glyph_width
+                    }
+                } else {
+                    glyph_width
+                };
 
-	                let cursor_width = if cursor.index < char_count {
-	                    let next = cursor_rect_in_galley(cursor + 1);
-	                    let width = next.min.x - cursor_rect.min.x;
-	                    if width > 0.0 {
-	                        width
-	                    } else {
-	                        ui.fonts(|fonts| fonts.glyph_width(&font_id, '0'))
-	                    }
-	                } else {
-	                    ui.fonts(|fonts| fonts.glyph_width(&font_id, '0'))
-	                };
-
-	                let caret_rect = Rect::from_min_max(
-	                    pos2(cursor_rect.min.x, cursor_rect.min.y),
-	                    pos2(cursor_rect.min.x + cursor_width, cursor_rect.max.y),
+                let caret_rect = Rect::from_min_max(
+                    pos2(cursor_rect.min.x, cursor_rect.min.y),
+                    pos2(cursor_rect.min.x + cursor_width, cursor_rect.max.y),
                 )
                 .translate(galley_pos.to_vec2());
 
                 if caret_rect.is_positive() {
-                    text_painter.rect_filled(caret_rect, 0.0, ink);
-                }
-
-                Some(caret_rect)
-            } else {
-                None
-            };
-
-            text_painter.galley(galley_pos, galley.clone(), text_color);
-
-            if let Some(caret_rect) = caret_rect {
-                if caret_rect.is_positive() && cursor.index < char_count {
-                    let clip = text_clip_rect.intersect(caret_rect);
-                    if clip.is_positive() {
-                        let overlay = ui.painter_at(clip);
-                        overlay.galley_with_override_text_color(galley_pos, galley.clone(), fill);
+                    highlight_rects.push(caret_rect);
+                    if cursor.index < char_count {
+                        invert_text_rects.push(caret_rect);
                     }
                 }
+            }
+        }
+
+        for rect in &highlight_rects {
+            text_painter.rect_filled(*rect, 0.0, ink);
+        }
+
+        text_painter.galley(galley_pos, galley.clone(), text_color);
+
+        for rect in invert_text_rects {
+            let clip = text_clip_rect.intersect(rect);
+            if clip.is_positive() {
+                let overlay = ui.painter_at(clip);
+                overlay.galley_with_override_text_color(galley_pos, galley.clone(), fill);
             }
         }
 
@@ -839,10 +855,7 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
 
             paint_field_frame(ui.painter(), outer_rect, fill, outline, gstyle.rounding);
 
-            let galley_placement_rect = Align2::CENTER_CENTER
-                .align_size_within_rect(display_galley.size(), rect)
-                .intersect(rect);
-            let galley_pos = galley_placement_rect.min - display_galley.rect.min.to_vec2();
+            let galley_pos = place_galley(&display_galley, rect, Align2::CENTER_CENTER).pos;
             ui.painter_at(outer_rect.shrink(1.0))
                 .galley(galley_pos, display_galley, text_color);
 
