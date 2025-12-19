@@ -1,4 +1,4 @@
-/// Traits and helpers for widget-level styles derived from our theme.
+//! Traits and helpers for widget-level styles derived from our theme.
 
 /// Provide a per-widget override API.
 pub trait Styled {

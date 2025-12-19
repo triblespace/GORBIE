@@ -91,27 +91,16 @@ pub struct GorbieNumberFieldStyle {
 }
 
 /// Return a `GorbieSliderStyle` preset for light/dark mode based on our base tokens.
-pub fn slider_style(dark_mode: bool) -> GorbieSliderStyle {
+pub fn slider_style(_dark_mode: bool) -> GorbieSliderStyle {
     let outline = blend(ral(9011), ral(7047), 0.4);
 
-    if dark_mode {
-        GorbieSliderStyle {
-            rail_bg: ral(9004),
-            rail_fill: outline,
-            knob: ral(9003),
-            shadow: ral(9004),
-            shadow_offset: egui::vec2(2.0, 2.0),
-            knob_extra_radius: 0.0,
-        }
-    } else {
-        GorbieSliderStyle {
-            rail_bg: ral(9004),
-            rail_fill: outline,
-            knob: ral(9003),
-            shadow: ral(9004),
-            shadow_offset: egui::vec2(2.0, 2.0),
-            knob_extra_radius: 0.0,
-        }
+    GorbieSliderStyle {
+        rail_bg: ral(9004),
+        rail_fill: outline,
+        knob: ral(9003),
+        shadow: ral(9004),
+        shadow_offset: egui::vec2(2.0, 2.0),
+        knob_extra_radius: 0.0,
     }
 }
 
@@ -323,9 +312,10 @@ pub fn industrial(
 }
 
 pub fn industrial_light() -> Style {
-    let mut style = Style::default();
-
-    style.text_styles = industrial_text_styles().into_iter().collect();
+    let mut style = Style {
+        text_styles: industrial_text_styles().into_iter().collect(),
+        ..Default::default()
+    };
 
     let foreground = ral(9011);
     let background = ral(7047);
@@ -346,9 +336,10 @@ pub fn industrial_light() -> Style {
 }
 
 pub fn industrial_dark() -> Style {
-    let mut style = Style::default();
-
-    style.text_styles = industrial_text_styles().into_iter().collect();
+    let mut style = Style {
+        text_styles: industrial_text_styles().into_iter().collect(),
+        ..Default::default()
+    };
 
     let foreground = ral(9003);
     let background = ral(7046);

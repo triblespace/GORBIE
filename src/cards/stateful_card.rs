@@ -7,9 +7,11 @@ use crate::Notebook;
 
 use super::CardState;
 
+type StatefulCardFn<T> = dyn FnMut(&mut egui::Ui, &mut T);
+
 pub struct StatefulCard<T> {
     current: CardState<T>,
-    function: Box<dyn FnMut(&mut egui::Ui, &mut T)>,
+    function: Box<StatefulCardFn<T>>,
     code: Option<String>,
 }
 

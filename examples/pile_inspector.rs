@@ -196,10 +196,8 @@ fn pile_inspector(nb: &mut Notebook) {
                     move || load_pile(pile_path.clone()),
                 );
 
-                if let Some(snapshot) = snapshot {
-                    if let Err(err) = snapshot {
-                        ui.label(err.as_str());
-                    }
+                if let Some(Err(err)) = snapshot {
+                    ui.label(err.as_str());
                 }
             });
         }
@@ -450,7 +448,7 @@ fn pile_inspector(nb: &mut Notebook) {
                 ui.end_row();
 
                 for branch in &snapshot.branches {
-                    ui.monospace(hex_prefix(&branch.id, 6));
+                    ui.monospace(hex_prefix(branch.id, 6));
                     match &branch.head {
                         Some(raw) => ui.monospace(hex_prefix(raw, 6)),
                         None => ui.label("—"),
@@ -494,7 +492,7 @@ fn pile_inspector(nb: &mut Notebook) {
                 ui.end_row();
 
                 for blob in snapshot.blobs.iter().take(max_rows) {
-                    ui.monospace(hex_prefix(&blob.hash, 6));
+                    ui.monospace(hex_prefix(blob.hash, 6));
                     match blob.length {
                         Some(len) => ui.monospace(format_bytes(len)),
                         None => ui.label("invalid"),

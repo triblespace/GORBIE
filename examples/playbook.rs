@@ -300,7 +300,7 @@ fn rgb_histogram_editor(ui: &mut egui::Ui, rgb: &mut [u8; 3]) -> RgbHistogramEdi
     if max_x_labels > 0 {
         let tick_top = plot_rect.bottom();
 
-        for i in 0..bucket_count {
+        for (i, name) in channel_names.iter().enumerate().take(bucket_count) {
             let x = plot_area.left() + i as f32 * (bar_w + gap) + bar_w * 0.5;
             painter.line_segment(
                 [egui::pos2(x, tick_top), egui::pos2(x, tick_top + tick_len)],
@@ -309,7 +309,7 @@ fn rgb_histogram_editor(ui: &mut egui::Ui, rgb: &mut [u8; 3]) -> RgbHistogramEdi
             painter.text(
                 egui::pos2(x, tick_top + tick_len + tick_pad),
                 egui::Align2::CENTER_TOP,
-                channel_names[i],
+                *name,
                 font_id.clone(),
                 ink,
             );

@@ -2,10 +2,9 @@
 //! Sometimes when working with existing code, libraries or even std things like
 //! files, can introduce an impedance mismatch with the reactive data-flow model.
 //! Often it is enough to wrap the object in question into another layer of `Arc`s
-//! and `RWLock`s in addition to what Gorby already does with it's `CardState`.
-//!
-//! - This is also why we compare explicit generations instead of return values,
-//! to broaden the range of types that can be used with `derive!`. -
+//! and `RWLock`s in addition to what Gorby already does with its `CardState`.
+//! This is also why we compare explicit generations instead of return values, to
+//! broaden the range of types that can be used with `derive!`.
 //!
 //! But sometimes that isn't enough, e.g. when you want to display some application
 //! global state. This is why `state!` and `view!` are carefully designed to not

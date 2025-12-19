@@ -552,26 +552,13 @@ impl Widget for ChoiceToggle<'_> {
             Right,
         }
 
-        fn draw_segment(
-            ui: &Ui,
-            gstyle: &GorbieChoiceToggleStyle,
-            face_up: Rect,
-            rounding: egui::CornerRadius,
-            mask_stroke: Option<InnerEdge>,
-            galley: std::sync::Arc<egui::Galley>,
-            hovered: bool,
-            is_down: bool,
-            is_active: bool,
-            enabled: bool,
-            base_fill: Color32,
-            disabled_fill: Color32,
-            outline: Color32,
-            accent: Color32,
-            shadow_color: Color32,
-            shadow_offset: egui::Vec2,
-            light: Option<Color32>,
-            small: bool,
-        ) {
+        let draw_segment = |face_up: Rect,
+                            rounding: egui::CornerRadius,
+                            mask_stroke: Option<InnerEdge>,
+                            galley: std::sync::Arc<egui::Galley>,
+                            hovered: bool,
+                            is_down: bool,
+                            is_active: bool| {
             let painter = ui.painter();
             let fill = if enabled { base_fill } else { disabled_fill };
             let is_pressed = is_down || is_active;
@@ -659,7 +646,7 @@ impl Widget for ChoiceToggle<'_> {
                 }
                 painter.rect_filled(led_rect, 1, led_fill);
             }
-        }
+        };
 
         let inner_margin = 0.0;
         let left_face_up = Rect::from_min_max(
@@ -691,7 +678,6 @@ impl Widget for ChoiceToggle<'_> {
         let left_active = !*value;
         let right_active = *value;
 
-        let fill = if enabled { base_fill } else { disabled_fill };
         let left_rounding = egui::CornerRadius {
             nw: segment_rounding,
             ne: 0,
@@ -708,8 +694,6 @@ impl Widget for ChoiceToggle<'_> {
         // Draw segments.
         if left_active {
             draw_segment(
-                ui,
-                &gstyle,
                 left_face_up,
                 left_rounding,
                 Some(InnerEdge::Right),
@@ -717,19 +701,8 @@ impl Widget for ChoiceToggle<'_> {
                 left_hovered,
                 left_down,
                 left_active,
-                enabled,
-                fill,
-                disabled_fill,
-                outline,
-                accent,
-                shadow_color,
-                shadow_offset,
-                light,
-                small,
             );
             draw_segment(
-                ui,
-                &gstyle,
                 right_face_up,
                 right_rounding,
                 Some(InnerEdge::Left),
@@ -737,20 +710,9 @@ impl Widget for ChoiceToggle<'_> {
                 right_hovered,
                 right_down,
                 right_active,
-                enabled,
-                fill,
-                disabled_fill,
-                outline,
-                accent,
-                shadow_color,
-                shadow_offset,
-                light,
-                small,
             );
         } else {
             draw_segment(
-                ui,
-                &gstyle,
                 right_face_up,
                 right_rounding,
                 Some(InnerEdge::Left),
@@ -758,19 +720,8 @@ impl Widget for ChoiceToggle<'_> {
                 right_hovered,
                 right_down,
                 right_active,
-                enabled,
-                fill,
-                disabled_fill,
-                outline,
-                accent,
-                shadow_color,
-                shadow_offset,
-                light,
-                small,
             );
             draw_segment(
-                ui,
-                &gstyle,
                 left_face_up,
                 left_rounding,
                 Some(InnerEdge::Right),
@@ -778,15 +729,6 @@ impl Widget for ChoiceToggle<'_> {
                 left_hovered,
                 left_down,
                 left_active,
-                enabled,
-                fill,
-                disabled_fill,
-                outline,
-                accent,
-                shadow_color,
-                shadow_offset,
-                light,
-                small,
             );
         }
 

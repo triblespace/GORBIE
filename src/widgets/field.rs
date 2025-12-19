@@ -10,6 +10,9 @@ use egui::text::{CCursor, CCursorRange, LayoutJob};
 
 use crate::themes::{GorbieNumberFieldStyle, GorbieTextFieldStyle};
 
+type NumFormatter<'a> = dyn Fn(f64, RangeInclusive<usize>) -> String + 'a;
+type NumParser<'a> = dyn Fn(&str) -> Option<f64> + 'a;
+
 fn paint_scanline(painter: &egui::Painter, rect: Rect, color: Color32, height: f32) {
     let inset = 2.0;
     let available_h = (rect.height() - inset * 2.0).max(0.0);
@@ -151,10 +154,7 @@ fn default_parser(text: &str) -> Option<f64> {
     text.parse().ok()
 }
 
-fn parse_number(
-    custom_parser: Option<&dyn Fn(&str) -> Option<f64>>,
-    value_text: &str,
-) -> Option<f64> {
+fn parse_number(custom_parser: Option<&NumParser<'_>>, value_text: &str) -> Option<f64> {
     custom_parser.map_or_else(|| default_parser(value_text), |parser| parser(value_text))
 }
 
@@ -598,9 +598,6 @@ fn lcd_text_edit(
 
     LcdTextEditOutput { response, changed }
 }
-
-type NumFormatter<'a> = dyn Fn(f64, RangeInclusive<usize>) -> String + 'a;
-type NumParser<'a> = dyn Fn(&str) -> Option<f64> + 'a;
 
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct NumberField<'a, Num: egui::emath::Numeric> {
