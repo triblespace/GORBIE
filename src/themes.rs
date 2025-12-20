@@ -366,9 +366,9 @@ pub fn industrial_fonts() -> FontDefinitions {
     fonts.font_data.clear();
 
     fonts.font_data.insert(
-        "IosevkaTerm".to_owned(),
+        "IosevkaGorbie".to_owned(),
         std::sync::Arc::new(FontData::from_static(include_bytes!(
-            "../assets/fonts/PkgTTC-SGr-IosevkaTerm-33.3.6/SGr-IosevkaTerm-Regular.ttc"
+            "../assets/fonts/IosevkaGorbie/IosevkaGorbie-Regular.ttf"
         ))),
     );
     fonts.font_data.insert(
@@ -381,13 +381,13 @@ pub fn industrial_fonts() -> FontDefinitions {
     fonts.families.clear();
     fonts
         .families
-        .insert(FontFamily::Proportional, vec!["IosevkaTerm".to_owned()]);
+        .insert(FontFamily::Proportional, vec!["IosevkaGorbie".to_owned()]);
     fonts
         .families
-        .insert(FontFamily::Monospace, vec!["IosevkaTerm".to_owned()]);
+        .insert(FontFamily::Monospace, vec!["IosevkaGorbie".to_owned()]);
     fonts.families.insert(
-        FontFamily::Name("IosevkaTerm".into()),
-        vec!["IosevkaTerm".to_owned()],
+        FontFamily::Name("IosevkaGorbie".into()),
+        vec!["IosevkaGorbie".to_owned()],
     );
     fonts
         .families
@@ -400,11 +400,11 @@ pub fn industrial_text_styles() -> Vec<(TextStyle, FontId)> {
     vec![
         (
             TextStyle::Heading,
-            FontId::new(30.0, FontFamily::Name("IosevkaTerm".into())),
+            FontId::new(30.0, FontFamily::Name("IosevkaGorbie".into())),
         ),
         (
             TextStyle::Body,
-            FontId::new(16.0, FontFamily::Name("IosevkaTerm".into())),
+            FontId::new(16.0, FontFamily::Name("IosevkaGorbie".into())),
         ),
         (
             TextStyle::Name("LCD".into()),
@@ -412,15 +412,15 @@ pub fn industrial_text_styles() -> Vec<(TextStyle, FontId)> {
         ),
         (
             TextStyle::Monospace,
-            FontId::new(14.0, FontFamily::Name("IosevkaTerm".into())),
+            FontId::new(14.0, FontFamily::Name("IosevkaGorbie".into())),
         ),
         (
             TextStyle::Button,
-            FontId::new(16.0, FontFamily::Name("IosevkaTerm".into())),
+            FontId::new(16.0, FontFamily::Name("IosevkaGorbie".into())),
         ),
         (
             TextStyle::Small,
-            FontId::new(12.0, FontFamily::Name("IosevkaTerm".into())),
+            FontId::new(12.0, FontFamily::Name("IosevkaGorbie".into())),
         ),
     ]
 }
