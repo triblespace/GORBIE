@@ -164,16 +164,9 @@ impl eframe::App for Notebook {
                                             if ui
                                                 .add(
                                                     widgets::ChoiceToggle::new(&mut preference)
-                                                        .choice(
-                                                            egui::ThemePreference::System,
-                                                            "SYS",
-                                                        )
-                                                        .choice(egui::ThemePreference::Dark, "DARK")
-                                                        .choice(
-                                                            egui::ThemePreference::Light,
-                                                            "LIGHT",
-                                                        )
-                                                        .small(),
+                                                        .choice(egui::ThemePreference::System, "◐")
+                                                        .choice(egui::ThemePreference::Dark, "●")
+                                                        .choice(egui::ThemePreference::Light, "○"),
                                                 )
                                                 .changed()
                                             {

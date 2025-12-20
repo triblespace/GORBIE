@@ -366,9 +366,9 @@ pub fn industrial_fonts() -> FontDefinitions {
     fonts.font_data.clear();
 
     fonts.font_data.insert(
-        "Inconsolata".to_owned(),
+        "IosevkaTerm".to_owned(),
         std::sync::Arc::new(FontData::from_static(include_bytes!(
-            "../assets/fonts/Inconsolata/Inconsolata-VariableFont_wdth,wght.ttf"
+            "../assets/fonts/PkgTTC-SGr-IosevkaTerm-33.3.6/SGr-IosevkaTerm-Regular.ttc"
         ))),
     );
     fonts.font_data.insert(
@@ -381,13 +381,13 @@ pub fn industrial_fonts() -> FontDefinitions {
     fonts.families.clear();
     fonts
         .families
-        .insert(FontFamily::Proportional, vec!["Inconsolata".to_owned()]);
+        .insert(FontFamily::Proportional, vec!["IosevkaTerm".to_owned()]);
     fonts
         .families
-        .insert(FontFamily::Monospace, vec!["Inconsolata".to_owned()]);
+        .insert(FontFamily::Monospace, vec!["IosevkaTerm".to_owned()]);
     fonts.families.insert(
-        FontFamily::Name("Inconsolata".into()),
-        vec!["Inconsolata".to_owned()],
+        FontFamily::Name("IosevkaTerm".into()),
+        vec!["IosevkaTerm".to_owned()],
     );
     fonts
         .families
@@ -400,11 +400,11 @@ pub fn industrial_text_styles() -> Vec<(TextStyle, FontId)> {
     vec![
         (
             TextStyle::Heading,
-            FontId::new(30.0, FontFamily::Name("Inconsolata".into())),
+            FontId::new(30.0, FontFamily::Name("IosevkaTerm".into())),
         ),
         (
             TextStyle::Body,
-            FontId::new(16.0, FontFamily::Name("Inconsolata".into())),
+            FontId::new(16.0, FontFamily::Name("IosevkaTerm".into())),
         ),
         (
             TextStyle::Name("LCD".into()),
@@ -412,15 +412,15 @@ pub fn industrial_text_styles() -> Vec<(TextStyle, FontId)> {
         ),
         (
             TextStyle::Monospace,
-            FontId::new(14.0, FontFamily::Name("Inconsolata".into())),
+            FontId::new(14.0, FontFamily::Name("IosevkaTerm".into())),
         ),
         (
             TextStyle::Button,
-            FontId::new(16.0, FontFamily::Name("Inconsolata".into())),
+            FontId::new(16.0, FontFamily::Name("IosevkaTerm".into())),
         ),
         (
             TextStyle::Small,
-            FontId::new(12.0, FontFamily::Name("Inconsolata".into())),
+            FontId::new(12.0, FontFamily::Name("IosevkaTerm".into())),
         ),
     ]
 }

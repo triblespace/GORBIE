@@ -1,0 +1,33 @@
+[buildPlans.IosevkaGorbie]
+family = "IosevkaGorbie"
+spacing = "term"
+serifs = "sans"
+noCvSs = true
+exportGlyphNames = false
+noLigation = true
+
+  [buildPlans.IosevkaGorbie.variants]
+  inherits = "ss04"
+
+[buildPlans.IosevkaGorbie.weights.Regular]
+shape = 400
+menu = 400
+css = 400
+
+[buildPlans.IosevkaGorbie.weights.Bold]
+shape = 700
+menu = 700
+css = 700
+
+[buildPlans.IosevkaGorbie.slopes.Upright]
+angle = 0
+shape = "upright"
+menu = "upright"
+css = "normal"
+
+[buildPlans.IosevkaGorbie.slopes.Italic]
+angle = 9.4
+shape = "italic"
+menu = "italic"
+css = "italic"
+
