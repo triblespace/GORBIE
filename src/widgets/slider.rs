@@ -1065,19 +1065,7 @@ impl Slider<'_> {
             .prefix(self.prefix.clone())
             .update_while_editing(self.update_while_editing);
 
-        match self.clamping {
-            SliderClamping::Never => {}
-            SliderClamping::Edits => {
-                number_field = number_field
-                    .range_f64(self.range.clone())
-                    .clamp_existing_to_range(false);
-            }
-            SliderClamping::Always => {
-                number_field = number_field
-                    .range_f64(self.range.clone())
-                    .clamp_existing_to_range(true);
-            }
-        }
+        // Clamping is handled by `Slider::get_value` and `Slider::set_value`.
 
         if let Some(fmt) = self.custom_formatter.as_deref() {
             number_field = number_field.custom_formatter(fmt);

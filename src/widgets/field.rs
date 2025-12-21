@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::ops::RangeInclusive;
 
 use eframe::egui::{
@@ -156,22 +155,6 @@ fn default_parser(text: &str) -> Option<f64> {
 
 fn parse_number(custom_parser: Option<&NumParser<'_>>, value_text: &str) -> Option<f64> {
     custom_parser.map_or_else(|| default_parser(value_text), |parser| parser(value_text))
-}
-
-fn clamp_value_to_range(x: f64, range: RangeInclusive<f64>) -> f64 {
-    let (mut min, mut max) = (*range.start(), *range.end());
-
-    if min.total_cmp(&max) == Ordering::Greater {
-        (min, max) = (max, min);
-    }
-
-    match x.total_cmp(&min) {
-        Ordering::Less | Ordering::Equal => min,
-        Ordering::Greater => match x.total_cmp(&max) {
-            Ordering::Greater | Ordering::Equal => max,
-            Ordering::Less => x,
-        },
-    }
 }
 
 fn layout_lcd_job(
@@ -602,9 +585,8 @@ fn lcd_text_edit(
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct NumberField<'a, Num: egui::emath::Numeric> {
     value: &'a mut Num,
-    range: Option<RangeInclusive<f64>>,
-    clamp_existing_to_range: bool,
     speed: f64,
+    constrain_value: Option<&'a dyn Fn(Num) -> Num>,
     prefix: String,
     suffix: String,
     min_decimals: usize,
@@ -619,9 +601,8 @@ impl<'a, Num: egui::emath::Numeric> NumberField<'a, Num> {
     pub fn new(value: &'a mut Num) -> Self {
         Self {
             value,
-            range: None,
-            clamp_existing_to_range: false,
             speed: 1.0,
+            constrain_value: None,
             prefix: String::new(),
             suffix: String::new(),
             min_decimals: 0,
@@ -633,18 +614,12 @@ impl<'a, Num: egui::emath::Numeric> NumberField<'a, Num> {
         }
     }
 
-    pub fn range(mut self, range: RangeInclusive<Num>) -> Self {
-        self.range = Some(range.start().to_f64()..=range.end().to_f64());
-        self
-    }
-
-    pub fn range_f64(mut self, range: RangeInclusive<f64>) -> Self {
-        self.range = Some(range);
-        self
-    }
-
-    pub fn clamp_existing_to_range(mut self, clamp: bool) -> Self {
-        self.clamp_existing_to_range = clamp;
+    /// Apply a constraint function to all user-produced changes (drag or committed edit).
+    ///
+    /// This is useful for clamping, snapping, or other domain-specific normalization without
+    /// baking policy into the widget.
+    pub fn constrain_value(mut self, constrain: &'a dyn Fn(Num) -> Num) -> Self {
+        self.constrain_value = Some(constrain);
         self
     }
 
@@ -698,9 +673,8 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
     fn ui(self, ui: &mut Ui) -> Response {
         let Self {
             value,
-            range,
-            clamp_existing_to_range,
             speed,
+            constrain_value,
             prefix,
             suffix,
             min_decimals,
@@ -756,12 +730,7 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
             .at_least(min_decimals);
         let auto_decimals = auto_decimals.clamp(min_decimals, max_decimals);
 
-        let mut value_f64 = value.to_f64();
-        if clamp_existing_to_range {
-            if let Some(range) = range.clone() {
-                value_f64 = clamp_value_to_range(value_f64, range);
-            }
-        }
+        let value_f64 = value.to_f64();
 
         let value_text = match custom_formatter {
             Some(formatter) => formatter(value_f64, auto_decimals..=max_decimals),
@@ -817,13 +786,13 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
 
             if commit {
                 if let Some(mut parsed_value) = parse_number(custom_parser, &edit_text) {
-                    if let Some(range) = range.clone() {
-                        parsed_value = clamp_value_to_range(parsed_value, range);
-                    }
                     if Num::INTEGRAL {
                         parsed_value = parsed_value.round();
                     }
-                    let new_value = Num::from_f64(parsed_value);
+                    let mut new_value = Num::from_f64(parsed_value);
+                    if let Some(constrain_value) = constrain_value {
+                        new_value = constrain_value(new_value);
+                    }
                     if new_value != *value {
                         *value = new_value;
                         response.mark_changed();
@@ -874,13 +843,13 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
                     let mdelta = response.drag_delta();
                     let delta_points = mdelta.x - mdelta.y;
                     let mut new_value = value_f64 + delta_points as f64 * speed;
-                    if let Some(range) = range.clone() {
-                        new_value = clamp_value_to_range(new_value, range);
-                    }
                     if Num::INTEGRAL {
                         new_value = new_value.round();
                     }
-                    let new_value = Num::from_f64(new_value);
+                    let mut new_value = Num::from_f64(new_value);
+                    if let Some(constrain_value) = constrain_value {
+                        new_value = constrain_value(new_value);
+                    }
                     if new_value != *value {
                         *value = new_value;
                         response.mark_changed();

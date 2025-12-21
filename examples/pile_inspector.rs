@@ -183,7 +183,7 @@ fn pile_inspector(nb: &mut Notebook) {
                 ui.label("Rows:");
                 ui.add(
                     widgets::NumberField::new(&mut state.max_rows)
-                        .range(10..=10_000)
+                        .constrain_value(&|next| next.clamp(10, 10_000))
                         .speed(10.0),
                 );
 

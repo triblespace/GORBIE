@@ -29,6 +29,52 @@ fn ral_lookup(code: u16) -> Option<(&'static str, Color32)> {
         .map(|(_, name, color)| (*name, *color))
 }
 
+fn ral_codes() -> &'static [u16] {
+    static CODES: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
+    CODES.get_or_init(|| {
+        let mut codes: Vec<u16> = GORBIE::themes::ral::RAL_COLORS
+            .iter()
+            .map(|(code, _, _)| *code)
+            .collect();
+        codes.sort_unstable();
+        codes
+    })
+}
+
+fn closest_sorted_index(values: &[u16], target: u16) -> usize {
+    if values.is_empty() {
+        return 0;
+    }
+
+    match values.binary_search(&target) {
+        Ok(index) => index,
+        Err(insertion) => {
+            if insertion == 0 {
+                0
+            } else if insertion >= values.len() {
+                values.len() - 1
+            } else {
+                let prev = values[insertion - 1] as i32;
+                let next = values[insertion] as i32;
+                let target = target as i32;
+                if (target - prev).abs() <= (next - target).abs() {
+                    insertion - 1
+                } else {
+                    insertion
+                }
+            }
+        }
+    }
+}
+
+fn closest_ral_code(code: u16) -> u16 {
+    let codes = ral_codes();
+    if codes.is_empty() {
+        return code;
+    }
+    codes[closest_sorted_index(codes, code)]
+}
+
 fn closest_ral_from_rgb(rgb: [u8; 3]) -> u16 {
     let (r, g, b) = (rgb[0] as i32, rgb[1] as i32, rgb[2] as i32);
     GORBIE::themes::ral::RAL_COLORS
@@ -491,9 +537,14 @@ fn playbook(nb: &mut Notebook) {
                     ui.monospace("RAL");
                     let ral_response = ui.add(
                         widgets::NumberField::new(&mut state.ral_code)
-                            .range(0u16..=9999u16)
+                            .constrain_value(&|next| {
+                                let next = next.clamp(0u16, 9999u16);
+                                closest_ral_code(next)
+                            })
+                            .update_while_editing(false)
                             .speed(1.0),
                     );
+
                     if ral_response.changed() {
                         if let Some((_, color)) = ral_lookup(state.ral_code) {
                             state.rgb = [color.r(), color.g(), color.b()];
