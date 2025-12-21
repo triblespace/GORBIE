@@ -137,6 +137,17 @@ fn paint_hatching(painter: &egui::Painter, rect: egui::Rect, color: Color32) {
     }
 }
 
+fn rgb_histogram_editor_size(ui: &egui::Ui) -> egui::Vec2 {
+    let desired_width = 240.0;
+    let plot_height = 72.0;
+    let font_id = egui::TextStyle::Small.resolve(ui.style());
+    let tick_len = 4.0;
+    let tick_pad = 2.0;
+    let text_height = ui.fonts(|fonts| fonts.row_height(&font_id));
+    let label_row_h = tick_len + tick_pad + text_height;
+    egui::vec2(desired_width, plot_height + label_row_h)
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct RgbHistogramEditorResult {
     changed: bool,
@@ -144,7 +155,7 @@ struct RgbHistogramEditorResult {
 }
 
 fn rgb_histogram_editor(ui: &mut egui::Ui, rgb: &mut [u8; 3]) -> RgbHistogramEditorResult {
-    let desired_width = 240.0;
+    let desired_width = rgb_histogram_editor_size(ui).x;
     let plot_height = 72.0;
     let y_segments = 5_u64;
     let y_max = 100_u64;
@@ -454,82 +465,71 @@ fn playbook(nb: &mut Notebook) {
 
     let _palette_state = state!(nb, (), PaletteState::default(), |ui, state| {
         ui.label(egui::RichText::new("RAL PICKER").monospace().strong());
-        ui.horizontal(|ui| {
-            ui.monospace("RGB");
+        ui.add_space(12.0);
 
-            let mut rgb_changed = false;
-            ui.monospace("R");
-            rgb_changed |= ui
-                .add(
-                    widgets::NumberField::new(&mut state.rgb[0])
-                        .range(0u8..=255u8)
-                        .speed(1.0),
-                )
-                .changed();
-            ui.monospace("G");
-            rgb_changed |= ui
-                .add(
-                    widgets::NumberField::new(&mut state.rgb[1])
-                        .range(0u8..=255u8)
-                        .speed(1.0),
-                )
-                .changed();
-            ui.monospace("B");
-            rgb_changed |= ui
-                .add(
-                    widgets::NumberField::new(&mut state.rgb[2])
-                        .range(0u8..=255u8)
-                        .speed(1.0),
-                )
-                .changed();
+        let histogram_size = rgb_histogram_editor_size(ui);
+        let preview_size = egui::vec2(histogram_size.y, histogram_size.y);
 
-            if rgb_changed {
+        ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+            let (preview_rect, preview_resp) =
+                ui.allocate_exact_size(preview_size, egui::Sense::hover());
+            ui.add_space(16.0);
+
+            let rgb_edit = rgb_histogram_editor(ui, &mut state.rgb);
+            if rgb_edit.changed || rgb_edit.interaction_ended {
                 state.ral_code = closest_ral_from_rgb(state.rgb);
             }
-
-            ui.add_space(16.0);
-            ui.monospace("RAL");
-            let ral_response = ui.add(
-                widgets::NumberField::new(&mut state.ral_code)
-                    .range(0u16..=9999u16)
-                    .speed(1.0),
-            );
-            if ral_response.changed() {
+            if rgb_edit.interaction_ended {
                 if let Some((_, color)) = ral_lookup(state.ral_code) {
                     state.rgb = [color.r(), color.g(), color.b()];
                 }
             }
-        });
 
-        ui.horizontal(|ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                let rgb_edit = rgb_histogram_editor(ui, &mut state.rgb);
-                if rgb_edit.changed || rgb_edit.interaction_ended {
-                    state.ral_code = closest_ral_from_rgb(state.rgb);
-                }
-                if rgb_edit.interaction_ended {
-                    if let Some((_, color)) = ral_lookup(state.ral_code) {
-                        state.rgb = [color.r(), color.g(), color.b()];
-                    }
-                }
-
-                ui.add_space(16.0);
-
+            ui.add_space(24.0);
+            ui.vertical(|ui| {
                 ui.horizontal(|ui| {
-                    let code = state.ral_code;
-                    if let Some((name, color)) = ral_lookup(code) {
-                        let hex = to_hex(color);
-                        color_chip(ui, color).on_hover_text(hex.clone());
-                        ui.vertical(|ui| {
-                            ui.monospace(format!("RAL {code}"));
-                            ui.label(name);
-                            ui.monospace(hex);
-                        });
-                    } else {
-                        ui.label(egui::RichText::new("Unknown RAL code").monospace());
+                    ui.monospace("RAL");
+                    let ral_response = ui.add(
+                        widgets::NumberField::new(&mut state.ral_code)
+                            .range(0u16..=9999u16)
+                            .speed(1.0),
+                    );
+                    if ral_response.changed() {
+                        if let Some((_, color)) = ral_lookup(state.ral_code) {
+                            state.rgb = [color.r(), color.g(), color.b()];
+                        }
                     }
                 });
+
+                ui.add_space(8.0);
+
+                let code = state.ral_code;
+                if let Some((name, ral_color)) = ral_lookup(code) {
+                    ui.label(name);
+                    ui.monospace(to_hex(ral_color));
+                } else {
+                    ui.label(egui::RichText::new("Unknown RAL code").monospace());
+                }
             });
+
+            let color = Color32::from_rgb(state.rgb[0], state.rgb[1], state.rgb[2]);
+            let hex = to_hex(color);
+            if ui.is_rect_visible(preview_rect) {
+                ui.painter().rect_filled(preview_rect, 0.0, color);
+                ui.painter().rect_stroke(
+                    preview_rect,
+                    0.0,
+                    ui.visuals().window_stroke,
+                    egui::StrokeKind::Inside,
+                );
+            }
+
+            let code = state.ral_code;
+            let name = ral_lookup(code)
+                .map(|(name, _)| name)
+                .unwrap_or("Unknown RAL");
+            let tooltip = format!("RAL {code} — {name}\n{hex}");
+            let _ = preview_resp.on_hover_text(tooltip);
         });
     });
 
