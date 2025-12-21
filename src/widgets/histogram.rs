@@ -210,7 +210,8 @@ impl Widget for Histogram<'_> {
             gorbie_style,
         } = self;
 
-        let gstyle = gorbie_style.unwrap_or_else(|| GorbieHistogramStyle::from(ui.style().as_ref()));
+        let gstyle =
+            gorbie_style.unwrap_or_else(|| GorbieHistogramStyle::from(ui.style().as_ref()));
 
         let desired_width = desired_width.unwrap_or_else(|| ui.available_width().max(128.0));
         let font_id = TextStyle::Small.resolve(ui.style());

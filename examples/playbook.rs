@@ -76,7 +76,11 @@ fn closest_ral_code(current: u16, proposed: u16) -> u16 {
                 let upper = codes[insertion];
                 let dist_lower = (proposed as i32 - lower as i32).abs();
                 let dist_upper = (upper as i32 - proposed as i32).abs();
-                if dist_lower <= dist_upper { lower } else { upper }
+                if dist_lower <= dist_upper {
+                    lower
+                } else {
+                    upper
+                }
             }
         },
     }

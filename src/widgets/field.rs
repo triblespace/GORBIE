@@ -850,7 +850,8 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
                     let speed = if is_slow_speed { speed / 10.0 } else { speed };
                     let delta_value = delta_points as f64 * speed;
                     if delta_value != 0.0 {
-                        let precise_value = ui.data_mut(|data| data.get_temp::<f64>(precise_drag_id));
+                        let precise_value =
+                            ui.data_mut(|data| data.get_temp::<f64>(precise_drag_id));
                         let mut precise_value = precise_value.unwrap_or(value_f64) + delta_value;
 
                         let proposed_f64 = if Num::INTEGRAL {
