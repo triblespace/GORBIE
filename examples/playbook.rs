@@ -8,11 +8,10 @@
 
 use egui::Color32;
 use egui::{self};
-use std::ops::DerefMut;
-use GORBIE::dataflow::NotifiedState;
 use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::state;
+use GORBIE::view;
 use GORBIE::widgets;
 use GORBIE::Notebook;
 
@@ -60,6 +59,19 @@ fn format_bytes(bytes: u64) -> String {
         format!("{:.2} KiB", b / KB)
     } else {
         format!("{bytes} B")
+    }
+}
+
+fn bucket_label(exp: u32) -> String {
+    let start = 1u64 << exp;
+    if start >= (1u64 << 30) {
+        format!("{}G", start >> 30)
+    } else if start >= (1u64 << 20) {
+        format!("{}M", start >> 20)
+    } else if start >= (1u64 << 10) {
+        format!("{}K", start >> 10)
+    } else {
+        format!("{start}B")
     }
 }
 
@@ -338,13 +350,32 @@ impl Default for PaletteState {
     }
 }
 
-fn playbook(nb: &mut Notebook) {
-    state!(nb, (), PaletteState::default(), |ui, state| {
-        md!(
-                ui,
-                "# Palette Playbook\n\nBase tokens map semantic roles → RAL paint chips. Derived colors are small blends on top."
-            );
+#[derive(Debug)]
+struct WidgetPlaybookState {
+    progress: f32,
+    toggle_on: bool,
+    metric_bytes: bool,
+}
 
+impl Default for WidgetPlaybookState {
+    fn default() -> Self {
+        Self {
+            progress: 0.5,
+            toggle_on: false,
+            metric_bytes: false,
+        }
+    }
+}
+
+fn playbook(nb: &mut Notebook) {
+    view!(nb, (), |ui| {
+        md!(
+            ui,
+            "# Palette Playbook\n\nBase tokens map semantic roles → RAL paint chips. Derived colors are small blends on top."
+        );
+    });
+
+    view!(nb, (), |ui| {
         let light_foreground = GORBIE::themes::ral(9011);
         let light_background = GORBIE::themes::ral(7047);
         let light_surface = GORBIE::themes::ral(7047);
@@ -419,8 +450,9 @@ fn playbook(nb: &mut Notebook) {
                     ui.end_row();
                 });
         });
+    });
 
-        ui.separator();
+    let _palette_state = state!(nb, (), PaletteState::default(), |ui, state| {
         ui.label(egui::RichText::new("RAL PICKER").monospace().strong());
         ui.horizontal(|ui| {
             ui.monospace("RGB");
@@ -501,42 +533,43 @@ fn playbook(nb: &mut Notebook) {
         });
     });
 
-    state!(nb, (), ((0.5_f32).into(), false, false), |ui,
-                                                      state: &mut (
-        NotifiedState<f32>,
-        bool,
-        bool
-    )| {
-        let (value, toggle_on, choice_on) = state;
+    view!(nb, (), |ui| {
         md!(
-                ui,
-                "## Widget Playbook\n\nA quick showcase of our custom widgets (slider + segmented meter). The value is normalized to `[0, 1]`."
-            );
+            ui,
+            "## Widget Playbook\n\nA quick showcase of our custom widgets. The value is normalized to `[0, 1]`."
+        );
+    });
 
-        md!(ui, "### Buttons");
+    let widget_state = state!(nb, (), WidgetPlaybookState::default(), |ui, state| {
+        ui.label(egui::RichText::new("BUTTONS").monospace().strong());
         ui.horizontal(|ui| {
             let _ = ui.add(widgets::Button::new("BUTTON"));
             let _ = ui.add(widgets::Button::new("SMALL").small());
             ui.add_enabled(false, widgets::Button::new("DISABLED"));
             let _ = ui.add(widgets::Button::new("SELECTED").selected(true));
-            let _ = ui.add(widgets::ToggleButton::new(toggle_on, "TOGGLE"));
+            let _ = ui.add(widgets::ToggleButton::new(&mut state.toggle_on, "TOGGLE"));
         });
 
-        md!(ui, "### Choice toggle");
+        ui.add_space(12.0);
+        ui.label(egui::RichText::new("CHOICE TOGGLE").monospace().strong());
         ui.horizontal(|ui| {
-            ui.add(widgets::ChoiceToggle::binary(choice_on, "COUNT", "BYTES"));
+            ui.add(widgets::ChoiceToggle::binary(
+                &mut state.metric_bytes,
+                "COUNT",
+                "BYTES",
+            ));
         });
+    });
 
-        if ui
-            .add(widgets::Slider::new(value.deref_mut(), 0.0..=1.0).text("LEVEL"))
-            .changed()
-        {
-            value.notify();
-        }
+    view!(nb, (widget_state), move |ui| {
+        ui.label(egui::RichText::new("SLIDER + METERS").monospace().strong());
 
-        let progress = **value;
-        md!(ui, "Value: `{progress:.3}`");
+        let mut state = widget_state.write();
+        let _ = ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).text("LEVEL"));
+        let progress = state.progress;
+        drop(state);
 
+        ui.monospace(format!("Value: {progress:.3}"));
         ui.add(
             widgets::ProgressBar::new(progress)
                 .text("OUTPUT")
@@ -547,11 +580,6 @@ fn playbook(nb: &mut Notebook) {
         let yellow = GORBIE::themes::ral(1023);
         let red = GORBIE::themes::ral(3020);
 
-        md!(
-                ui,
-                "### Multi‑color meter\n\nThis uses normalized color zones (green/yellow/red) and a custom segment count."
-            );
-
         ui.add(
             widgets::ProgressBar::new(progress)
                 .text("SIGNAL")
@@ -561,26 +589,18 @@ fn playbook(nb: &mut Notebook) {
                 .zone(0.7..=0.9, yellow)
                 .zone(0.9..=1.0, red),
         );
+    });
 
-        md!(
-            ui,
-            "### Histogram\n\nUses the choice toggle above to switch between COUNT and BYTES, and the slider to shift the synthetic distribution."
-        );
+    view!(nb, (widget_state), move |ui| {
+        ui.label(egui::RichText::new("HISTOGRAM").monospace().strong());
+        ui.monospace("Uses COUNT/BYTES + slider to shift the synthetic distribution.");
 
-        fn bucket_label(exp: u32) -> String {
-            let start = 1u64 << exp;
-            if start >= (1u64 << 30) {
-                format!("{}G", start >> 30)
-            } else if start >= (1u64 << 20) {
-                format!("{}M", start >> 20)
-            } else if start >= (1u64 << 10) {
-                format!("{}K", start >> 10)
-            } else {
-                format!("{start}B")
-            }
-        }
+        let (progress, metric_bytes) = {
+            let state = widget_state.read();
+            (state.progress, state.metric_bytes)
+        };
 
-        let y_axis = if *choice_on {
+        let y_axis = if metric_bytes {
             widgets::HistogramYAxis::Bytes
         } else {
             widgets::HistogramYAxis::Count
@@ -597,7 +617,7 @@ fn playbook(nb: &mut Notebook) {
             let t = (1.0 - dist / exp_span).clamp(0.0, 1.0);
             let count = (180.0 * (t * t)) as u64;
             let bytes = count.saturating_mul(1u64 << exp);
-            let value = if *choice_on { bytes } else { count };
+            let value = if metric_bytes { bytes } else { count };
             let label = bucket_label(exp);
             buckets.push(
                 widgets::HistogramBucket::new(value, label.clone()).tooltip(format!(
