@@ -586,7 +586,7 @@ fn lcd_text_edit(
 pub struct NumberField<'a, Num: egui::emath::Numeric> {
     value: &'a mut Num,
     speed: f64,
-    constrain_value: Option<&'a dyn Fn(Num) -> Num>,
+    constrain_value: Option<&'a dyn Fn(Num, Num) -> Num>,
     prefix: String,
     suffix: String,
     min_decimals: usize,
@@ -618,7 +618,7 @@ impl<'a, Num: egui::emath::Numeric> NumberField<'a, Num> {
     ///
     /// This is useful for clamping, snapping, or other domain-specific normalization without
     /// baking policy into the widget.
-    pub fn constrain_value(mut self, constrain: &'a dyn Fn(Num) -> Num) -> Self {
+    pub fn constrain_value(mut self, constrain: &'a dyn Fn(Num, Num) -> Num) -> Self {
         self.constrain_value = Some(constrain);
         self
     }
@@ -791,7 +791,7 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
                     }
                     let mut new_value = Num::from_f64(parsed_value);
                     if let Some(constrain_value) = constrain_value {
-                        new_value = constrain_value(new_value);
+                        new_value = constrain_value(*value, new_value);
                     }
                     if new_value != *value {
                         *value = new_value;
@@ -826,6 +826,11 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
                 .galley(galley_pos, display_galley, text_color);
 
             if enabled {
+                let precise_drag_id = id.with("precise_drag_value");
+                if ui.input(|i| i.pointer.any_pressed() || i.pointer.any_released()) {
+                    ui.data_mut(|data| data.remove::<f64>(precise_drag_id));
+                }
+
                 if response.clicked() {
                     ui.memory_mut(|mem| mem.request_focus(id));
                     ui.data_mut(|data| data.insert_temp(id, value_text.clone()));
@@ -842,17 +847,33 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
                     ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
                     let mdelta = response.drag_delta();
                     let delta_points = mdelta.x - mdelta.y;
-                    let mut new_value = value_f64 + delta_points as f64 * speed;
-                    if Num::INTEGRAL {
-                        new_value = new_value.round();
-                    }
-                    let mut new_value = Num::from_f64(new_value);
-                    if let Some(constrain_value) = constrain_value {
-                        new_value = constrain_value(new_value);
-                    }
-                    if new_value != *value {
-                        *value = new_value;
-                        response.mark_changed();
+                    let speed = if is_slow_speed { speed / 10.0 } else { speed };
+                    let delta_value = delta_points as f64 * speed;
+                    if delta_value != 0.0 {
+                        let precise_value = ui.data_mut(|data| data.get_temp::<f64>(precise_drag_id));
+                        let mut precise_value = precise_value.unwrap_or(value_f64) + delta_value;
+
+                        let proposed_f64 = if Num::INTEGRAL {
+                            precise_value.round()
+                        } else {
+                            precise_value
+                        };
+
+                        let proposed_value = Num::from_f64(proposed_f64);
+                        let mut new_value = proposed_value;
+                        if let Some(constrain_value) = constrain_value {
+                            new_value = constrain_value(*value, new_value);
+                        }
+
+                        if new_value != *value {
+                            *value = new_value;
+                            response.mark_changed();
+                        }
+
+                        if new_value != proposed_value {
+                            precise_value += new_value.to_f64() - proposed_value.to_f64();
+                        }
+                        ui.data_mut(|data| data.insert_temp::<f64>(precise_drag_id, precise_value));
                     }
                 }
             }

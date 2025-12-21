@@ -41,38 +41,45 @@ fn ral_codes() -> &'static [u16] {
     })
 }
 
-fn closest_sorted_index(values: &[u16], target: u16) -> usize {
-    if values.is_empty() {
-        return 0;
-    }
-
-    match values.binary_search(&target) {
-        Ok(index) => index,
-        Err(insertion) => {
-            if insertion == 0 {
-                0
-            } else if insertion >= values.len() {
-                values.len() - 1
-            } else {
-                let prev = values[insertion - 1] as i32;
-                let next = values[insertion] as i32;
-                let target = target as i32;
-                if (target - prev).abs() <= (next - target).abs() {
-                    insertion - 1
-                } else {
-                    insertion
-                }
-            }
-        }
-    }
-}
-
-fn closest_ral_code(code: u16) -> u16 {
+fn closest_ral_code(current: u16, proposed: u16) -> u16 {
     let codes = ral_codes();
     if codes.is_empty() {
-        return code;
+        return proposed;
     }
-    codes[closest_sorted_index(codes, code)]
+
+    match codes.binary_search(&proposed) {
+        Ok(index) => codes[index],
+        Err(insertion) => match proposed.cmp(&current) {
+            std::cmp::Ordering::Less => {
+                if insertion == 0 {
+                    codes[0]
+                } else {
+                    codes[insertion - 1]
+                }
+            }
+            std::cmp::Ordering::Greater => {
+                if insertion >= codes.len() {
+                    codes[codes.len() - 1]
+                } else {
+                    codes[insertion]
+                }
+            }
+            std::cmp::Ordering::Equal => {
+                if insertion == 0 {
+                    return codes[0];
+                }
+                if insertion >= codes.len() {
+                    return codes[codes.len() - 1];
+                }
+
+                let lower = codes[insertion - 1];
+                let upper = codes[insertion];
+                let dist_lower = (proposed as i32 - lower as i32).abs();
+                let dist_upper = (upper as i32 - proposed as i32).abs();
+                if dist_lower <= dist_upper { lower } else { upper }
+            }
+        },
+    }
 }
 
 fn closest_ral_from_rgb(rgb: [u8; 3]) -> u16 {
@@ -537,12 +544,12 @@ fn playbook(nb: &mut Notebook) {
                     ui.monospace("RAL");
                     let ral_response = ui.add(
                         widgets::NumberField::new(&mut state.ral_code)
-                            .constrain_value(&|next| {
-                                let next = next.clamp(0u16, 9999u16);
-                                closest_ral_code(next)
+                            .constrain_value(&|current, proposed| {
+                                let proposed = proposed.clamp(0u16, 9999u16);
+                                closest_ral_code(current, proposed)
                             })
                             .update_while_editing(false)
-                            .speed(1.0),
+                            .speed(0.25),
                     );
 
                     if ral_response.changed() {
