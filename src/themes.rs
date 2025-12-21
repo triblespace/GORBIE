@@ -70,6 +70,15 @@ pub struct GorbieProgressBarStyle {
     pub fill_inset: f32,
 }
 
+/// Gorbie-specific semantic style for the `Histogram` widget.
+#[derive(Clone, Debug)]
+pub struct GorbieHistogramStyle {
+    pub outline: Color32,
+    pub ink: Color32,
+    pub grid: Color32,
+    pub accent: Color32,
+}
+
 /// Gorbie-specific semantic style for the `TextField` widget.
 #[derive(Clone, Debug)]
 pub struct GorbieTextFieldStyle {
@@ -169,6 +178,19 @@ impl From<&Style> for GorbieProgressBarStyle {
             accent: style.visuals.selection.stroke.color,
             off_towards_outline: 0.18,
             fill_inset: 2.0,
+        }
+    }
+}
+
+impl From<&Style> for GorbieHistogramStyle {
+    fn from(style: &Style) -> Self {
+        let background = style.visuals.window_fill;
+        let ink = style.visuals.widgets.noninteractive.fg_stroke.color;
+        Self {
+            outline: style.visuals.widgets.noninteractive.bg_stroke.color,
+            ink,
+            grid: blend(background, ink, 0.22),
+            accent: style.visuals.selection.stroke.color,
         }
     }
 }

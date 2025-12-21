@@ -4,6 +4,8 @@ use eframe::egui::{
     self, pos2, vec2, Align2, Color32, Rect, Response, Sense, Stroke, TextStyle, Ui, Widget,
 };
 
+use crate::themes::GorbieHistogramStyle;
+
 #[derive(Clone, Copy, Debug)]
 pub enum HistogramYAxis {
     Count,
@@ -159,6 +161,7 @@ pub struct Histogram<'a> {
     plot_height: f32,
     y_segments: u64,
     max_x_labels: usize,
+    gorbie_style: Option<GorbieHistogramStyle>,
 }
 
 impl<'a> Histogram<'a> {
@@ -170,6 +173,7 @@ impl<'a> Histogram<'a> {
             plot_height: 80.0,
             y_segments: 4,
             max_x_labels: 7,
+            gorbie_style: None,
         }
     }
 
@@ -203,7 +207,10 @@ impl Widget for Histogram<'_> {
             plot_height,
             y_segments,
             max_x_labels,
+            gorbie_style,
         } = self;
+
+        let gstyle = gorbie_style.unwrap_or_else(|| GorbieHistogramStyle::from(ui.style().as_ref()));
 
         let desired_width = desired_width.unwrap_or_else(|| ui.available_width().max(128.0));
         let font_id = TextStyle::Small.resolve(ui.style());
@@ -219,12 +226,10 @@ impl Widget for Histogram<'_> {
             return response;
         }
 
-        let visuals = ui.visuals();
-        let background = visuals.window_fill;
-        let outline = visuals.widgets.noninteractive.bg_stroke.color;
-        let ink = visuals.widgets.noninteractive.fg_stroke.color;
+        let outline = gstyle.outline;
+        let ink = gstyle.ink;
         let stroke = Stroke::new(1.0, outline);
-        let grid_color = crate::themes::blend(background, ink, 0.22);
+        let grid_color = gstyle.grid;
 
         let max_value = buckets.iter().map(|bucket| bucket.value).max().unwrap_or(0);
 
@@ -317,7 +322,7 @@ impl Widget for Histogram<'_> {
             let id = response.id.with(("histogram_bar", i));
             let resp = ui.interact(bar_rect, id, Sense::hover());
             let stroke_color = if resp.hovered() {
-                ui.visuals().selection.stroke.color
+                gstyle.accent
             } else {
                 outline
             };
@@ -355,5 +360,13 @@ impl Widget for Histogram<'_> {
         }
 
         response
+    }
+}
+
+impl crate::themes::Styled for Histogram<'_> {
+    type Style = GorbieHistogramStyle;
+
+    fn set_style(&mut self, style: Option<Self::Style>) {
+        self.gorbie_style = style;
     }
 }
