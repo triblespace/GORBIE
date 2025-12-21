@@ -32,7 +32,7 @@ pub struct Notebook {
     header_title: egui::WidgetText,
     pub cards: Vec<Box<dyn cards::Card + 'static>>,
     code_notes_open: Vec<bool>,
-    code_note_heights: Vec<f32>,
+    code_note_offsets: Vec<egui::Vec2>,
 }
 
 impl Default for Notebook {
@@ -47,14 +47,14 @@ impl Notebook {
             header_title: egui::WidgetText::default(),
             cards: Vec::new(),
             code_notes_open: Vec::new(),
-            code_note_heights: Vec::new(),
+            code_note_offsets: Vec::new(),
         }
     }
 
     pub fn push(&mut self, card: Box<dyn cards::Card>) {
         self.cards.push(card);
         self.code_notes_open.push(false);
-        self.code_note_heights.push(0.0);
+        self.code_note_offsets.push(egui::Vec2::ZERO);
     }
 
     pub fn run(self, name: &str) -> eframe::Result {
@@ -181,18 +181,20 @@ impl eframe::App for Notebook {
                                 let divider_x_range = ui.max_rect().x_range();
 
                                 self.code_notes_open.resize(self.cards.len(), false);
-                                self.code_note_heights.resize(self.cards.len(), 0.0);
+                                self.code_note_offsets
+                                    .resize(self.cards.len(), egui::Vec2::ZERO);
 
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
+                                let mut max_code_note_bottom_content_y: Option<f32> = None;
                                 for (i, card) in self.cards.iter_mut().enumerate() {
                                     let code_note_open = self
                                         .code_notes_open
                                         .get_mut(i)
                                         .expect("code_notes_open synced to cards");
-                                    let code_note_height = self
-                                        .code_note_heights
+                                    let code_note_offset = self
+                                        .code_note_offsets
                                         .get_mut(i)
-                                        .expect("code_note_heights synced to cards");
+                                        .expect("code_note_offsets synced to cards");
                                     ui.push_id(i, |ui| {
                                         let card: &mut dyn cards::Card = card.as_mut();
                                         let inner = egui::Frame::group(ui.style())
@@ -217,24 +219,15 @@ impl eframe::App for Notebook {
 
                                         let flag_left_x = inner.response.rect.right() + 8.0;
                                         let flag_size = egui::vec2(18.0, 32.0);
-                                        let flag_pos_y = if *code_note_open {
-                                            let note_height = if *code_note_height > 0.0 {
-                                                *code_note_height
-                                            } else {
-                                                240.0
-                                            };
-                                            let padding = 8.0;
-                                            let min_top = clip_rect.min.y + padding;
-                                            let max_top = clip_rect.max.y - note_height - padding;
-                                            if max_top < min_top {
-                                                min_top
-                                            } else {
-                                                inner.response.rect.top().clamp(min_top, max_top)
-                                            }
+                                        let flag_pos = if *code_note_open {
+                                            egui::pos2(flag_left_x, inner.response.rect.top())
+                                                + *code_note_offset
                                         } else {
-                                            inner.response.rect.center().y - flag_size.y / 2.0
+                                            egui::pos2(
+                                                flag_left_x,
+                                                inner.response.rect.center().y - flag_size.y / 2.0,
+                                            )
                                         };
-                                        let flag_pos = egui::pos2(flag_left_x, flag_pos_y);
 
                                         let flag_id = ui.id().with("code_flag");
                                         let flag_resp = egui::Area::new(flag_id)
@@ -259,7 +252,7 @@ impl eframe::App for Notebook {
                                                     };
 
                                                     let note_width = (right_margin.max.x
-                                                        - flag_left_x)
+                                                        - flag_pos.x)
                                                         .max(56.0)
                                                         .min(code_note_width);
                                                     ui.set_width(note_width);
@@ -269,29 +262,80 @@ impl eframe::App for Notebook {
                                                         .stroke(egui::Stroke::new(1.0, outline))
                                                         .shadow(shadow)
                                                         .corner_radius(0.0)
-                                                        .inner_margin(egui::Margin::same(10));
+                                                        .inner_margin(egui::Margin::ZERO);
+
                                                     let inner = frame.show(ui, |ui| {
-                                                        ui.add(
-                                                            egui::Label::new(
-                                                                egui::RichText::new(code)
-                                                                    .monospace()
-                                                                    .color(crate::themes::ral(
-                                                                        9011,
-                                                                    )),
-                                                            )
-                                                            .selectable(true)
-                                                            .wrap_mode(egui::TextWrapMode::Wrap),
+                                                        let handle_height = 18.0;
+                                                        let (handle_rect, handle_resp) = ui
+                                                            .allocate_exact_size(
+                                                                egui::vec2(
+                                                                    ui.available_width(),
+                                                                    handle_height,
+                                                                ),
+                                                                egui::Sense::click_and_drag(),
+                                                            );
+                                                        if handle_resp.dragged() {
+                                                            ui.ctx().set_cursor_icon(
+                                                                egui::CursorIcon::Grabbing,
+                                                            );
+                                                            *code_note_offset +=
+                                                                handle_resp.drag_delta();
+                                                        } else if handle_resp.hovered() {
+                                                            ui.ctx().set_cursor_icon(
+                                                                egui::CursorIcon::Grab,
+                                                            );
+                                                        }
+
+                                                        let stripe_color = crate::themes::ral(9004);
+                                                        let stripe_stroke =
+                                                            egui::Stroke::new(1.0, stripe_color);
+                                                        let stripe_x = handle_rect.x_range();
+                                                        let stripe_padding = 3.0;
+                                                        let stripe_spacing = 3.0;
+                                                        let mut stripe_y =
+                                                            handle_rect.top() + stripe_padding;
+                                                        while stripe_y
+                                                            <= handle_rect.bottom() - stripe_padding
+                                                        {
+                                                            ui.painter().hline(
+                                                                stripe_x,
+                                                                stripe_y,
+                                                                stripe_stroke,
+                                                            );
+                                                            stripe_y += stripe_spacing;
+                                                        }
+
+                                                        show_postit_tooltip(
+                                                            ui,
+                                                            &handle_resp,
+                                                            "Hide code note",
                                                         );
+
+                                                        ui.add_space(6.0);
+                                                        egui::Frame::new()
+                                                            .inner_margin(egui::Margin::same(10))
+                                                            .show(ui, |ui| {
+                                                                ui.add(
+                                                                    egui::Label::new(
+                                                                        egui::RichText::new(code)
+                                                                            .monospace()
+                                                                            .color(
+                                                                                crate::themes::ral(
+                                                                                    9011,
+                                                                                ),
+                                                                            ),
+                                                                    )
+                                                                    .selectable(true)
+                                                                    .wrap_mode(
+                                                                        egui::TextWrapMode::Wrap,
+                                                                    ),
+                                                                );
+                                                            });
+
+                                                        handle_resp
                                                     });
-                                                    let resp = inner
-                                                        .response
-                                                        .interact(egui::Sense::click());
-                                                    show_postit_tooltip(
-                                                        ui,
-                                                        &resp,
-                                                        "Hide code note",
-                                                    );
-                                                    resp
+
+                                                    inner.inner
                                                 } else {
                                                     let (rect, resp) = ui.allocate_exact_size(
                                                         flag_size,
@@ -338,17 +382,38 @@ impl eframe::App for Notebook {
                                                     );
                                                     resp
                                                 }
-                                            })
-                                            .inner;
+                                            });
 
-                                        if flag_resp.clicked() {
+                                        let resp = flag_resp.inner;
+                                        if resp.clicked() {
                                             *code_note_open = !*code_note_open;
                                         }
 
                                         if *code_note_open {
-                                            *code_note_height = flag_resp.rect.height();
+                                            let note_bottom_content_y =
+                                                flag_resp.response.rect.bottom() - clip_rect.min.y
+                                                    + scroll_y;
+                                            max_code_note_bottom_content_y = Some(
+                                                max_code_note_bottom_content_y
+                                                    .unwrap_or(note_bottom_content_y)
+                                                    .max(note_bottom_content_y),
+                                            );
                                         }
                                     });
+                                }
+
+                                if let Some(max_note_bottom_content_y) =
+                                    max_code_note_bottom_content_y
+                                {
+                                    let content_bottom_y =
+                                        ui.min_rect().bottom() - clip_rect.min.y + scroll_y;
+                                    let padding = 12.0;
+                                    let extra_bottom = (max_note_bottom_content_y + padding
+                                        - content_bottom_y)
+                                        .max(0.0);
+                                    if extra_bottom > 0.0 {
+                                        ui.allocate_space(egui::vec2(0.0, extra_bottom));
+                                    }
                                 }
                             });
                     });
