@@ -362,7 +362,7 @@ fn connected_components(adjacency: &[Vec<usize>]) -> Vec<Vec<usize>> {
     components
 }
 
-fn compute_graph_layout(ui: &Ui, graph: &EntityGraph) -> GraphLayout {
+fn compute_graph_layout(ui: &Ui, graph: &EntityGraph, forced_columns: usize) -> GraphLayout {
     let column_gap = 48.0;
     let outer_x_pad = column_gap;
     let min_tile_width = 160.0;
@@ -370,8 +370,11 @@ fn compute_graph_layout(ui: &Ui, graph: &EntityGraph) -> GraphLayout {
     let max_tile_width = 260.0;
 
     let usable_width = (ui.available_width() - outer_x_pad * 2.0).max(min_tile_width);
-    let mut column_count =
-        ((usable_width + column_gap) / (desired_tile_width + column_gap)).floor() as usize;
+    let mut column_count = if forced_columns == 0 {
+        ((usable_width + column_gap) / (desired_tile_width + column_gap)).floor() as usize
+    } else {
+        forced_columns
+    };
     column_count = column_count.max(1).min(graph.nodes.len().max(1));
 
     let tile_width = loop {
@@ -382,6 +385,10 @@ fn compute_graph_layout(ui: &Ui, graph: &EntityGraph) -> GraphLayout {
         let raw = (usable_width - column_gap * ((column_count - 1) as f32)) / column_count as f32;
         if raw >= min_tile_width {
             break raw.clamp(min_tile_width, max_tile_width);
+        }
+
+        if forced_columns != 0 {
+            break raw.max(1.0);
         }
 
         column_count = column_count.saturating_sub(1).max(1);
@@ -612,7 +619,30 @@ fn row_anchor(layout: &GraphLayout, tile: Rect, row: usize, on_left: bool) -> eg
     pos2(x, y)
 }
 
+fn allocate_gutter_lane_offset(
+    lane_counters: &mut HashMap<i32, i32>,
+    boundary: i32,
+    lane_spacing: f32,
+    max_offset: f32,
+) -> f32 {
+    let lane = lane_counters.entry(boundary).or_insert(0);
+    let lane = std::mem::replace(lane, *lane + 1);
+
+    let signed = if lane == 0 {
+        0
+    } else {
+        let n = (lane + 1) / 2;
+        if lane % 2 == 1 { n } else { -n }
+    };
+
+    (signed as f32 * lane_spacing).clamp(-max_offset, max_offset)
+}
+
 fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
+    let lane_spacing = 4.0;
+    let max_lane_offset = (layout.column_gap * 0.5 - 4.0).max(0.0);
+    let mut gutter_lanes = HashMap::<i32, i32>::new();
+
     let mut routed = Vec::with_capacity(graph.edges.len());
 
     for edge in graph.edges.iter().cloned() {
@@ -660,18 +690,44 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
             (to_col, from_col)
         };
 
+        let start_boundary = if go_left {
+            from_col as i32 - 1
+        } else {
+            from_col as i32
+        };
+        let start_lane = allocate_gutter_lane_offset(
+            &mut gutter_lanes,
+            start_boundary,
+            lane_spacing,
+            max_lane_offset,
+        );
+
         let start_gutter_x = if go_left {
             source_rect.left() - layout.column_gap * 0.5
         } else {
             source_rect.right() + layout.column_gap * 0.5
+        } + start_lane;
+
+        let end_on_left = (end.x - target_rect.left()).abs() < f32::EPSILON;
+        let end_on_right = (end.x - target_rect.right()).abs() < f32::EPSILON;
+        let end_boundary = if end_on_left {
+            to_col as i32 - 1
+        } else {
+            to_col as i32
         };
-        let end_gutter_x = if (end.x - target_rect.left()).abs() < f32::EPSILON {
+        let end_lane = if end_boundary == start_boundary {
+            start_lane
+        } else {
+            allocate_gutter_lane_offset(&mut gutter_lanes, end_boundary, lane_spacing, max_lane_offset)
+        };
+
+        let end_gutter_x = if end_on_left {
             target_rect.left() - layout.column_gap * 0.5
-        } else if (end.x - target_rect.right()).abs() < f32::EPSILON {
+        } else if end_on_right {
             target_rect.right() + layout.column_gap * 0.5
         } else {
             target_rect.left() - layout.column_gap * 0.5
-        };
+        } + end_lane;
 
         let (track_y, used_fallback_track) =
             choose_track_y_between_columns(component_layout, start.y, end.y, min_col, max_col);
@@ -834,9 +890,14 @@ fn paint_entity_table(
     response
 }
 
-fn draw_entity_inspector(ui: &mut Ui, graph: &EntityGraph, selected_id: &mut Id) -> GraphStats {
+fn draw_entity_inspector(
+    ui: &mut Ui,
+    graph: &EntityGraph,
+    selected_id: &mut Id,
+    forced_columns: usize,
+) -> GraphStats {
     let selected_index = graph.id_to_index.get(selected_id).copied();
-    let layout = compute_graph_layout(ui, graph);
+    let layout = compute_graph_layout(ui, graph, forced_columns);
     let connected_components = connected_components(&build_adjacency(graph)).len();
 
     let desired_width = ui.available_width();
@@ -953,6 +1014,7 @@ fn draw_entity_inspector(ui: &mut Ui, graph: &EntityGraph, selected_id: &mut Id)
 #[derive(Debug)]
 struct InspectorState {
     selected: Id,
+    columns: usize,
 }
 
 impl Default for InspectorState {
@@ -960,6 +1022,7 @@ impl Default for InspectorState {
         use triblespace::macros::id_hex;
         Self {
             selected: id_hex!("11111111111111111111111111111111"),
+            columns: 0,
         }
     }
 }
@@ -979,11 +1042,25 @@ fn entity_inspector(nb: &mut Notebook) {
         nb,
         (),
         InspectorState {
-            selected: default_selected
+            selected: default_selected,
+            columns: 0,
         },
         move |ui, state| {
             let graph = build_entity_graph(&space);
-            let stats = draw_entity_inspector(ui, &graph, &mut state.selected);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("COLUMNS").monospace().strong());
+                let max_columns = graph.nodes.len().max(1);
+                let constrain = |_: usize, next: usize| next.min(max_columns);
+                ui.add(
+                    widgets::NumberField::new(&mut state.columns)
+                        .speed(0.25)
+                        .constrain_value(&constrain),
+                );
+                ui.label(egui::RichText::new("(0 = auto)").monospace().weak());
+            });
+            ui.add_space(8.0);
+
+            let stats = draw_entity_inspector(ui, &graph, &mut state.selected, state.columns);
 
             let metrics = format!(
                 "_{nodes} nodes, {edges} edges ({components} components), {columns} columns._\n\
