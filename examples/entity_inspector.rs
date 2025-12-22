@@ -12,9 +12,14 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use eframe::egui;
 use egui::{pos2, vec2, Align2, Rect, Response, Sense, Stroke, TextStyle, Ui};
 use triblespace::core::id::Id;
+use triblespace::core::metadata::ConstMetadata;
+use triblespace::core::query::ContainsConstraint;
+use triblespace::core::query::TriblePattern;
 use triblespace::core::trible::Trible;
+use triblespace::core::value::schemas::UnknownValue;
+use triblespace::core::value::Value;
 use triblespace::prelude::valueschemas::{GenId, ShortString};
-use triblespace::prelude::TribleSet;
+use triblespace::prelude::{and, find, pattern, TribleSet};
 
 use GORBIE::prelude::*;
 
@@ -106,6 +111,30 @@ fn build_demo_space() -> (TribleSet, Id) {
     let subject = demo::subject.id();
     let object = demo::object.id();
 
+    let schema_genid = GenId::id();
+    let schema_shortstring = ShortString::id();
+    let meta_shortname = triblespace::core::metadata::shortname.id();
+    let meta_value_schema = triblespace::core::metadata::value_schema.id();
+
+    for (attr, shortname, schema) in [
+        (name, "name", schema_shortstring),
+        (isa, "isa", schema_genid),
+        (subject, "subject", schema_genid),
+        (object, "object", schema_genid),
+        (label, "label", schema_shortstring),
+    ] {
+        kb.insert(&Trible::force(
+            &attr,
+            &meta_shortname,
+            &triblespace::core::metadata::shortname.value_from(shortname),
+        ));
+        kb.insert(&Trible::force(
+            &attr,
+            &meta_value_schema,
+            &triblespace::core::metadata::value_schema.value_from(schema),
+        ));
+    }
+
     for (entity, entity_name) in [
         (e_sentence, "Sentence"),
         (e_transition, "StateTransition"),
@@ -187,29 +216,60 @@ fn build_demo_space() -> (TribleSet, Id) {
     (kb, e_sentence)
 }
 
-fn attr_label(attr: Id) -> String {
-    let mapping: [(Id, &str); 5] = [
-        (demo::name.id(), "name"),
-        (demo::isa.id(), "isa"),
-        (demo::subject.id(), "subject"),
-        (demo::object.id(), "object"),
-        (demo::label.id(), "label"),
-    ];
-    mapping
-        .into_iter()
-        .find(|(id, _)| *id == attr)
-        .map(|(_, name)| name.to_owned())
-        .unwrap_or_else(|| format!("attr:{id}", id = id_short(attr)))
+#[derive(Clone, Debug)]
+struct AttrInfo {
+    label: String,
+    schema: Id,
+}
+
+fn build_attr_info(space: &TribleSet) -> HashMap<Id, AttrInfo> {
+    let schema_genid = GenId::id();
+    let schema_shortstring = ShortString::id();
+
+    let mut out = HashMap::<Id, AttrInfo>::new();
+    for (attr, shortname, schema) in find!(
+        (attr: Id, shortname: String, schema: Id),
+        pattern!(
+            space,
+            [{ ?attr @ triblespace::core::metadata::shortname: ?shortname,
+               triblespace::core::metadata::value_schema: ?schema }]
+        )
+    ) {
+        if schema != schema_genid && schema != schema_shortstring {
+            continue;
+        }
+
+        out.insert(
+            attr,
+            AttrInfo {
+                label: shortname,
+                schema,
+            },
+        );
+    }
+    out
 }
 
 fn build_entity_graph(space: &TribleSet) -> EntityGraph {
+    let attr_info = build_attr_info(space);
+
+    let schema_genid = GenId::id();
     let mut entity_ids = HashSet::<Id>::new();
-    for trible in space {
-        entity_ids.insert(*trible.e());
-        let raw = trible.v::<GenId>().raw;
-        if let Some(target) = try_decode_genid(&raw) {
-            entity_ids.insert(target);
+    let mut tribles = Vec::<(Id, Id, [u8; 32])>::new();
+
+    for (e, a, v) in find!(
+        (e: Id, a: Id, v: Value<UnknownValue>),
+        and!((&attr_info).has(a), space.pattern(e, a, v))
+    ) {
+        entity_ids.insert(e);
+
+        if attr_info.get(&a).is_some_and(|info| info.schema == schema_genid) {
+            if let Some(target) = try_decode_genid(&v.raw) {
+                entity_ids.insert(target);
+            }
         }
+
+        tribles.push((e, a, v.raw));
     }
 
     let mut entities: Vec<Id> = entity_ids.into_iter().collect();
@@ -225,20 +285,24 @@ fn build_entity_graph(space: &TribleSet) -> EntityGraph {
     }
 
     let mut raw_rows = vec![Vec::<(String, String, Option<Id>)>::new(); entities.len()];
-    for trible in space {
-        let e = *trible.e();
+    for (e, attr, raw) in tribles {
         let Some(entity_index) = id_to_index.get(&e).copied() else {
             continue;
         };
 
-        let attr = *trible.a();
-        let attr_text = attr_label(attr);
+        let Some(attr_info) = attr_info.get(&attr) else {
+            continue;
+        };
+        let attr_text = attr_info.label.clone();
 
-        let raw = trible.v::<GenId>().raw;
-        let (value_text, target) = if let Some(target) = try_decode_genid(&raw) {
-            (format!("id:{id}", id = id_short(target)), Some(target))
+        let (value_text, target) = if attr_info.schema == schema_genid {
+            if let Some(target) = try_decode_genid(&raw) {
+                (format!("id:{id}", id = id_short(target)), Some(target))
+            } else {
+                (format!("id:0x{hex}", hex = hex_prefix(raw, 6)), None)
+            }
         } else {
-            let v = trible.v::<ShortString>();
+            let v = Value::<ShortString>::new(raw);
             match v.try_from_value::<String>() {
                 Ok(text) => (text, None),
                 Err(_) => (format!("0x{hex}", hex = hex_prefix(v.raw, 6)), None),
@@ -1040,6 +1104,7 @@ fn entity_inspector(nb: &mut Notebook) {
 
     let (space, default_selected) = build_demo_space();
     let space = std::sync::Arc::new(space);
+    let graph = std::sync::Arc::new(build_entity_graph(&space));
 
     let inspector = state!(
         nb,
@@ -1049,7 +1114,6 @@ fn entity_inspector(nb: &mut Notebook) {
             columns: 0,
         },
         move |ui, state| {
-            let graph = build_entity_graph(&space);
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("COLUMNS").monospace().strong());
                 let max_columns = graph.nodes.len().max(1);
