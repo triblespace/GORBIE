@@ -732,14 +732,23 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
         let (track_y, used_fallback_track) =
             choose_track_y_between_columns(component_layout, start.y, end.y, min_col, max_col);
 
-        let mut points = vec![
-            start,
-            pos2(start_gutter_x, start.y),
-            pos2(start_gutter_x, track_y),
-            pos2(end_gutter_x, track_y),
-            pos2(end_gutter_x, end.y),
-            end,
-        ];
+        let mut points = if (start_gutter_x - end_gutter_x).abs() <= 0.01 {
+            vec![
+                start,
+                pos2(start_gutter_x, start.y),
+                pos2(start_gutter_x, end.y),
+                end,
+            ]
+        } else {
+            vec![
+                start,
+                pos2(start_gutter_x, start.y),
+                pos2(start_gutter_x, track_y),
+                pos2(end_gutter_x, track_y),
+                pos2(end_gutter_x, end.y),
+                end,
+            ]
+        };
         points.dedup_by(|a, b| a.distance_sq(*b) < 0.01);
 
         let mut length = 0.0f32;
