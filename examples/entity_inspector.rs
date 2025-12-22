@@ -814,19 +814,21 @@ fn paint_entity_table(
     }
 
     let visuals = ui.visuals();
-    let fill = visuals.faint_bg_color;
+    let fill = visuals.window_fill;
+    let ink = visuals.widgets.noninteractive.fg_stroke.color;
     let outline = if is_selected {
         visuals.selection.stroke.color
     } else {
-        visuals.widgets.noninteractive.bg_stroke.color
+        ink
     };
     let stroke = Stroke::new(1.0, outline);
+    let grid_stroke = Stroke::new(1.0, ink);
 
     let painter = ui.painter();
     painter.rect_filled(rect, 0.0, fill);
     painter.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Inside);
 
-    let text_color = visuals.widgets.noninteractive.fg_stroke.color;
+    let text_color = ink;
     let title_font = TextStyle::Monospace.resolve(ui.style());
     let row_font = TextStyle::Small.resolve(ui.style());
 
@@ -851,11 +853,7 @@ fn paint_entity_table(
     let row_area = Rect::from_min_max(pos2(inner.left(), row_top), inner.right_bottom());
     let divider_x = (inner.left() + key_w).min(inner.right());
     if row_area.is_positive() {
-        painter.vline(
-            divider_x,
-            row_area.y_range(),
-            Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color),
-        );
+        painter.vline(divider_x, row_area.y_range(), grid_stroke);
     }
 
     for (i, row) in node.rows.iter().enumerate() {
@@ -868,11 +866,7 @@ fn paint_entity_table(
             ),
         );
         if i > 0 {
-            painter.hline(
-                row_rect.x_range(),
-                row_rect.top(),
-                Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color),
-            );
+            painter.hline(row_rect.x_range(), row_rect.top(), grid_stroke);
         }
 
         painter.text(
@@ -921,7 +915,7 @@ fn draw_entity_inspector(
     let origin_vec = origin.to_vec2();
 
     let painter = ui.painter().with_clip_rect(outer_rect);
-    let ink = ui.visuals().widgets.noninteractive.bg_stroke.color;
+    let ink = ui.visuals().widgets.noninteractive.fg_stroke.color;
     let edge_stroke = Stroke::new(1.0, ink);
 
     let routed_edges = route_edges(&layout, graph);
