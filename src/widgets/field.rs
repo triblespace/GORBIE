@@ -730,7 +730,42 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
             .at_least(min_decimals);
         let auto_decimals = auto_decimals.clamp(min_decimals, max_decimals);
 
-        let value_f64 = value.to_f64();
+        let mut value_f64 = value.to_f64();
+        let kb_change = if is_editing {
+            ui.input_mut(|input| {
+                input.count_and_consume_key(egui::Modifiers::NONE, Key::ArrowUp) as f64
+                    - input.count_and_consume_key(egui::Modifiers::NONE, Key::ArrowDown) as f64
+            })
+        } else {
+            0.0
+        };
+
+        let mut kb_changed = false;
+        if kb_change != 0.0 {
+            let kb_step = if Num::INTEGRAL { 1.0 } else { speed };
+            let mut proposed_f64 = value_f64 + kb_step * kb_change;
+            if Num::INTEGRAL {
+                proposed_f64 = proposed_f64.round();
+            } else {
+                proposed_f64 = egui::emath::round_to_decimals(proposed_f64, auto_decimals);
+            }
+
+            let proposed_value = Num::from_f64(proposed_f64);
+            let mut new_value = proposed_value;
+            if let Some(constrain_value) = constrain_value {
+                new_value = constrain_value(*value, new_value);
+            }
+
+            if new_value != *value {
+                *value = new_value;
+                value_f64 = new_value.to_f64();
+                kb_changed = true;
+                ui.data_mut(|data| {
+                    data.remove::<String>(id);
+                    data.remove_temp::<String>(id);
+                });
+            }
+        }
 
         let value_text = match custom_formatter {
             Some(formatter) => formatter(value_f64, auto_decimals..=max_decimals),
@@ -777,6 +812,9 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
                 gstyle.scanline_height,
             );
             let mut response = output.response;
+            if kb_changed {
+                response.mark_changed();
+            }
 
             let commit = if update_while_editing {
                 output.changed
