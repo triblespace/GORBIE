@@ -2549,6 +2549,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexmap-nostd"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e04e2fd2b8188ea827b32ef11de88377086d690286ab35747ef7f9bf3ccb590"
+
+[[package]]
 name = "indxvec"
 version = "1.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5399,6 +5405,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "spin"
+version = "0.9.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
+
+[[package]]
 name = "spki"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5959,7 +5971,6 @@ dependencies = [
 [[package]]
 name = "triblespace"
 version = "0.6.0"
-source = "git+https://github.com/triblespace/tribles-rust#56c579b5e56a523069403208c32528baa0e57eb9"
 dependencies = [
  "triblespace-core",
  "triblespace-macros",
@@ -5968,7 +5979,6 @@ dependencies = [
 [[package]]
 name = "triblespace-core"
 version = "0.6.0"
-source = "git+https://github.com/triblespace/tribles-rust#56c579b5e56a523069403208c32528baa0e57eb9"
 dependencies = [
  "anybytes",
  "arbitrary",
@@ -6010,6 +6020,7 @@ dependencies = [
  "url",
  "uuid",
  "ux",
+ "wasmi",
  "winnow",
  "zerocopy",
 ]
@@ -6017,7 +6028,6 @@ dependencies = [
 [[package]]
 name = "triblespace-core-macros"
 version = "0.6.0"
-source = "git+https://github.com/triblespace/tribles-rust#56c579b5e56a523069403208c32528baa0e57eb9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6028,7 +6038,6 @@ dependencies = [
 [[package]]
 name = "triblespace-macros"
 version = "0.6.0"
-source = "git+https://github.com/triblespace/tribles-rust#56c579b5e56a523069403208c32528baa0e57eb9"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -6043,7 +6052,6 @@ dependencies = [
 [[package]]
 name = "triblespace-macros-common"
 version = "0.6.0"
-source = "git+https://github.com/triblespace/tribles-rust#56c579b5e56a523069403208c32528baa0e57eb9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6381,6 +6389,46 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "wasmi"
+version = "0.31.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77a8281d1d660cdf54c76a3efa9ddd0c270cada1383a995db3ccb43d166456c7"
+dependencies = [
+ "smallvec",
+ "spin",
+ "wasmi_arena",
+ "wasmi_core",
+ "wasmparser-nostd",
+]
+
+[[package]]
+name = "wasmi_arena"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "104a7f73be44570cac297b3035d76b169d6599637631cf37a1703326a0727073"
+
+[[package]]
+name = "wasmi_core"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcf1a7db34bff95b85c261002720c00c3a6168256dcb93041d3fa2054d19856a"
+dependencies = [
+ "downcast-rs",
+ "libm",
+ "num-traits",
+ "paste",
+]
+
+[[package]]
+name = "wasmparser-nostd"
+version = "0.100.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5a015fe95f3504a94bb1462c717aae75253e39b9dd6c3fb1062c934535c64aa"
+dependencies = [
+ "indexmap-nostd",
 ]
 
 [[package]]

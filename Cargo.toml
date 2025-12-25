@@ -6,7 +6,7 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-triblespace = { git = "https://github.com/triblespace/tribles-rust" }
+triblespace = { path = "../triblespace-rs", features = ["wasm"] }
 eframe = {version = "0.32 ", features = ["persistence", "wgpu"]}
 egui = {version = "0.32", features=["color-hex"]}
 egui_extras = "0.32.0"

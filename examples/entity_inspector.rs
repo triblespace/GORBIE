@@ -4,7 +4,7 @@
 //! GORBIE = { path = ".." }
 //! egui = "0.32"
 //! eframe = "0.32"
-//! triblespace = { path = "../../triblespace-rs" }
+//! triblespace = { path = "../../triblespace-rs", features = ["wasm"] }
 //! ```
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -15,9 +15,13 @@ use triblespace::core::id::Id;
 use triblespace::core::metadata::ConstMetadata;
 use triblespace::core::query::ContainsConstraint;
 use triblespace::core::query::TriblePattern;
+use triblespace::core::repo::memoryrepo::MemoryRepo;
+use triblespace::core::repo::BlobStore;
 use triblespace::core::trible::Trible;
 use triblespace::core::value::schemas::UnknownValue;
 use triblespace::core::value::Value;
+use triblespace::core::value_formatter::WasmValueFormatter;
+use triblespace::core::value_formatter::{load_wasm_value_formatters, WasmFormatterLimits};
 use triblespace::prelude::valueschemas::{GenId, ShortString};
 use triblespace::prelude::{and, find, pattern, TribleSet};
 
@@ -90,7 +94,7 @@ struct EntityGraph {
     id_to_index: HashMap<Id, usize>,
 }
 
-fn build_demo_space() -> (TribleSet, Id) {
+fn build_demo_space() -> (TribleSet, MemoryRepo, Id) {
     use triblespace::macros::id_hex;
 
     let e_sentence = id_hex!("11111111111111111111111111111111");
@@ -104,6 +108,7 @@ fn build_demo_space() -> (TribleSet, Id) {
     let e_island_right = id_hex!("99999999999999999999999999999999");
 
     let mut kb = TribleSet::new();
+    let mut storage = MemoryRepo::default();
 
     let name = demo::name.id();
     let label = demo::label.id();
@@ -213,7 +218,10 @@ fn build_demo_space() -> (TribleSet, Id) {
         &demo::label.value_from("unrelated"),
     ));
 
-    (kb, e_sentence)
+    kb += GenId::describe(&mut storage);
+    kb += ShortString::describe(&mut storage);
+
+    (kb, storage, e_sentence)
 }
 
 #[derive(Clone, Debug)]
@@ -223,9 +231,6 @@ struct AttrInfo {
 }
 
 fn build_attr_info(space: &TribleSet) -> HashMap<Id, AttrInfo> {
-    let schema_genid = GenId::id();
-    let schema_shortstring = ShortString::id();
-
     let mut out = HashMap::<Id, AttrInfo>::new();
     for (attr, shortname, schema) in find!(
         (attr: Id, shortname: String, schema: Id),
@@ -235,10 +240,6 @@ fn build_attr_info(space: &TribleSet) -> HashMap<Id, AttrInfo> {
                triblespace::core::metadata::value_schema: ?schema }]
         )
     ) {
-        if schema != schema_genid && schema != schema_shortstring {
-            continue;
-        }
-
         out.insert(
             attr,
             AttrInfo {
@@ -250,7 +251,10 @@ fn build_attr_info(space: &TribleSet) -> HashMap<Id, AttrInfo> {
     out
 }
 
-fn build_entity_graph(space: &TribleSet) -> EntityGraph {
+fn build_entity_graph(
+    space: &TribleSet,
+    formatters: &HashMap<Id, WasmValueFormatter>,
+) -> EntityGraph {
     let attr_info = build_attr_info(space);
 
     let schema_genid = GenId::id();
@@ -263,7 +267,10 @@ fn build_entity_graph(space: &TribleSet) -> EntityGraph {
     ) {
         entity_ids.insert(e);
 
-        if attr_info.get(&a).is_some_and(|info| info.schema == schema_genid) {
+        if attr_info
+            .get(&a)
+            .is_some_and(|info| info.schema == schema_genid)
+        {
             if let Some(target) = try_decode_genid(&v.raw) {
                 entity_ids.insert(target);
             }
@@ -300,6 +307,17 @@ fn build_entity_graph(space: &TribleSet) -> EntityGraph {
                 (format!("id:{id}", id = id_short(target)), Some(target))
             } else {
                 (format!("id:0x{hex}", hex = hex_prefix(raw, 6)), None)
+            }
+        } else if let Some(formatter) = formatters.get(&attr_info.schema) {
+            match formatter.format_value(&raw) {
+                Ok(text) => (text, None),
+                Err(_) => {
+                    let v = Value::<ShortString>::new(raw);
+                    match v.try_from_value::<String>() {
+                        Ok(text) => (text, None),
+                        Err(_) => (format!("0x{hex}", hex = hex_prefix(v.raw, 6)), None),
+                    }
+                }
             }
         } else {
             let v = Value::<ShortString>::new(raw);
@@ -541,9 +559,7 @@ fn compute_graph_layout(ui: &Ui, graph: &EntityGraph, forced_columns: usize) -> 
         column_free.push(intervals);
     }
 
-    let component_layout = ComponentLayout {
-        column_free,
-    };
+    let component_layout = ComponentLayout { column_free };
 
     GraphLayout {
         canvas_size: vec2(canvas_width, canvas_height),
@@ -696,7 +712,11 @@ fn allocate_gutter_lane_offset(
         0
     } else {
         let n = (lane + 1) / 2;
-        if lane % 2 == 1 { n } else { -n }
+        if lane % 2 == 1 {
+            n
+        } else {
+            -n
+        }
     };
 
     (signed as f32 * lane_spacing).clamp(-max_offset, max_offset)
@@ -782,7 +802,12 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
         let end_lane = if end_boundary == start_boundary {
             start_lane
         } else {
-            allocate_gutter_lane_offset(&mut gutter_lanes, end_boundary, lane_spacing, max_lane_offset)
+            allocate_gutter_lane_offset(
+                &mut gutter_lanes,
+                end_boundary,
+                lane_spacing,
+                max_lane_offset,
+            )
         };
 
         let end_gutter_x = if end_on_left {
@@ -1102,9 +1127,12 @@ fn entity_inspector(nb: &mut Notebook) {
         );
     });
 
-    let (space, default_selected) = build_demo_space();
+    let (space, mut storage, default_selected) = build_demo_space();
+    let reader = storage.reader().expect("demo blob store reader");
+    let formatters = load_wasm_value_formatters(&space, &reader, WasmFormatterLimits::default())
+        .unwrap_or_else(|_| HashMap::new());
     let space = std::sync::Arc::new(space);
-    let graph = std::sync::Arc::new(build_entity_graph(&space));
+    let graph = std::sync::Arc::new(build_entity_graph(&space, &formatters));
 
     let inspector = state!(
         nb,
