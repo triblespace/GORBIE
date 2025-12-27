@@ -254,6 +254,7 @@ fn build_attr_info(space: &TribleSet) -> HashMap<Id, AttrInfo> {
 fn build_entity_graph(
     space: &TribleSet,
     formatters: &HashMap<Id, WasmValueFormatter>,
+    limits: WasmFormatterLimits,
 ) -> EntityGraph {
     let attr_info = build_attr_info(space);
 
@@ -309,7 +310,7 @@ fn build_entity_graph(
                 (format!("id:0x{hex}", hex = hex_prefix(raw, 6)), None)
             }
         } else if let Some(formatter) = formatters.get(&attr_info.schema) {
-            match formatter.format_value(&raw) {
+            match formatter.format_value_with_limits(&raw, limits) {
                 Ok(text) => (text, None),
                 Err(_) => {
                     let v = Value::<ShortString>::new(raw);
@@ -1129,10 +1130,10 @@ fn entity_inspector(nb: &mut Notebook) {
 
     let (space, mut storage, default_selected) = build_demo_space();
     let reader = storage.reader().expect("demo blob store reader");
-    let formatters = load_wasm_value_formatters(&space, &reader, WasmFormatterLimits::default())
-        .unwrap_or_else(|_| HashMap::new());
+    let formatters = load_wasm_value_formatters(&space, &reader).unwrap_or_else(|_| HashMap::new());
+    let limits = WasmFormatterLimits::default();
     let space = std::sync::Arc::new(space);
-    let graph = std::sync::Arc::new(build_entity_graph(&space, &formatters));
+    let graph = std::sync::Arc::new(build_entity_graph(&space, &formatters, limits));
 
     let inspector = state!(
         nb,
