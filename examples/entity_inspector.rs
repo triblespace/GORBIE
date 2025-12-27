@@ -11,6 +11,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use eframe::egui;
 use egui::{pos2, vec2, Align2, Rect, Response, Sense, Stroke, TextStyle, Ui};
+use triblespace::core::blob::schemas::wasmcode::WasmCode;
+use triblespace::core::blob::BlobCache;
 use triblespace::core::id::Id;
 use triblespace::core::metadata::ConstMetadata;
 use triblespace::core::query::ContainsConstraint;
@@ -18,10 +20,12 @@ use triblespace::core::query::TriblePattern;
 use triblespace::core::repo::memoryrepo::MemoryRepo;
 use triblespace::core::repo::BlobStore;
 use triblespace::core::trible::Trible;
+use triblespace::core::value::schemas::hash::Blake3;
+use triblespace::core::value::schemas::hash::Handle;
 use triblespace::core::value::schemas::UnknownValue;
 use triblespace::core::value::Value;
+use triblespace::core::value_formatter::WasmFormatterLimits;
 use triblespace::core::value_formatter::WasmValueFormatter;
-use triblespace::core::value_formatter::{load_wasm_value_formatters, WasmFormatterLimits};
 use triblespace::prelude::valueschemas::{GenId, ShortString};
 use triblespace::prelude::{and, find, pattern, TribleSet};
 
@@ -228,16 +232,27 @@ fn build_demo_space() -> (TribleSet, MemoryRepo, Id) {
 struct AttrInfo {
     label: String,
     schema: Id,
+    formatter: Value<Handle<Blake3, WasmCode>>,
 }
 
 fn build_attr_info(space: &TribleSet) -> HashMap<Id, AttrInfo> {
     let mut out = HashMap::<Id, AttrInfo>::new();
-    for (attr, shortname, schema) in find!(
-        (attr: Id, shortname: String, schema: Id),
+    for (attr, shortname, schema, formatter) in find!(
+        (
+            attr: Id,
+            shortname: String,
+            schema: Id,
+            formatter: Value<Handle<Blake3, WasmCode>>
+        ),
         pattern!(
             space,
-            [{ ?attr @ triblespace::core::metadata::shortname: ?shortname,
-               triblespace::core::metadata::value_schema: ?schema }]
+            [
+                {
+                    ?attr @ triblespace::core::metadata::shortname: ?shortname,
+                    triblespace::core::metadata::value_schema: ?schema
+                },
+                { ?schema @ triblespace::core::metadata::value_formatter: ?formatter }
+            ]
         )
     ) {
         out.insert(
@@ -245,17 +260,21 @@ fn build_attr_info(space: &TribleSet) -> HashMap<Id, AttrInfo> {
             AttrInfo {
                 label: shortname,
                 schema,
+                formatter,
             },
         );
     }
     out
 }
 
-fn build_entity_graph(
+fn build_entity_graph<B>(
     space: &TribleSet,
-    formatters: &HashMap<Id, WasmValueFormatter>,
+    formatter_cache: &BlobCache<B, Blake3, WasmCode, WasmValueFormatter>,
     limits: WasmFormatterLimits,
-) -> EntityGraph {
+) -> EntityGraph
+where
+    B: triblespace::core::repo::BlobStoreGet<Blake3>,
+{
     let attr_info = build_attr_info(space);
 
     let schema_genid = GenId::id();
@@ -305,18 +324,18 @@ fn build_entity_graph(
 
         let (value_text, target) = if attr_info.schema == schema_genid {
             if let Some(target) = try_decode_genid(&raw) {
-                (format!("id:{id}", id = id_short(target)), Some(target))
+                (format!("id:{}", id_short(target)), Some(target))
             } else {
-                (format!("id:0x{hex}", hex = hex_prefix(raw, 6)), None)
+                (format!("id:0x{}", hex_prefix(raw, 6)), None)
             }
-        } else if let Some(formatter) = formatters.get(&attr_info.schema) {
+        } else if let Ok(formatter) = formatter_cache.get(attr_info.formatter) {
             match formatter.format_value_with_limits(&raw, limits) {
                 Ok(text) => (text, None),
                 Err(_) => {
                     let v = Value::<ShortString>::new(raw);
                     match v.try_from_value::<String>() {
                         Ok(text) => (text, None),
-                        Err(_) => (format!("0x{hex}", hex = hex_prefix(v.raw, 6)), None),
+                        Err(_) => (format!("0x{}", hex_prefix(v.raw, 6)), None),
                     }
                 }
             }
@@ -324,7 +343,7 @@ fn build_entity_graph(
             let v = Value::<ShortString>::new(raw);
             match v.try_from_value::<String>() {
                 Ok(text) => (text, None),
-                Err(_) => (format!("0x{hex}", hex = hex_prefix(v.raw, 6)), None),
+                Err(_) => (format!("0x{}", hex_prefix(v.raw, 6)), None),
             }
         };
 
@@ -346,7 +365,7 @@ fn build_entity_graph(
         let title = titles
             .get(&id)
             .cloned()
-            .unwrap_or_else(|| format!("id:{id}", id = id_short(id)));
+            .unwrap_or_else(|| format!("id:{}", id_short(id)));
 
         let mut rows = raw_rows[idx]
             .iter()
@@ -1130,10 +1149,11 @@ fn entity_inspector(nb: &mut Notebook) {
 
     let (space, mut storage, default_selected) = build_demo_space();
     let reader = storage.reader().expect("demo blob store reader");
-    let formatters = load_wasm_value_formatters(&space, &reader).unwrap_or_else(|_| HashMap::new());
+    let formatter_cache: BlobCache<_, Blake3, WasmCode, WasmValueFormatter> =
+        BlobCache::new(reader);
     let limits = WasmFormatterLimits::default();
     let space = std::sync::Arc::new(space);
-    let graph = std::sync::Arc::new(build_entity_graph(&space, &formatters, limits));
+    let graph = std::sync::Arc::new(build_entity_graph(&space, &formatter_cache, limits));
 
     let inspector = state!(
         nb,
@@ -1159,26 +1179,26 @@ fn entity_inspector(nb: &mut Notebook) {
             let stats = draw_entity_inspector(ui, &graph, &mut state.selected, state.columns);
 
             let metrics = format!(
-                "_{nodes} nodes, {edges} edges ({components} components), {columns} columns._\n\
-_Canvas: {w:.0}×{h:.0}px • Tiles: {coverage:.0}%._\n\
-_Wire: {total:.0}px total • {avg:.0}px avg (max {max:.0}px)._\n\
-_Routing: {avg_turns:.1} turns avg (max {max_turns}) • span {avg_span:.1} cols (max {max_span}) • {left} left • {fallback} fallback._",
-                nodes = stats.nodes,
-                edges = stats.edges,
-                components = stats.connected_components,
-                columns = stats.columns,
-                w = stats.canvas_width,
-                h = stats.canvas_height,
-                coverage = stats.tile_coverage * 100.0,
-                total = stats.total_edge_len,
-                avg = stats.avg_edge_len,
-                max = stats.max_edge_len,
-                avg_turns = stats.avg_turns,
-                max_turns = stats.max_turns,
-                avg_span = stats.avg_span_cols,
-                max_span = stats.max_span_cols,
-                left = stats.left_edges,
-                fallback = stats.fallback_tracks,
+                "_{} nodes, {} edges ({} components), {} columns._\n\
+_Canvas: {:.0}×{:.0}px • Tiles: {:.0}%._\n\
+_Wire: {:.0}px total • {:.0}px avg (max {:.0}px)._\n\
+_Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • {} fallback._",
+                stats.nodes,
+                stats.edges,
+                stats.connected_components,
+                stats.columns,
+                stats.canvas_width,
+                stats.canvas_height,
+                stats.tile_coverage * 100.0,
+                stats.total_edge_len,
+                stats.avg_edge_len,
+                stats.max_edge_len,
+                stats.avg_turns,
+                stats.max_turns,
+                stats.avg_span_cols,
+                stats.max_span_cols,
+                stats.left_edges,
+                stats.fallback_tracks,
             );
             widgets::markdown(ui, &metrics);
         }
