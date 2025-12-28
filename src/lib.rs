@@ -392,76 +392,95 @@ impl eframe::App for Notebook {
                                             ui.visuals().widgets.noninteractive.bg_stroke,
                                         );
 
-                                        let detach_size = egui::vec2(18.0, 18.0);
-                                        let flag_left_x = card_rect.right() + 8.0;
-                                        let detach_left_x = if card.code().is_some() {
-                                            flag_left_x - detach_size.x - 6.0
-                                        } else {
-                                            flag_left_x
-                                        };
-                                        let detach_pos = egui::pos2(
-                                            detach_left_x,
-                                            card_rect.center().y - detach_size.y / 2.0,
-                                        );
+                                        let button_size = egui::vec2(18.0, 18.0);
+                                        let button_spacing = 6.0;
+                                        let button_x = card_rect.right() + 8.0;
+                                        let has_code_note = card.code().is_some();
+                                        let show_detach_button = !*card_detached;
+                                        let (detach_pos, code_button_pos) =
+                                            match (show_detach_button, has_code_note) {
+                                                (true, true) => {
+                                                    let stack_height =
+                                                        button_size.y * 2.0 + button_spacing;
+                                                    let stack_top =
+                                                        card_rect.center().y - stack_height / 2.0;
+                                                    (
+                                                        Some(egui::pos2(button_x, stack_top)),
+                                                        Some(egui::pos2(
+                                                            button_x,
+                                                            stack_top
+                                                                + button_size.y
+                                                                + button_spacing,
+                                                        )),
+                                                    )
+                                                }
+                                                (true, false) => (
+                                                    Some(egui::pos2(
+                                                        button_x,
+                                                        card_rect.center().y - button_size.y / 2.0,
+                                                    )),
+                                                    None,
+                                                ),
+                                                (false, true) => (
+                                                    None,
+                                                    Some(egui::pos2(
+                                                        button_x,
+                                                        card_rect.center().y - button_size.y / 2.0,
+                                                    )),
+                                                ),
+                                                (false, false) => (None, None),
+                                            };
 
-                                        let detach_id = ui.id().with("detach_button");
-                                        let detach_resp = egui::Area::new(detach_id)
-                                            .order(egui::Order::Foreground)
-                                            .fixed_pos(detach_pos)
-                                            .movable(false)
-                                            .constrain_to(egui::Rect::EVERYTHING)
-                                            .show(ui.ctx(), |ui| {
-                                                let (rect, resp) = ui.allocate_exact_size(
-                                                    detach_size,
-                                                    egui::Sense::click(),
-                                                );
-                                                let fill = ui.visuals().window_fill;
-                                                let outline = ui
-                                                    .visuals()
-                                                    .widgets
-                                                    .noninteractive
-                                                    .bg_stroke
-                                                    .color;
-                                                let accent = ui.visuals().selection.stroke.color;
-                                                let stroke_color =
-                                                    if resp.hovered() || resp.has_focus() {
-                                                        accent
-                                                    } else {
-                                                        outline
-                                                    };
-                                                let stroke = egui::Stroke::new(1.0, stroke_color);
+                                        if let Some(detach_pos) = detach_pos {
+                                            let detach_id = ui.id().with("detach_button");
+                                            let detach_resp = egui::Area::new(detach_id)
+                                                .order(egui::Order::Foreground)
+                                                .fixed_pos(detach_pos)
+                                                .movable(false)
+                                                .constrain_to(egui::Rect::EVERYTHING)
+                                                .show(ui.ctx(), |ui| {
+                                                    let (rect, resp) = ui.allocate_exact_size(
+                                                        button_size,
+                                                        egui::Sense::click(),
+                                                    );
+                                                    let fill = ui.visuals().window_fill;
+                                                    let outline = ui
+                                                        .visuals()
+                                                        .widgets
+                                                        .noninteractive
+                                                        .bg_stroke
+                                                        .color;
+                                                    let accent =
+                                                        ui.visuals().selection.stroke.color;
+                                                    let stroke_color =
+                                                        if resp.hovered() || resp.has_focus() {
+                                                            accent
+                                                        } else {
+                                                            outline
+                                                        };
+                                                    let stroke =
+                                                        egui::Stroke::new(1.0, stroke_color);
 
-                                                ui.painter().rect_filled(rect, 0.0, fill);
-                                                ui.painter().rect_stroke(
-                                                    rect,
-                                                    0.0,
-                                                    stroke,
-                                                    egui::StrokeKind::Middle,
-                                                );
-                                                ui.painter().text(
-                                                    rect.center(),
-                                                    egui::Align2::CENTER_CENTER,
-                                                    "[]",
-                                                    egui::FontId::monospace(10.0),
-                                                    ui.visuals().text_color(),
-                                                );
+                                                    ui.painter().rect_filled(rect, 0.0, fill);
+                                                    ui.painter().rect_stroke(
+                                                        rect,
+                                                        0.0,
+                                                        stroke,
+                                                        egui::StrokeKind::Middle,
+                                                    );
+                                                    ui.painter().text(
+                                                        rect.center(),
+                                                        egui::Align2::CENTER_CENTER,
+                                                        "[]",
+                                                        egui::FontId::monospace(10.0),
+                                                        ui.visuals().text_color(),
+                                                    );
 
-                                                show_postit_tooltip(
-                                                    ui,
-                                                    &resp,
-                                                    if *card_detached {
-                                                        "Dock card"
-                                                    } else {
-                                                        "Detach card"
-                                                    },
-                                                );
-                                                resp
-                                            });
+                                                    show_postit_tooltip(ui, &resp, "Detach card");
+                                                    resp
+                                                });
 
-                                        if detach_resp.inner.clicked() {
-                                            if *card_detached {
-                                                *card_detached = false;
-                                            } else {
+                                            if detach_resp.inner.clicked() {
                                                 *card_detached = true;
                                                 *card_detached_position = egui::pos2(
                                                     right_margin.min.x + 12.0,
@@ -474,16 +493,11 @@ impl eframe::App for Notebook {
                                             return;
                                         };
 
-                                        let flag_left_x = card_rect.right() + 8.0;
-                                        let flag_size = egui::vec2(18.0, 32.0);
                                         let flag_pos = if *code_note_open {
-                                            egui::pos2(flag_left_x, card_rect.top())
+                                            egui::pos2(button_x, card_rect.top())
                                                 + *code_note_offset
                                         } else {
-                                            egui::pos2(
-                                                flag_left_x,
-                                                card_rect.center().y - flag_size.y / 2.0,
-                                            )
+                                            code_button_pos.expect("code button position")
                                         };
 
                                         let flag_id = ui.id().with("code_flag");
@@ -595,7 +609,7 @@ impl eframe::App for Notebook {
                                                     inner.inner
                                                 } else {
                                                     let (rect, resp) = ui.allocate_exact_size(
-                                                        flag_size,
+                                                        button_size,
                                                         egui::Sense::click(),
                                                     );
 
