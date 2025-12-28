@@ -271,22 +271,13 @@ impl eframe::App for Notebook {
                                             let fill = ui.visuals().window_fill;
                                             let outline =
                                                 ui.visuals().widgets.noninteractive.bg_stroke.color;
-                                            let stroke = egui::Stroke::new(1.0, outline);
                                             ui.painter().rect_filled(rect, 0.0, fill);
-                                            ui.painter().rect_stroke(
+                                            paint_hatching(
+                                                &ui.painter().with_clip_rect(rect),
                                                 rect,
-                                                0.0,
-                                                stroke,
-                                                egui::StrokeKind::Inside,
+                                                outline,
                                             );
-                                            let hatch_rect = rect.shrink(4.0);
-                                            if hatch_rect.is_positive() {
-                                                paint_hatching(
-                                                    &ui.painter().with_clip_rect(hatch_rect),
-                                                    hatch_rect,
-                                                    outline,
-                                                );
-                                            }
+                                            show_postit_tooltip(ui, &resp, "Dock card");
                                             if resp.clicked() {
                                                 *card_detached = false;
                                             }
@@ -329,7 +320,7 @@ impl eframe::App for Notebook {
 
                                                 let detached_id = ui.id().with("detached_card");
                                                 egui::Area::new(detached_id)
-                                                    .order(egui::Order::Foreground)
+                                                    .order(egui::Order::Tooltip)
                                                     .fixed_pos(detached_screen_pos)
                                                     .movable(false)
                                                     .constrain_to(egui::Rect::EVERYTHING)
@@ -437,11 +428,12 @@ impl eframe::App for Notebook {
 
                                                                 match *card_detached_anchor {
                                                                     FloatingAnchor::Content => {
-                                                                        if rect_outside(
+                                                                        if right_outside_ratio(
                                                                             moved_rect,
                                                                             clip_rect,
-                                                                            STICK_THRESHOLD,
-                                                                        ) {
+                                                                        )
+                                                                            >= STICK_RIGHT_OUTSIDE_RATIO
+                                                                        {
                                                                             *card_detached_anchor =
                                                                                 FloatingAnchor::Viewport;
                                                                             *card_detached_position =
@@ -449,11 +441,12 @@ impl eframe::App for Notebook {
                                                                         }
                                                                     }
                                                                     FloatingAnchor::Viewport => {
-                                                                        if rect_inside(
+                                                                        if right_outside_ratio(
                                                                             moved_rect,
                                                                             clip_rect,
-                                                                            UNSTICK_THRESHOLD,
-                                                                        ) {
+                                                                        )
+                                                                            <= UNSTICK_RIGHT_OUTSIDE_RATIO
+                                                                        {
                                                                             *card_detached_anchor =
                                                                                 FloatingAnchor::Content;
                                                                             *card_detached_position =
@@ -498,48 +491,37 @@ impl eframe::App for Notebook {
                                         let button_x = card_rect.right() + 8.0;
                                         let has_code_note = card.code().is_some();
                                         let show_detach_button = !*card_detached;
-                                        let (detach_pos, code_button_pos) =
-                                            match (show_detach_button, has_code_note) {
-                                                (true, true) => {
-                                                    let stack_height =
-                                                        button_size.y * 2.0 + button_spacing;
-                                                    let stack_top =
-                                                        card_rect.center().y - stack_height / 2.0;
-                                                    (
-                                                        Some(egui::pos2(button_x, stack_top)),
-                                                        Some(egui::pos2(
-                                                            button_x,
-                                                            stack_top
-                                                                + button_size.y
-                                                                + button_spacing,
-                                                        )),
-                                                    )
-                                                }
-                                                (true, false) => (
-                                                    Some(egui::pos2(
-                                                        button_x,
-                                                        card_rect.center().y - button_size.y / 2.0,
-                                                    )),
-                                                    None,
-                                                ),
-                                                (false, true) => (
-                                                    None,
-                                                    Some(egui::pos2(
-                                                        button_x,
-                                                        card_rect.center().y - button_size.y / 2.0,
-                                                    )),
-                                                ),
-                                                (false, false) => (None, None),
-                                            };
+                                        let (detach_pos, code_button_pos) = if has_code_note {
+                                            let stack_height =
+                                                button_size.y * 2.0 + button_spacing;
+                                            let stack_top =
+                                                card_rect.center().y - stack_height / 2.0;
+                                            (
+                                                Some(egui::pos2(button_x, stack_top)),
+                                                Some(egui::pos2(
+                                                    button_x,
+                                                    stack_top + button_size.y + button_spacing,
+                                                )),
+                                            )
+                                        } else {
+                                            (
+                                                Some(egui::pos2(
+                                                    button_x,
+                                                    card_rect.center().y - button_size.y / 2.0,
+                                                )),
+                                                None,
+                                            )
+                                        };
 
                                         if let Some(detach_pos) = detach_pos {
                                             let detach_id = ui.id().with("detach_button");
-                                            let detach_resp = egui::Area::new(detach_id)
+                                            let detach_area = egui::Area::new(detach_id)
                                                 .order(egui::Order::Foreground)
                                                 .fixed_pos(detach_pos)
                                                 .movable(false)
-                                                .constrain_to(egui::Rect::EVERYTHING)
-                                                .show(ui.ctx(), |ui| {
+                                                .constrain_to(egui::Rect::EVERYTHING);
+                                            if show_detach_button {
+                                                let detach_resp = detach_area.show(ui.ctx(), |ui| {
                                                     let (rect, resp) = ui.allocate_exact_size(
                                                         button_size,
                                                         egui::Sense::click(),
@@ -586,23 +568,32 @@ impl eframe::App for Notebook {
                                                     resp
                                                 });
 
-                                            if detach_resp.inner.clicked() {
-                                                if *card_detached {
-                                                    *card_detached = false;
-                                                } else {
-                                                    *card_detached = true;
-                                                    *card_detached_anchor =
-                                                        FloatingAnchor::Content;
-                                                    let initial_screen_pos = egui::pos2(
-                                                        right_margin.min.x + 12.0,
-                                                        card_rect.top(),
-                                                    );
-                                                    *card_detached_position = screen_to_content_pos(
-                                                        initial_screen_pos,
-                                                        scroll_y,
-                                                        clip_rect.min.y,
-                                                    );
+                                                if detach_resp.inner.clicked() {
+                                                    if *card_detached {
+                                                        *card_detached = false;
+                                                    } else {
+                                                        *card_detached = true;
+                                                        *card_detached_anchor =
+                                                            FloatingAnchor::Content;
+                                                        let initial_screen_pos = egui::pos2(
+                                                            right_margin.min.x + 12.0,
+                                                            card_rect.top(),
+                                                        );
+                                                        *card_detached_position =
+                                                            screen_to_content_pos(
+                                                                initial_screen_pos,
+                                                                scroll_y,
+                                                                clip_rect.min.y,
+                                                            );
+                                                    }
                                                 }
+                                            } else {
+                                                detach_area.show(ui.ctx(), |ui| {
+                                                    ui.allocate_exact_size(
+                                                        button_size,
+                                                        egui::Sense::hover(),
+                                                    );
+                                                });
                                             }
                                         }
 
@@ -795,11 +786,11 @@ impl eframe::App for Notebook {
                                                 match *code_note_anchor {
                                                     FloatingAnchor::Content => {
                                                         *code_note_offset += delta;
-                                                        if rect_outside(
+                                                        if right_outside_ratio(
                                                             moved_rect,
                                                             clip_rect,
-                                                            STICK_THRESHOLD,
-                                                        ) {
+                                                        ) >= STICK_RIGHT_OUTSIDE_RATIO
+                                                        {
                                                             *code_note_anchor =
                                                                 FloatingAnchor::Viewport;
                                                             *code_note_viewport_position =
@@ -808,11 +799,11 @@ impl eframe::App for Notebook {
                                                     }
                                                     FloatingAnchor::Viewport => {
                                                         *code_note_viewport_position += delta;
-                                                        if rect_inside(
+                                                        if right_outside_ratio(
                                                             moved_rect,
                                                             clip_rect,
-                                                            UNSTICK_THRESHOLD,
-                                                        ) {
+                                                        ) <= UNSTICK_RIGHT_OUTSIDE_RATIO
+                                                        {
                                                             *code_note_anchor =
                                                                 FloatingAnchor::Content;
                                                             *code_note_offset = moved_rect.min
@@ -903,8 +894,8 @@ fn paint_hatching(painter: &egui::Painter, rect: egui::Rect, color: egui::Color3
     }
 }
 
-const STICK_THRESHOLD: f32 = 8.0;
-const UNSTICK_THRESHOLD: f32 = 12.0;
+const STICK_RIGHT_OUTSIDE_RATIO: f32 = 0.5;
+const UNSTICK_RIGHT_OUTSIDE_RATIO: f32 = 0.4;
 
 fn screen_to_content_pos(pos: egui::Pos2, scroll_y: f32, viewport_top: f32) -> egui::Pos2 {
     egui::pos2(pos.x, pos.y - viewport_top + scroll_y)
@@ -914,18 +905,15 @@ fn content_to_screen_pos(pos: egui::Pos2, scroll_y: f32, viewport_top: f32) -> e
     egui::pos2(pos.x, pos.y - scroll_y + viewport_top)
 }
 
-fn rect_outside(rect: egui::Rect, viewport: egui::Rect, margin: f32) -> bool {
-    rect.left() < viewport.left() - margin
-        || rect.right() > viewport.right() + margin
-        || rect.top() < viewport.top() - margin
-        || rect.bottom() > viewport.bottom() + margin
-}
+fn right_outside_ratio(rect: egui::Rect, viewport: egui::Rect) -> f32 {
+    let width = rect.width().max(0.0);
+    if width <= 0.0 {
+        return 1.0;
+    }
 
-fn rect_inside(rect: egui::Rect, viewport: egui::Rect, margin: f32) -> bool {
-    rect.left() >= viewport.left() + margin
-        && rect.right() <= viewport.right() - margin
-        && rect.top() >= viewport.top() + margin
-        && rect.bottom() <= viewport.bottom() - margin
+    let outside_width = (rect.right() - viewport.right()).max(0.0);
+    let ratio = outside_width / width;
+    ratio.clamp(0.0, 1.0)
 }
 
 fn show_postit_tooltip(ui: &egui::Ui, response: &egui::Response, text: &str) {
