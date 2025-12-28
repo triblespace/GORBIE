@@ -242,6 +242,7 @@ impl eframe::App for Notebook {
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 let mut max_code_note_bottom_content_y: Option<f32> = None;
                                 let mut floating_elements: Vec<FloatingElement> = Vec::new();
+                                let mut dragged_layer_ids: Vec<egui::LayerId> = Vec::new();
                                 for (i, card) in self.cards.iter_mut().enumerate() {
                                     let code_note_open = self
                                         .code_notes_open
@@ -590,12 +591,19 @@ impl eframe::App for Notebook {
                                                     .expect("cards synced to floating_elements")
                                                     .as_mut();
 
-                                                egui::Area::new(detached_id)
-                                                    .order(egui::Order::Tooltip)
-                                                    .fixed_pos(detached_screen_pos)
-                                                    .movable(false)
-                                                    .constrain_to(egui::Rect::EVERYTHING)
-                                                    .show(ui.ctx(), |ui| {
+                                                let area_order = match pass_anchor {
+                                                    FloatingAnchor::Content => {
+                                                        egui::Order::Foreground
+                                                    }
+                                                    FloatingAnchor::Viewport => egui::Order::Tooltip,
+                                                };
+                                                let detached_area =
+                                                    egui::Area::new(detached_id)
+                                                        .order(area_order)
+                                                        .fixed_pos(detached_screen_pos)
+                                                        .movable(false)
+                                                        .constrain_to(egui::Rect::EVERYTHING);
+                                                detached_area.show(ui.ctx(), |ui| {
                                                         let outline = ui
                                                             .visuals()
                                                             .widgets
@@ -696,6 +704,8 @@ impl eframe::App for Notebook {
                                                                 ui.ctx().move_to_top(
                                                                     handle_resp.layer_id,
                                                                 );
+                                                                dragged_layer_ids
+                                                                    .push(handle_resp.layer_id);
                                                                 let delta =
                                                                     handle_resp.drag_delta();
                                                                 let moved_rect = inner
@@ -783,12 +793,19 @@ impl eframe::App for Notebook {
 
                                                 let mut code_note_frame_rect = None;
                                                 let mut code_note_handle_resp = None;
-                                                let flag_resp = egui::Area::new(draw.area_id)
-                                                    .order(egui::Order::Tooltip)
-                                                    .fixed_pos(open_note_pos)
-                                                    .movable(false)
-                                                    .constrain_to(egui::Rect::EVERYTHING)
-                                                    .show(ui.ctx(), |ui| {
+                                                let area_order = match pass_anchor {
+                                                    FloatingAnchor::Content => {
+                                                        egui::Order::Foreground
+                                                    }
+                                                    FloatingAnchor::Viewport => egui::Order::Tooltip,
+                                                };
+                                                let code_note_area =
+                                                    egui::Area::new(draw.area_id)
+                                                        .order(area_order)
+                                                        .fixed_pos(open_note_pos)
+                                                        .movable(false)
+                                                        .constrain_to(egui::Rect::EVERYTHING);
+                                                let flag_resp = code_note_area.show(ui.ctx(), |ui| {
                                                         let outline = ui
                                                             .visuals()
                                                             .widgets
@@ -909,6 +926,8 @@ impl eframe::App for Notebook {
                                                         ui.ctx().move_to_top(
                                                             handle_resp.layer_id,
                                                         );
+                                                        dragged_layer_ids
+                                                            .push(handle_resp.layer_id);
                                                         let delta = handle_resp.drag_delta();
                                                         let moved_rect =
                                                             frame_rect.translate(delta);
@@ -975,6 +994,10 @@ impl eframe::App for Notebook {
                                             }
                                         }
                                     }
+                                }
+
+                                for layer_id in dragged_layer_ids {
+                                    ui.ctx().move_to_top(layer_id);
                                 }
 
                                 if let Some(max_note_bottom_content_y) =
