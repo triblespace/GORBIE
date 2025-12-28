@@ -31,16 +31,3 @@ pub fn stateless_card(
         code: code.map(|s| s.to_owned()),
     }));
 }
-
-#[macro_export]
-macro_rules! view {
-    ($nb:expr, ($($Dep:ident),*), $code:expr) => {
-        {
-            // We capture the dependencies to ensure they are cloned.
-            // Each clone gets assigned it's own let statement.
-            // This makes type checking errors more readable.
-            $(let $Dep = $Dep.clone();)*
-            $crate::cards::stateless_card($nb, $code, Some(stringify!($code)))
-        }
-    };
-}

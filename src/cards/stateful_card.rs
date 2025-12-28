@@ -46,25 +46,3 @@ pub fn stateful_card<T: std::fmt::Debug + std::default::Default + 'static>(
 
     current
 }
-
-#[macro_export]
-macro_rules! state {
-    ($nb:expr, ($($Dep:ident),*), $code:expr) => {
-        {
-            // We capture the dependencies to ensure they are cloned.
-            // Each clone gets assigned it's own let statement.
-            // This makes type checking errors more readable.
-            $(let $Dep = $Dep.clone();)*
-            $crate::cards::stateful_card($nb, Default::default(), $code, Some(stringify!($code)))
-        }
-    };
-    ($nb:expr, ($($Dep:ident),*), $init:expr, $code:expr) => {
-        {
-            // We capture the dependencies to ensure they are cloned.
-            // Each clone gets assigned it's own let statement.
-            // This makes type checking errors more readable.
-            $(let $Dep = $Dep.clone();)*
-            $crate::cards::stateful_card($nb, $init, $code, Some(stringify!($code)))
-        }
-    };
-}

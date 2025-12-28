@@ -159,16 +159,3 @@ impl<T: Send + std::fmt::Debug + PartialEq + 'static, D: Dependencies + Send + C
         self.code.as_deref()
     }
 }
-
-#[macro_export]
-macro_rules! derive {
-    ($nb:expr, ($($Dep:ident),*), $code:expr) => {
-        {
-            // We capture the dependencies to ensure they are cloned.
-            // Each clone gets assigned it's own let statement.
-            // This makes type checking errors more readable.
-            $(let $Dep = $Dep.clone();)*
-            $crate::cards::reactive_card($nb, ($($Dep),*,), $code, Some(stringify!($code)))
-        }
-    };
-}

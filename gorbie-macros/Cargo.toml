@@ -1,0 +1,15 @@
+[package]
+name = "gorbie-macros"
+version = "0.2.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Procedural macros for GORBIE."
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro-crate = "3"
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
