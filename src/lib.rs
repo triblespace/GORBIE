@@ -33,6 +33,9 @@ pub struct Notebook {
     pub cards: Vec<Box<dyn cards::Card + 'static>>,
     code_notes_open: Vec<bool>,
     code_note_offsets: Vec<egui::Vec2>,
+    card_detached: Vec<bool>,
+    card_detached_positions: Vec<egui::Pos2>,
+    card_placeholder_sizes: Vec<egui::Vec2>,
 }
 
 impl Default for Notebook {
@@ -48,6 +51,9 @@ impl Notebook {
             cards: Vec::new(),
             code_notes_open: Vec::new(),
             code_note_offsets: Vec::new(),
+            card_detached: Vec::new(),
+            card_detached_positions: Vec::new(),
+            card_placeholder_sizes: Vec::new(),
         }
     }
 
@@ -55,6 +61,9 @@ impl Notebook {
         self.cards.push(card);
         self.code_notes_open.push(false);
         self.code_note_offsets.push(egui::Vec2::ZERO);
+        self.card_detached.push(false);
+        self.card_detached_positions.push(egui::Pos2::ZERO);
+        self.card_placeholder_sizes.push(egui::Vec2::ZERO);
     }
 
     pub fn run(self, name: &str) -> eframe::Result {
@@ -183,6 +192,11 @@ impl eframe::App for Notebook {
                                 self.code_notes_open.resize(self.cards.len(), false);
                                 self.code_note_offsets
                                     .resize(self.cards.len(), egui::Vec2::ZERO);
+                                self.card_detached.resize(self.cards.len(), false);
+                                self.card_detached_positions
+                                    .resize(self.cards.len(), egui::Pos2::ZERO);
+                                self.card_placeholder_sizes
+                                    .resize(self.cards.len(), egui::Vec2::ZERO);
 
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 let mut max_code_note_bottom_content_y: Option<f32> = None;
@@ -195,37 +209,280 @@ impl eframe::App for Notebook {
                                         .code_note_offsets
                                         .get_mut(i)
                                         .expect("code_note_offsets synced to cards");
+                                    let card_detached = self
+                                        .card_detached
+                                        .get_mut(i)
+                                        .expect("card_detached synced to cards");
+                                    let card_detached_position = self
+                                        .card_detached_positions
+                                        .get_mut(i)
+                                        .expect("card_detached_positions synced to cards");
+                                    let card_placeholder_size = self
+                                        .card_placeholder_sizes
+                                        .get_mut(i)
+                                        .expect("card_placeholder_sizes synced to cards");
                                     ui.push_id(i, |ui| {
                                         let card: &mut dyn cards::Card = card.as_mut();
-                                        let inner = egui::Frame::group(ui.style())
-                                            .stroke(egui::Stroke::NONE)
-                                            .corner_radius(0.0)
-                                            .inner_margin(egui::Margin::ZERO)
-                                            .show(ui, |ui| {
-                                                ui.reset_style();
-                                                ui.set_width(ui.available_width());
-                                                card.draw(ui);
-                                            });
+                                        let card_rect = if *card_detached {
+                                            let placeholder_height =
+                                                if card_placeholder_size.y > 0.0 {
+                                                    card_placeholder_size.y
+                                                } else {
+                                                    120.0
+                                                };
+                                            let placeholder_width = ui.available_width();
+                                            let (rect, resp) = ui.allocate_exact_size(
+                                                egui::vec2(placeholder_width, placeholder_height),
+                                                egui::Sense::click(),
+                                            );
+                                            let fill = ui.visuals().window_fill;
+                                            let outline =
+                                                ui.visuals().widgets.noninteractive.bg_stroke.color;
+                                            let stroke = egui::Stroke::new(1.0, outline);
+                                            ui.painter().rect_filled(rect, 0.0, fill);
+                                            ui.painter().rect_stroke(
+                                                rect,
+                                                0.0,
+                                                stroke,
+                                                egui::StrokeKind::Inside,
+                                            );
+                                            let hatch_rect = rect.shrink(4.0);
+                                            if hatch_rect.is_positive() {
+                                                paint_hatching(
+                                                    &ui.painter().with_clip_rect(hatch_rect),
+                                                    hatch_rect,
+                                                    outline,
+                                                );
+                                            }
+                                            if resp.clicked() {
+                                                *card_detached = false;
+                                            }
 
+                                            if *card_detached {
+                                                let fallback_width =
+                                                    if card_placeholder_size.x > 0.0 {
+                                                        card_placeholder_size.x
+                                                    } else {
+                                                        placeholder_width
+                                                    };
+                                                let card_width = fallback_width.max(240.0);
+                                                if *card_detached_position == egui::Pos2::ZERO {
+                                                    *card_detached_position = egui::pos2(
+                                                        right_margin.min.x + 12.0,
+                                                        rect.top(),
+                                                    );
+                                                }
+
+                                                let detached_id = ui.id().with("detached_card");
+                                                egui::Area::new(detached_id)
+                                                    .order(egui::Order::Foreground)
+                                                    .fixed_pos(*card_detached_position)
+                                                    .movable(false)
+                                                    .constrain_to(egui::Rect::EVERYTHING)
+                                                    .show(ui.ctx(), |ui| {
+                                                        let outline = ui
+                                                            .visuals()
+                                                            .widgets
+                                                            .noninteractive
+                                                            .bg_stroke
+                                                            .color;
+                                                        let shadow_color = crate::themes::ral(9004);
+                                                        let shadow = egui::epaint::Shadow {
+                                                            offset: [6, 6],
+                                                            blur: 0,
+                                                            spread: 0,
+                                                            color: shadow_color,
+                                                        };
+
+                                                        ui.set_width(card_width);
+                                                        let frame = egui::Frame::new()
+                                                            .fill(ui.visuals().window_fill)
+                                                            .stroke(egui::Stroke::new(1.0, outline))
+                                                            .shadow(shadow)
+                                                            .corner_radius(0.0)
+                                                            .inner_margin(egui::Margin::ZERO);
+
+                                                        frame.show(ui, |ui| {
+                                                            let handle_height = 18.0;
+                                                            let (handle_rect, handle_resp) = ui
+                                                                .allocate_exact_size(
+                                                                    egui::vec2(
+                                                                        ui.available_width(),
+                                                                        handle_height,
+                                                                    ),
+                                                                    egui::Sense::click_and_drag(),
+                                                                );
+                                                            if handle_resp.dragged() {
+                                                                ui.ctx().set_cursor_icon(
+                                                                    egui::CursorIcon::Grabbing,
+                                                                );
+                                                                *card_detached_position +=
+                                                                    handle_resp.drag_delta();
+                                                            } else if handle_resp.hovered() {
+                                                                ui.ctx().set_cursor_icon(
+                                                                    egui::CursorIcon::Grab,
+                                                                );
+                                                            }
+
+                                                            let stripe_color =
+                                                                crate::themes::ral(9004);
+                                                            let stripe_stroke = egui::Stroke::new(
+                                                                1.0,
+                                                                stripe_color,
+                                                            );
+                                                            let stripe_x = handle_rect.x_range();
+                                                            let stripe_padding = 3.0;
+                                                            let stripe_spacing = 3.0;
+                                                            let mut stripe_y =
+                                                                handle_rect.top() + stripe_padding;
+                                                            while stripe_y
+                                                                <= handle_rect.bottom()
+                                                                    - stripe_padding
+                                                            {
+                                                                ui.painter().hline(
+                                                                    stripe_x,
+                                                                    stripe_y,
+                                                                    stripe_stroke,
+                                                                );
+                                                                stripe_y += stripe_spacing;
+                                                            }
+
+                                                            show_postit_tooltip(
+                                                                ui,
+                                                                &handle_resp,
+                                                                "Dock card",
+                                                            );
+
+                                                            if handle_resp.clicked() {
+                                                                *card_detached = false;
+                                                            }
+
+                                                            ui.add_space(6.0);
+                                                            egui::Frame::group(ui.style())
+                                                                .stroke(egui::Stroke::NONE)
+                                                                .corner_radius(0.0)
+                                                                .inner_margin(egui::Margin::ZERO)
+                                                                .show(ui, |ui| {
+                                                                    ui.reset_style();
+                                                                    ui.set_width(
+                                                                        ui.available_width(),
+                                                                    );
+                                                                    card.draw(ui);
+                                                                });
+                                                        });
+                                                    });
+                                            }
+                                            rect
+                                        } else {
+                                            let inner = egui::Frame::group(ui.style())
+                                                .stroke(egui::Stroke::NONE)
+                                                .corner_radius(0.0)
+                                                .inner_margin(egui::Margin::ZERO)
+                                                .show(ui, |ui| {
+                                                    ui.reset_style();
+                                                    ui.set_width(ui.available_width());
+                                                    card.draw(ui);
+                                                });
+                                            *card_placeholder_size = inner.response.rect.size();
+                                            inner.response.rect
+                                        };
                                         ui.painter().hline(
                                             divider_x_range,
-                                            inner.response.rect.top(),
+                                            card_rect.top(),
                                             ui.visuals().widgets.noninteractive.bg_stroke,
                                         );
+
+                                        let detach_size = egui::vec2(18.0, 18.0);
+                                        let flag_left_x = card_rect.right() + 8.0;
+                                        let detach_left_x = if card.code().is_some() {
+                                            flag_left_x - detach_size.x - 6.0
+                                        } else {
+                                            flag_left_x
+                                        };
+                                        let detach_pos = egui::pos2(
+                                            detach_left_x,
+                                            card_rect.center().y - detach_size.y / 2.0,
+                                        );
+
+                                        let detach_id = ui.id().with("detach_button");
+                                        let detach_resp = egui::Area::new(detach_id)
+                                            .order(egui::Order::Foreground)
+                                            .fixed_pos(detach_pos)
+                                            .movable(false)
+                                            .constrain_to(egui::Rect::EVERYTHING)
+                                            .show(ui.ctx(), |ui| {
+                                                let (rect, resp) = ui.allocate_exact_size(
+                                                    detach_size,
+                                                    egui::Sense::click(),
+                                                );
+                                                let fill = ui.visuals().window_fill;
+                                                let outline = ui
+                                                    .visuals()
+                                                    .widgets
+                                                    .noninteractive
+                                                    .bg_stroke
+                                                    .color;
+                                                let accent = ui.visuals().selection.stroke.color;
+                                                let stroke_color =
+                                                    if resp.hovered() || resp.has_focus() {
+                                                        accent
+                                                    } else {
+                                                        outline
+                                                    };
+                                                let stroke = egui::Stroke::new(1.0, stroke_color);
+
+                                                ui.painter().rect_filled(rect, 0.0, fill);
+                                                ui.painter().rect_stroke(
+                                                    rect,
+                                                    0.0,
+                                                    stroke,
+                                                    egui::StrokeKind::Middle,
+                                                );
+                                                ui.painter().text(
+                                                    rect.center(),
+                                                    egui::Align2::CENTER_CENTER,
+                                                    "[]",
+                                                    egui::FontId::monospace(10.0),
+                                                    ui.visuals().text_color(),
+                                                );
+
+                                                show_postit_tooltip(
+                                                    ui,
+                                                    &resp,
+                                                    if *card_detached {
+                                                        "Dock card"
+                                                    } else {
+                                                        "Detach card"
+                                                    },
+                                                );
+                                                resp
+                                            });
+
+                                        if detach_resp.inner.clicked() {
+                                            if *card_detached {
+                                                *card_detached = false;
+                                            } else {
+                                                *card_detached = true;
+                                                *card_detached_position = egui::pos2(
+                                                    right_margin.min.x + 12.0,
+                                                    card_rect.top(),
+                                                );
+                                            }
+                                        }
 
                                         let Some(code) = card.code() else {
                                             return;
                                         };
 
-                                        let flag_left_x = inner.response.rect.right() + 8.0;
+                                        let flag_left_x = card_rect.right() + 8.0;
                                         let flag_size = egui::vec2(18.0, 32.0);
                                         let flag_pos = if *code_note_open {
-                                            egui::pos2(flag_left_x, inner.response.rect.top())
+                                            egui::pos2(flag_left_x, card_rect.top())
                                                 + *code_note_offset
                                         } else {
                                             egui::pos2(
                                                 flag_left_x,
-                                                inner.response.rect.center().y - flag_size.y / 2.0,
+                                                card_rect.center().y - flag_size.y / 2.0,
                                             )
                                         };
 
@@ -446,6 +703,21 @@ fn paint_dot_grid(ui: &egui::Ui, rect: egui::Rect, scroll_y: f32) {
             x += spacing;
         }
         y += spacing;
+    }
+}
+
+fn paint_hatching(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32) {
+    let spacing = 12.0;
+    let stroke = egui::Stroke::new(1.0, color);
+
+    let h = rect.height();
+    let mut x = rect.left() - h;
+    while x < rect.right() + h {
+        painter.line_segment(
+            [egui::pos2(x, rect.top()), egui::pos2(x + h, rect.bottom())],
+            stroke,
+        );
+        x += spacing;
     }
 }
 
