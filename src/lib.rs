@@ -129,7 +129,7 @@ impl eframe::App for Notebook {
                     let column_max_width: f32 = 740.0;
                     let column_width = column_max_width.min(rect.width());
                     let remaining_width = (rect.width() - column_width).max(0.0);
-                    let left_margin_width = (remaining_width * 0.10).min(120.0);
+                    let left_margin_width = (remaining_width * 0.03).min(120.0);
 
                     let left_margin_paint = egui::Rect::from_min_max(
                         egui::pos2(rect.min.x, clip_rect.min.y),
@@ -162,7 +162,7 @@ impl eframe::App for Notebook {
                         let fill = ui.visuals().window_fill;
 
                         let column_inner_margin = egui::Margin::symmetric(0, 12);
-                        let code_note_width = (right_margin.width() - 16.0).max(260.0);
+                        let code_note_width = column_width;
 
                         egui::Frame::new()
                             .fill(fill)
@@ -775,44 +775,54 @@ impl eframe::App for Notebook {
                                             });
 
                                         let resp = flag_resp.inner;
-                                        if let (Some(handle_resp), Some(frame_rect)) = (
-                                            code_note_handle_resp,
-                                            code_note_frame_rect,
-                                        ) {
-                                            if handle_resp.dragged() {
-                                                let delta = handle_resp.drag_delta();
-                                                let moved_rect =
-                                                    frame_rect.translate(delta);
-                                                match *code_note_anchor {
-                                                    FloatingAnchor::Content => {
-                                                        *code_note_offset += delta;
-                                                        if right_outside_ratio(
-                                                            moved_rect,
-                                                            clip_rect,
-                                                        ) >= STICK_RIGHT_OUTSIDE_RATIO
-                                                        {
-                                                            *code_note_anchor =
-                                                                FloatingAnchor::Viewport;
-                                                            *code_note_viewport_position =
-                                                                moved_rect.min;
+                                            if let (Some(handle_resp), Some(frame_rect)) = (
+                                                code_note_handle_resp,
+                                                code_note_frame_rect,
+                                            ) {
+                                                if handle_resp.dragged() {
+                                                    let delta = handle_resp.drag_delta();
+                                                    let moved_rect =
+                                                        frame_rect.translate(delta);
+                                                    let clamped_rect = clamp_rect_visible(
+                                                        moved_rect,
+                                                        clip_rect,
+                                                        NOTE_MIN_VISIBLE,
+                                                    );
+                                                    let applied_delta =
+                                                        clamped_rect.min - frame_rect.min;
+
+                                                    match *code_note_anchor {
+                                                        FloatingAnchor::Content => {
+                                                            *code_note_offset += applied_delta;
+                                                            if right_outside_ratio(
+                                                                clamped_rect,
+                                                                clip_rect,
+                                                            ) >= STICK_RIGHT_OUTSIDE_RATIO
+                                                            {
+                                                                *code_note_anchor =
+                                                                    FloatingAnchor::Viewport;
+                                                                *code_note_viewport_position =
+                                                                    clamped_rect.min;
+                                                            }
                                                         }
-                                                    }
-                                                    FloatingAnchor::Viewport => {
-                                                        *code_note_viewport_position += delta;
-                                                        if right_outside_ratio(
-                                                            moved_rect,
-                                                            clip_rect,
-                                                        ) <= UNSTICK_RIGHT_OUTSIDE_RATIO
-                                                        {
-                                                            *code_note_anchor =
-                                                                FloatingAnchor::Content;
-                                                            *code_note_offset = moved_rect.min
-                                                                - base_note_pos;
+                                                        FloatingAnchor::Viewport => {
+                                                            *code_note_viewport_position +=
+                                                                applied_delta;
+                                                            if right_outside_ratio(
+                                                                clamped_rect,
+                                                                clip_rect,
+                                                            ) <= UNSTICK_RIGHT_OUTSIDE_RATIO
+                                                            {
+                                                                *code_note_anchor =
+                                                                    FloatingAnchor::Content;
+                                                                *code_note_offset =
+                                                                    clamped_rect.min
+                                                                        - base_note_pos;
+                                                            }
                                                         }
                                                     }
                                                 }
                                             }
-                                        }
                                         if resp.clicked() {
                                             *code_note_open = !*code_note_open;
                                         }
@@ -894,6 +904,7 @@ fn paint_hatching(painter: &egui::Painter, rect: egui::Rect, color: egui::Color3
     }
 }
 
+const NOTE_MIN_VISIBLE: f32 = 24.0;
 const STICK_RIGHT_OUTSIDE_RATIO: f32 = 0.5;
 const UNSTICK_RIGHT_OUTSIDE_RATIO: f32 = 0.4;
 
@@ -903,6 +914,26 @@ fn screen_to_content_pos(pos: egui::Pos2, scroll_y: f32, viewport_top: f32) -> e
 
 fn content_to_screen_pos(pos: egui::Pos2, scroll_y: f32, viewport_top: f32) -> egui::Pos2 {
     egui::pos2(pos.x, pos.y - scroll_y + viewport_top)
+}
+
+fn clamp_rect_visible(rect: egui::Rect, viewport: egui::Rect, min_visible: f32) -> egui::Rect {
+    let size = rect.size();
+    let min_allowed_x = viewport.min.x + min_visible - size.x;
+    let max_allowed_x = viewport.max.x - min_visible;
+    let min_allowed_y = viewport.min.y + min_visible - size.y;
+    let max_allowed_y = viewport.max.y - min_visible;
+
+    let min_x = min_allowed_x.min(max_allowed_x);
+    let max_x = min_allowed_x.max(max_allowed_x);
+    let min_y = min_allowed_y.min(max_allowed_y);
+    let max_y = min_allowed_y.max(max_allowed_y);
+
+    let clamped_min = egui::pos2(
+        rect.min.x.clamp(min_x, max_x),
+        rect.min.y.clamp(min_y, max_y),
+    );
+
+    egui::Rect::from_min_size(clamped_min, size)
 }
 
 fn right_outside_ratio(rect: egui::Rect, viewport: egui::Rect) -> f32 {
