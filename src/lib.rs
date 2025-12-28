@@ -497,7 +497,7 @@ impl eframe::App for Notebook {
                                         let button_spacing = 6.0;
                                         let button_x = card_rect.right() + 8.0;
                                         let has_code_note = card.code().is_some();
-                                        let show_detach_button = true;
+                                        let show_detach_button = !*card_detached;
                                         let (detach_pos, code_button_pos) =
                                             match (show_detach_button, has_code_note) {
                                                 (true, true) => {
@@ -650,10 +650,7 @@ impl eframe::App for Notebook {
                                                         color: shadow_color,
                                                     };
 
-                                                    let note_width = (right_margin.max.x
-                                                        - flag_pos.x)
-                                                        .max(56.0)
-                                                        .min(code_note_width);
+                                                    let note_width = code_note_width;
                                                     ui.set_width(note_width);
 
                                                     let frame = egui::Frame::new()
