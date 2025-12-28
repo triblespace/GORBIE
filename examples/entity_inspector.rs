@@ -70,11 +70,24 @@ fn try_decode_genid(raw: &[u8; 32]) -> Option<Id> {
     parsed.ok()
 }
 
+fn paint_hatching(painter: &egui::Painter, rect: Rect, color: egui::Color32) {
+    let spacing = 8.0;
+    let stroke = Stroke::new(1.0, color);
+
+    let h = rect.height();
+    let mut x = rect.left() - h;
+    while x < rect.right() + h {
+        painter.line_segment([pos2(x, rect.top()), pos2(x + h, rect.bottom())], stroke);
+        x += spacing;
+    }
+}
+
 #[derive(Clone, Debug)]
 struct EntityRow {
     attr: String,
     value: String,
     target: Option<Id>,
+    hatched: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -311,7 +324,7 @@ where
         id_to_index.insert(id, idx);
     }
 
-    let mut raw_rows = vec![Vec::<(String, String, Option<Id>)>::new(); entities.len()];
+    let mut raw_rows = vec![Vec::<EntityRow>::new(); entities.len()];
     for (e, attr, raw) in tribles {
         let Some(entity_index) = id_to_index.get(&e).copied() else {
             continue;
@@ -322,39 +335,35 @@ where
         };
         let attr_text = attr_info.label.clone();
 
-        let (value_text, target) = if attr_info.schema == schema_genid {
+        let (value_text, target, hatched) = if attr_info.schema == schema_genid {
             if let Some(target) = try_decode_genid(&raw) {
-                (format!("id:{}", id_short(target)), Some(target))
+                (format!("id:{}", id_short(target)), Some(target), false)
             } else {
-                (format!("id:0x{}", hex_prefix(raw, 6)), None)
-            }
-        } else if let Ok(formatter) = formatter_cache.get(attr_info.formatter) {
-            match formatter.format_value_with_limits(&raw, limits) {
-                Ok(text) => (text, None),
-                Err(_) => {
-                    let v = Value::<ShortString>::new(raw);
-                    match v.try_from_value::<String>() {
-                        Ok(text) => (text, None),
-                        Err(_) => (format!("0x{}", hex_prefix(v.raw, 6)), None),
-                    }
-                }
+                (format!("id:0x{}", hex_prefix(raw, 6)), None, false)
             }
         } else {
-            let v = Value::<ShortString>::new(raw);
-            match v.try_from_value::<String>() {
-                Ok(text) => (text, None),
-                Err(_) => (format!("0x{}", hex_prefix(v.raw, 6)), None),
+            match formatter_cache.get(attr_info.formatter) {
+                Ok(formatter) => match formatter.format_value_with_limits(&raw, limits) {
+                    Ok(text) => (text, None, false),
+                    Err(_) => (format!("0x{}", hex_prefix(raw, 6)), None, true),
+                },
+                Err(_) => (format!("0x{}", hex_prefix(raw, 6)), None, true),
             }
         };
 
-        raw_rows[entity_index].push((attr_text, value_text, target));
+        raw_rows[entity_index].push(EntityRow {
+            attr: attr_text,
+            value: value_text,
+            target,
+            hatched,
+        });
     }
 
     let mut titles = HashMap::<Id, String>::new();
     for (entity_idx, entity_id) in entities.iter().copied().enumerate() {
-        for (attr_text, value_text, _) in &raw_rows[entity_idx] {
-            if attr_text == "name" {
-                titles.insert(entity_id, value_text.clone());
+        for row in &raw_rows[entity_idx] {
+            if row.attr == "name" && !row.hatched {
+                titles.insert(entity_id, row.value.clone());
                 break;
             }
         }
@@ -367,15 +376,13 @@ where
             .cloned()
             .unwrap_or_else(|| format!("id:{}", id_short(id)));
 
-        let mut rows = raw_rows[idx]
-            .iter()
-            .map(|(attr, value, target)| EntityRow {
-                attr: attr.clone(),
-                value: value.clone(),
-                target: *target,
-            })
-            .collect::<Vec<_>>();
-        rows.sort_by(|a, b| a.attr.cmp(&b.attr).then_with(|| a.value.cmp(&b.value)));
+        let mut rows = raw_rows[idx].clone();
+        rows.sort_by(|a, b| {
+            a.attr
+                .cmp(&b.attr)
+                .then_with(|| a.hatched.cmp(&b.hatched))
+                .then_with(|| a.value.cmp(&b.value))
+        });
 
         nodes.push(EntityNode { id, title, rows });
     }
@@ -932,6 +939,7 @@ fn paint_entity_table(
     };
     let stroke = Stroke::new(1.0, outline);
     let grid_stroke = Stroke::new(1.0, ink);
+    let hatch_color = visuals.widgets.noninteractive.bg_stroke.color;
 
     let painter = ui.painter();
     painter.rect_filled(rect, 0.0, fill);
@@ -985,13 +993,24 @@ fn paint_entity_table(
             row_font.clone(),
             text_color,
         );
-        painter.text(
-            pos2(value_x, row_rect.top() + 1.0),
-            Align2::LEFT_TOP,
-            row.value.as_str(),
-            row_font.clone(),
-            text_color,
-        );
+        if row.hatched {
+            let value_rect = Rect::from_min_max(
+                pos2(value_x, row_rect.top()),
+                pos2(inner.right(), row_rect.bottom()),
+            );
+            let hatch_rect = value_rect.shrink(1.0);
+            if hatch_rect.is_positive() {
+                paint_hatching(&painter.with_clip_rect(hatch_rect), hatch_rect, hatch_color);
+            }
+        } else {
+            painter.text(
+                pos2(value_x, row_rect.top() + 1.0),
+                Align2::LEFT_TOP,
+                row.value.as_str(),
+                row_font.clone(),
+                text_color,
+            );
+        }
     }
 
     if response.hovered() {
