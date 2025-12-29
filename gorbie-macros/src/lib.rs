@@ -132,6 +132,11 @@ impl Parse for DeriveInput {
 
 #[proc_macro]
 pub fn view(input: TokenStream) -> TokenStream {
+
+    let mut s = input.clone().into_iter().map(|t| {
+        t.span().source_text().unwrap_or("".to_string())
+    }).fold(String::from("view!("), |mut acc, x| { acc.push_str(&x); acc });
+    s.push_str(")");
     let input = parse_macro_input!(input as ViewInput);
     let gorbie = gorbie_path();
     let ViewInput {
@@ -139,7 +144,7 @@ pub fn view(input: TokenStream) -> TokenStream {
         dependencies,
         code,
     } = input;
-    let code_text = code_literal(&code);
+    let code_text = LitStr::new(&s, Span::call_site());
     let clones = dependency_clones(&dependencies);
 
     TokenStream::from(quote!({
@@ -150,6 +155,10 @@ pub fn view(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn state(input: TokenStream) -> TokenStream {
+    let mut s = input.clone().into_iter().map(|t| {
+        t.span().source_text().unwrap_or("".to_string())
+    }).fold(String::from("state!("), |mut acc, x| { acc.push_str(&x); acc });
+    s.push_str(")");
     let input = parse_macro_input!(input as StateInput);
     let gorbie = gorbie_path();
     let StateInput {
@@ -158,7 +167,7 @@ pub fn state(input: TokenStream) -> TokenStream {
         init,
         code,
     } = input;
-    let code_text = code_literal(&code);
+    let code_text = LitStr::new(&s, Span::call_site());
     let clones = dependency_clones(&dependencies);
     let init_expr = init.map_or_else(|| quote!(Default::default()), |expr| quote!(#expr));
 
@@ -170,6 +179,10 @@ pub fn state(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn derive(input: TokenStream) -> TokenStream {
+    let mut s = input.clone().into_iter().map(|t| {
+        t.span().source_text().unwrap_or("".to_string())
+    }).fold(String::from("derive!("), |mut acc, x| { acc.push_str(&x); acc });
+    s.push_str(")");
     let input = parse_macro_input!(input as DeriveInput);
     let gorbie = gorbie_path();
     let DeriveInput {
@@ -177,7 +190,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
         dependencies,
         code,
     } = input;
-    let code_text = code_literal(&code);
+    let code_text = LitStr::new(&s, Span::call_site());
     let clones = dependency_clones(&dependencies);
     let dep_idents = dependencies.idents.iter();
 
@@ -229,9 +242,12 @@ fn dependency_clones(dependencies: &Dependencies) -> Vec<proc_macro2::TokenStrea
 }
 
 fn code_literal(expr: &Expr) -> LitStr {
-    let text = expr
-        .span()
-        .source_text()
-        .unwrap_or_else(|| expr.to_token_stream().to_string());
+    let token_text = expr.to_token_stream().to_string();
+    let mut text = expr.span().source_text().unwrap_or_else(|| token_text.clone());
+    let source_tokens = text.split_whitespace().count();
+    let token_tokens = token_text.split_whitespace().count();
+    if source_tokens < token_tokens {
+        text = token_text;
+    }
     LitStr::new(&text, Span::call_site())
 }

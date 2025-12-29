@@ -437,6 +437,7 @@ impl Default for WidgetPlaybookState {
 
 fn playbook(nb: &mut Notebook) {
     view!(nb, (), |ui| {
+        // Introduction
         md!(
             ui,
             "# Palette Playbook\n\nBase tokens map semantic roles → RAL paint chips. Derived colors are small blends on top."
