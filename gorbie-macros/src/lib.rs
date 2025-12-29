@@ -1,10 +1,9 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use proc_macro_crate::{crate_name, FoundCrate};
-use quote::{quote, ToTokens};
+use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::spanned::Spanned;
 use syn::{parse_macro_input, Expr, Ident, LitStr, Result, Token};
 
 struct Dependencies {
@@ -132,11 +131,7 @@ impl Parse for DeriveInput {
 
 #[proc_macro]
 pub fn view(input: TokenStream) -> TokenStream {
-
-    let mut s = input.clone().into_iter().map(|t| {
-        t.span().source_text().unwrap_or("".to_string())
-    }).fold(String::from("view!("), |mut acc, x| { acc.push_str(&x); acc });
-    s.push_str(")");
+    let code_text = LitStr::new(&macro_source_text("view!", &input), Span::call_site());
     let input = parse_macro_input!(input as ViewInput);
     let gorbie = gorbie_path();
     let ViewInput {
@@ -144,7 +139,6 @@ pub fn view(input: TokenStream) -> TokenStream {
         dependencies,
         code,
     } = input;
-    let code_text = LitStr::new(&s, Span::call_site());
     let clones = dependency_clones(&dependencies);
 
     TokenStream::from(quote!({
@@ -155,10 +149,7 @@ pub fn view(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn state(input: TokenStream) -> TokenStream {
-    let mut s = input.clone().into_iter().map(|t| {
-        t.span().source_text().unwrap_or("".to_string())
-    }).fold(String::from("state!("), |mut acc, x| { acc.push_str(&x); acc });
-    s.push_str(")");
+    let code_text = LitStr::new(&macro_source_text("state!", &input), Span::call_site());
     let input = parse_macro_input!(input as StateInput);
     let gorbie = gorbie_path();
     let StateInput {
@@ -167,7 +158,6 @@ pub fn state(input: TokenStream) -> TokenStream {
         init,
         code,
     } = input;
-    let code_text = LitStr::new(&s, Span::call_site());
     let clones = dependency_clones(&dependencies);
     let init_expr = init.map_or_else(|| quote!(Default::default()), |expr| quote!(#expr));
 
@@ -179,10 +169,7 @@ pub fn state(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn derive(input: TokenStream) -> TokenStream {
-    let mut s = input.clone().into_iter().map(|t| {
-        t.span().source_text().unwrap_or("".to_string())
-    }).fold(String::from("derive!("), |mut acc, x| { acc.push_str(&x); acc });
-    s.push_str(")");
+    let code_text = LitStr::new(&macro_source_text("derive!", &input), Span::call_site());
     let input = parse_macro_input!(input as DeriveInput);
     let gorbie = gorbie_path();
     let DeriveInput {
@@ -190,7 +177,6 @@ pub fn derive(input: TokenStream) -> TokenStream {
         dependencies,
         code,
     } = input;
-    let code_text = LitStr::new(&s, Span::call_site());
     let clones = dependency_clones(&dependencies);
     let dep_idents = dependencies.idents.iter();
 
@@ -241,13 +227,148 @@ fn dependency_clones(dependencies: &Dependencies) -> Vec<proc_macro2::TokenStrea
         .collect()
 }
 
-fn code_literal(expr: &Expr) -> LitStr {
-    let token_text = expr.to_token_stream().to_string();
-    let mut text = expr.span().source_text().unwrap_or_else(|| token_text.clone());
-    let source_tokens = text.split_whitespace().count();
-    let token_tokens = token_text.split_whitespace().count();
-    if source_tokens < token_tokens {
-        text = token_text;
+fn macro_source_text(name: &str, input: &TokenStream) -> String {
+    let mut text = String::new();
+    text.push_str(name);
+    text.push('(');
+
+    let mut iter = input.clone().into_iter().peekable();
+    let mut prev = None;
+    while let Some(token) = next_token(&mut iter) {
+        if let Some(prev_token) = &prev {
+            if needs_space(prev_token, &token) {
+                text.push(' ');
+            }
+        }
+        text.push_str(&token.text);
+        prev = Some(token);
     }
-    LitStr::new(&text, Span::call_site())
+
+    text.push(')');
+    text
+}
+
+#[derive(Clone)]
+enum TokenKind {
+    IdentLike,
+    Group(proc_macro::Delimiter),
+    Punct,
+}
+
+#[derive(Clone)]
+struct TokenInfo {
+    text: String,
+    kind: TokenKind,
+}
+
+fn next_token<I>(iter: &mut std::iter::Peekable<I>) -> Option<TokenInfo>
+where
+    I: Iterator<Item = proc_macro::TokenTree>,
+{
+    let token = iter.next()?;
+    let info = match token {
+        proc_macro::TokenTree::Ident(ident) => TokenInfo {
+            text: ident
+                .span()
+                .source_text()
+                .unwrap_or_else(|| ident.to_string()),
+            kind: TokenKind::IdentLike,
+        },
+        proc_macro::TokenTree::Literal(literal) => TokenInfo {
+            text: literal
+                .span()
+                .source_text()
+                .unwrap_or_else(|| literal.to_string()),
+            kind: TokenKind::IdentLike,
+        },
+        proc_macro::TokenTree::Group(group) => TokenInfo {
+            text: group
+                .span()
+                .source_text()
+                .unwrap_or_else(|| group.to_string()),
+            kind: TokenKind::Group(group.delimiter()),
+        },
+        proc_macro::TokenTree::Punct(punct) => {
+            let mut text = punct
+                .span()
+                .source_text()
+                .unwrap_or_else(|| punct.to_string());
+            let mut spacing = punct.spacing();
+            while spacing == proc_macro::Spacing::Joint {
+                if !matches!(iter.peek(), Some(proc_macro::TokenTree::Punct(_))) {
+                    break;
+                }
+                let proc_macro::TokenTree::Punct(next_punct) = iter
+                    .next()
+                    .expect("peeked punctuation should be present") else {
+                    break;
+                };
+                text.push_str(
+                    &next_punct
+                        .span()
+                        .source_text()
+                        .unwrap_or_else(|| next_punct.to_string()),
+                );
+                spacing = next_punct.spacing();
+            }
+            TokenInfo {
+                text,
+                kind: TokenKind::Punct,
+            }
+        }
+    };
+    Some(info)
+}
+
+fn needs_space(prev: &TokenInfo, curr: &TokenInfo) -> bool {
+    if curr.is_punct(",") || curr.is_punct(";") {
+        return false;
+    }
+    if curr.is_punct("::") || curr.is_punct(".") || curr.is_punct("!") {
+        return false;
+    }
+    if prev.is_punct("::") || prev.is_punct(".") || prev.is_punct("!") {
+        return false;
+    }
+    if prev.is_ident_like() && curr.is_group_paren_or_bracket() {
+        return false;
+    }
+    if curr.is_pipe() && prev.is_ident_like() {
+        return false;
+    }
+    if prev.is_pipe() {
+        if curr.is_group_brace() {
+            return true;
+        }
+        if curr.is_ident_like() {
+            return false;
+        }
+    }
+    true
+}
+
+impl TokenInfo {
+    fn is_ident_like(&self) -> bool {
+        matches!(self.kind, TokenKind::IdentLike | TokenKind::Group(_))
+    }
+
+    fn is_group_paren_or_bracket(&self) -> bool {
+        matches!(
+            self.kind,
+            TokenKind::Group(proc_macro::Delimiter::Parenthesis)
+                | TokenKind::Group(proc_macro::Delimiter::Bracket)
+        )
+    }
+
+    fn is_group_brace(&self) -> bool {
+        matches!(self.kind, TokenKind::Group(proc_macro::Delimiter::Brace))
+    }
+
+    fn is_pipe(&self) -> bool {
+        self.is_punct("|")
+    }
+
+    fn is_punct(&self, text: &str) -> bool {
+        matches!(self.kind, TokenKind::Punct) && self.text == text
+    }
 }
