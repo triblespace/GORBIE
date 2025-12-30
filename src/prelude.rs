@@ -4,7 +4,7 @@ pub use crate::widgets;
 // Re-export macros and helpers
 pub use crate::dataflow::ComputedState;
 pub use crate::dataflow::NotifiedState;
-pub use crate::derive;
+pub use crate::reactive;
 pub use crate::md;
 pub use crate::notebook;
 pub use crate::state;

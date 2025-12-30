@@ -146,8 +146,8 @@ pub fn state(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn derive(input: TokenStream) -> TokenStream {
-    let code_text = LitStr::new(&macro_source_text("derive!", &input), Span::call_site());
+pub fn reactive(input: TokenStream) -> TokenStream {
+    let code_text = LitStr::new(&macro_source_text("reactive!", &input), Span::call_site());
     let input = parse_macro_input!(input as DeriveInput);
     let gorbie = gorbie_path();
     let DeriveInput {

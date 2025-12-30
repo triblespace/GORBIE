@@ -4,11 +4,11 @@
 //! Often it is enough to wrap the object in question into another layer of `Arc`s
 //! and `RWLock`s in addition to what Gorby already does with its shared state
 //! store. This is also why we compare explicit generations instead of return
-//! values, to broaden the range of types that can be used with `derive!`.
+//! values, to broaden the range of types that can be used with `reactive!`.
 //!
 //! But sometimes that isn't enough, e.g. when you want to display some application
 //! global state. This is why `state!` and `view!` are carefully designed to not
-//! rely on the dataflow mechanisms introduced by `derive`. Instead they can be
+//! rely on the dataflow mechanisms introduced by `reactive`. Instead they can be
 //! used, like any other mutable rust type, via the typed `StateId` handle.
 //!
 
@@ -21,7 +21,7 @@ pub mod state;
 pub mod themes;
 pub mod widgets;
 
-pub use gorbie_macros::{derive, state, view};
+pub use gorbie_macros::{reactive, state, view};
 
 use crate::state::StateStore;
 use crate::themes::industrial_dark;

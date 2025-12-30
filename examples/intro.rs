@@ -70,7 +70,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         }
     });
 
-    let progress = derive!(nb, [slider], move |ctx| {
+    let progress = reactive!(nb, [slider], move |ctx| {
         //Derives are executed on a new thread, so we can sleep or perform heavy computations here.
         // Sleep a bit so we can clearly see the "computing" hatch pattern.
         std::thread::sleep(std::time::Duration::from_secs(1));
