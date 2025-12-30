@@ -1158,11 +1158,12 @@ impl Default for InspectorState {
     }
 }
 
-fn entity_inspector(nb: &mut Notebook) {
-    view!(nb, move |ui| {
+fn main() {
+    notebook_begin!();
+    view!(move |ui| {
         md!(
             ui,
-            "# Triblespace entity inspector (prototype)\n\nTables-first tiled layout, with orthogonal “subway” routing through gutters.\n\nClick a table to select."
+            "# Hi Triblespace entity inspector (prototype)\n\nTables-first tiled layout, with orthogonal “subway” routing through gutters.\n\nClick a table to select."
         );
     });
 
@@ -1174,9 +1175,8 @@ fn entity_inspector(nb: &mut Notebook) {
     let space = std::sync::Arc::new(space);
     let graph = std::sync::Arc::new(build_entity_graph(&space, &formatter_cache, limits));
 
-    let inspector = state!(
-        nb,
-        InspectorState {
+    state!(
+        inspector = InspectorState {
             selected: default_selected,
             columns: 0,
         },
@@ -1222,15 +1222,12 @@ _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • 
         }
     );
 
-    view!(nb, move |ui| {
+    view!(move |ui| {
         let selected = ui
             .read(inspector)
             .expect("inspector state missing")
             .selected;
         md!(ui, "Selected entity: `{}`", id_short(selected));
     });
-}
-
-fn main() {
-    notebook!(entity_inspector);
+    notebook_end!();
 }

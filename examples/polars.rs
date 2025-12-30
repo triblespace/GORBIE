@@ -9,16 +9,18 @@
 //! ```
 
 use polars::prelude::*;
+use GORBIE::dataflow::ComputedState;
 use GORBIE::md;
-use GORBIE::notebook;
+use GORBIE::notebook_begin;
+use GORBIE::notebook_end;
 use GORBIE::state;
 use GORBIE::view;
 use GORBIE::widgets::dataframe;
 use GORBIE::widgets::load_auto;
-use GORBIE::Notebook;
 
-fn polars(nb: &mut Notebook) {
-    let df = state!(nb, |ui, value| {
+fn main() {
+    notebook_begin!();
+    state!(df = ComputedState::default(), |ui, value| {
         md!(
             ui,
             "# Polars
@@ -35,14 +37,11 @@ In this notebook we're going to use the `polars` crate to create a simple datafr
         }
     });
 
-    view!(nb, move |ui| {
+    view!(move |ui| {
         let Some(df) = ui.try_ready(df) else {
             return;
         };
         dataframe(ui, &df);
     });
-}
-
-fn main() {
-    notebook!(polars);
+    notebook_end!();
 }

@@ -9,11 +9,11 @@
 use egui::Color32;
 use egui::{self};
 use GORBIE::md;
-use GORBIE::notebook;
+use GORBIE::notebook_begin;
+use GORBIE::notebook_end;
 use GORBIE::state;
 use GORBIE::view;
 use GORBIE::widgets;
-use GORBIE::Notebook;
 
 fn to_hex(c: Color32) -> String {
     let r = c.r();
@@ -435,8 +435,9 @@ impl Default for WidgetPlaybookState {
     }
 }
 
-fn playbook(nb: &mut Notebook) {
-    view!(nb, |ui| {
+fn main() {
+    notebook_begin!();
+    view!(|ui| {
         // Introduction
         md!(
             ui,
@@ -444,7 +445,7 @@ fn playbook(nb: &mut Notebook) {
         );
     });
 
-    view!(nb, |ui| {
+    view!(|ui| {
         let light_foreground = GORBIE::themes::ral(9011);
         let light_background = GORBIE::themes::ral(7047);
         let light_surface = GORBIE::themes::ral(7047);
@@ -521,7 +522,7 @@ fn playbook(nb: &mut Notebook) {
         });
     });
 
-    let _palette_state = state!(nb, PaletteState::default(), |ui, state| {
+    state!(_palette_state = PaletteState::default(), |ui, state| {
         ui.label(egui::RichText::new("RAL PICKER").monospace().strong());
         ui.add_space(12.0);
 
@@ -596,14 +597,14 @@ fn playbook(nb: &mut Notebook) {
         });
     });
 
-    view!(nb, |ui| {
+    view!(|ui| {
         md!(
             ui,
             "## Widget Playbook\n\nA quick showcase of our custom widgets. The value is normalized to `[0, 1]`."
         );
     });
 
-    let widget_state = state!(nb, WidgetPlaybookState::default(), |ui, state| {
+    state!(widget_state = WidgetPlaybookState::default(), |ui, state| {
         ui.label(egui::RichText::new("BUTTONS").monospace().strong());
         ui.horizontal(|ui| {
             let _ = ui.add(widgets::Button::new("BUTTON"));
@@ -624,7 +625,7 @@ fn playbook(nb: &mut Notebook) {
         });
     });
 
-    view!(nb, move |ui| {
+    view!(move |ui| {
         ui.label(egui::RichText::new("SLIDER + METERS").monospace().strong());
 
         let mut state = ui.read_mut(widget_state).expect("widget state missing");
@@ -653,7 +654,7 @@ fn playbook(nb: &mut Notebook) {
         );
     });
 
-    view!(nb, move |ui| {
+    view!(move |ui| {
         ui.label(egui::RichText::new("HISTOGRAM").monospace().strong());
         ui.monospace("Uses COUNT/BYTES + slider to shift the synthetic distribution.");
 
@@ -691,8 +692,5 @@ fn playbook(nb: &mut Notebook) {
             ui.add(widgets::Histogram::new(&buckets, y_axis).plot_height(96.0));
         });
     });
-}
-
-fn main() {
-    notebook!(playbook);
+    notebook_end!();
 }

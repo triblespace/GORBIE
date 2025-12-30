@@ -6,14 +6,15 @@
 //! ```
 
 use GORBIE::md;
-use GORBIE::notebook;
+use GORBIE::notebook_begin;
+use GORBIE::notebook_end;
 use GORBIE::state;
 use GORBIE::view;
 use GORBIE::widgets;
-use GORBIE::Notebook;
 
-fn candle(nb: &mut Notebook) {
-    let _prompt = state!(nb, "", move |ui, value| {
+fn main() {
+    notebook_begin!();
+    state!(_prompt = "", move |ui, value| {
         md!(ui,
         "# Candle
 In this notebook we're going to use huggingfaces `candle` crate, to create a simple prompt based chatbot.
@@ -28,9 +29,6 @@ In this notebook we're going to use huggingfaces `candle` crate, to create a sim
         });
     });
 
-    view!(nb, |_ui| {});
-}
-
-fn main() {
-    notebook!(candle);
+    view!(|_ui| {});
+    notebook_end!();
 }

@@ -20,13 +20,77 @@ impl Parse for Dependencies {
 }
 
 struct ViewInput {
-    notebook: Expr,
+    notebook: Option<Expr>,
     code: Expr,
 }
 
 impl Parse for ViewInput {
     fn parse(input: ParseStream) -> Result<Self> {
+        let first: Expr = input.parse()?;
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            if input.is_empty() {
+                return Ok(Self {
+                    notebook: None,
+                    code: first,
+                });
+            }
+            let code: Expr = input.parse()?;
+            if input.peek(Token![,]) {
+                input.parse::<Token![,]>()?;
+            }
+            if !input.is_empty() {
+                return Err(input.error("unexpected tokens"));
+            }
+            return Ok(Self {
+                notebook: Some(first),
+                code,
+            });
+        }
+        if !input.is_empty() {
+            return Err(input.error("unexpected tokens"));
+        }
+        Ok(Self {
+            notebook: None,
+            code: first,
+        })
+    }
+}
+
+struct StateInput {
+    notebook: Option<Expr>,
+    name: Ident,
+    init: Expr,
+    code: Expr,
+}
+
+impl Parse for StateInput {
+    fn parse(input: ParseStream) -> Result<Self> {
+        if input.peek(Ident) && input.peek2(Token![=]) {
+            let name: Ident = input.parse()?;
+            input.parse::<Token![=]>()?;
+            let init: Expr = input.parse()?;
+            input.parse::<Token![,]>()?;
+            let code: Expr = input.parse()?;
+            if input.peek(Token![,]) {
+                input.parse::<Token![,]>()?;
+            }
+            if !input.is_empty() {
+                return Err(input.error("unexpected tokens"));
+            }
+            return Ok(Self {
+                notebook: None,
+                name,
+                init,
+                code,
+            });
+        }
+
         let notebook: Expr = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let name: Ident = input.parse()?;
+        input.parse::<Token![=]>()?;
+        let init: Expr = input.parse()?;
         input.parse::<Token![,]>()?;
         let code: Expr = input.parse()?;
         if input.peek(Token![,]) {
@@ -35,70 +99,48 @@ impl Parse for ViewInput {
         if !input.is_empty() {
             return Err(input.error("unexpected tokens"));
         }
-        Ok(Self { notebook, code })
+        Ok(Self {
+            notebook: Some(notebook),
+            name,
+            init,
+            code,
+        })
     }
 }
 
-struct StateInput {
-    notebook: Expr,
-    init: Option<Expr>,
-    code: Expr,
-}
-
-impl Parse for StateInput {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let notebook: Expr = input.parse()?;
-        input.parse::<Token![,]>()?;
-        let first: Expr = input.parse()?;
-
-        if input.peek(Token![,]) {
-            input.parse::<Token![,]>()?;
-            if input.is_empty() {
-                return Ok(Self {
-                    notebook,
-                    init: None,
-                    code: first,
-                });
-            }
-
-            let second: Expr = input.parse()?;
-            if input.peek(Token![,]) {
-                input.parse::<Token![,]>()?;
-            }
-            if !input.is_empty() {
-                return Err(input.error("unexpected tokens"));
-            }
-            Ok(Self {
-                notebook,
-                init: Some(first),
-                code: second,
-            })
-        } else {
-            if input.peek(Token![,]) {
-                input.parse::<Token![,]>()?;
-            }
-            if !input.is_empty() {
-                return Err(input.error("unexpected tokens"));
-            }
-            Ok(Self {
-                notebook,
-                init: None,
-                code: first,
-            })
-        }
-    }
-}
-
-struct DeriveInput {
-    notebook: Expr,
+struct ReactiveInput {
+    notebook: Option<Expr>,
+    name: Ident,
     dependencies: Dependencies,
     code: Expr,
 }
 
-impl Parse for DeriveInput {
+impl Parse for ReactiveInput {
     fn parse(input: ParseStream) -> Result<Self> {
+        if input.peek(Ident) && input.peek2(Token![=]) {
+            let name: Ident = input.parse()?;
+            input.parse::<Token![=]>()?;
+            let dependencies: Dependencies = input.parse()?;
+            input.parse::<Token![,]>()?;
+            let code: Expr = input.parse()?;
+            if input.peek(Token![,]) {
+                input.parse::<Token![,]>()?;
+            }
+            if !input.is_empty() {
+                return Err(input.error("unexpected tokens"));
+            }
+            return Ok(Self {
+                notebook: None,
+                name,
+                dependencies,
+                code,
+            });
+        }
+
         let notebook: Expr = input.parse()?;
         input.parse::<Token![,]>()?;
+        let name: Ident = input.parse()?;
+        input.parse::<Token![=]>()?;
         let dependencies: Dependencies = input.parse()?;
         input.parse::<Token![,]>()?;
         let code: Expr = input.parse()?;
@@ -109,7 +151,8 @@ impl Parse for DeriveInput {
             return Err(input.error("unexpected tokens"));
         }
         Ok(Self {
-            notebook,
+            notebook: Some(notebook),
+            name,
             dependencies,
             code,
         })
@@ -122,6 +165,9 @@ pub fn view(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as ViewInput);
     let gorbie = gorbie_path();
     let ViewInput { notebook, code } = input;
+    let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| {
+        quote!(#expr)
+    });
 
     TokenStream::from(quote!({
         #gorbie::cards::stateless_card(#notebook, #code, Some(#code_text))
@@ -135,34 +181,52 @@ pub fn state(input: TokenStream) -> TokenStream {
     let gorbie = gorbie_path();
     let StateInput {
         notebook,
+        name,
         init,
         code,
     } = input;
-    let init_expr = init.map_or_else(|| quote!(Default::default()), |expr| quote!(#expr));
+    let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| {
+        quote!(#expr)
+    });
+    let init_expr = quote!(#init);
 
-    TokenStream::from(quote!({
-        #gorbie::cards::stateful_card(#notebook, #init_expr, #code, Some(#code_text))
-    }))
+    TokenStream::from(quote!(
+        let #name = #gorbie::cards::stateful_card(
+            #notebook,
+            #init_expr,
+            #code,
+            Some(#code_text),
+        );
+    ))
 }
 
 #[proc_macro]
 pub fn reactive(input: TokenStream) -> TokenStream {
     let code_text = LitStr::new(&macro_source_text("reactive!", &input), Span::call_site());
-    let input = parse_macro_input!(input as DeriveInput);
+    let input = parse_macro_input!(input as ReactiveInput);
     let gorbie = gorbie_path();
-    let DeriveInput {
+    let ReactiveInput {
         notebook,
+        name,
         dependencies,
         code,
     } = input;
+    let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| {
+        quote!(#expr)
+    });
     let dep_keys = dependencies
         .exprs
         .iter()
         .map(|expr| quote!(#gorbie::state::DependencyKey::new(#expr)));
 
-    TokenStream::from(quote!({
-        #gorbie::cards::reactive_card(#notebook, vec![#(#dep_keys),*], #code, Some(#code_text))
-    }))
+    TokenStream::from(quote!(
+        let #name = #gorbie::cards::reactive_card(
+            #notebook,
+            vec![#(#dep_keys),*],
+            #code,
+            Some(#code_text),
+        );
+    ))
 }
 
 fn gorbie_path() -> proc_macro2::TokenStream {

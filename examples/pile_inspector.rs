@@ -15,11 +15,11 @@ use triblespace::core::repo::{BlobStore, BlobStoreList, BlobStoreMeta, BranchSto
 use triblespace::core::value::RawValue;
 use GORBIE::dataflow::ComputedState;
 use GORBIE::md;
-use GORBIE::notebook;
+use GORBIE::notebook_begin;
+use GORBIE::notebook_end;
 use GORBIE::state;
 use GORBIE::view;
 use GORBIE::widgets;
-use GORBIE::Notebook;
 
 #[derive(Clone, Debug)]
 struct BlobInfo {
@@ -157,14 +157,14 @@ impl Default for InspectorState {
     }
 }
 
-fn pile_inspector(nb: &mut Notebook) {
+fn main() {
+    notebook_begin!();
     let default_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "./repo.pile".to_owned());
 
-    let inspector = state!(
-        nb,
-        InspectorState {
+    state!(
+        inspector = InspectorState {
             pile_path: default_path,
             max_rows: 200,
             histogram_bytes: false,
@@ -202,7 +202,7 @@ fn pile_inspector(nb: &mut Notebook) {
         }
     );
 
-    view!(nb, move |ui| {
+    view!(move |ui| {
         let mut state = ui.read_mut(inspector).expect("inspector state missing");
         md!(ui, "## Blob size distribution");
 
@@ -364,7 +364,7 @@ fn pile_inspector(nb: &mut Notebook) {
         );
     });
 
-    view!(nb, move |ui| {
+    view!(move |ui| {
         let state = ui.read(inspector).expect("inspector state missing");
         md!(ui, "## Summary");
 
@@ -417,7 +417,7 @@ fn pile_inspector(nb: &mut Notebook) {
         }
     });
 
-    view!(nb, move |ui| {
+    view!(move |ui| {
         let state = ui.read(inspector).expect("inspector state missing");
         md!(ui, "## Branches");
 
@@ -454,7 +454,7 @@ fn pile_inspector(nb: &mut Notebook) {
             });
     });
 
-    view!(nb, move |ui| {
+    view!(move |ui| {
         let state = ui.read(inspector).expect("inspector state missing");
         md!(ui, "## Blobs");
 
@@ -500,8 +500,5 @@ fn pile_inspector(nb: &mut Notebook) {
                 }
             });
     });
-}
-
-fn main() {
-    notebook!(pile_inspector);
+    notebook_end!();
 }

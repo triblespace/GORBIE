@@ -9,8 +9,9 @@ use std::ops::DerefMut;
 
 use GORBIE::prelude::*;
 
-fn intro(nb: &mut Notebook) {
-    view!(nb, move |ui| {
+fn main() {
+    notebook_begin!();
+    view!(move |ui| {
         md!(
             ui,
             "# GORBIE!
@@ -61,7 +62,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         );
     });
 
-    let slider = state!(nb, (0.5).into(), |ui, value: &mut NotifiedState<_>| {
+    state!(slider = (0.5).into(), |ui, value: &mut NotifiedState<_>| {
         if ui
             .add(widgets::Slider::new(value.deref_mut(), 0.0..=1.0).text("input"))
             .changed()
@@ -70,7 +71,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         }
     });
 
-    let progress = reactive!(nb, [slider], move |ctx| {
+    reactive!(progress = [slider], move |ctx| {
         //Derives are executed on a new thread, so we can sleep or perform heavy computations here.
         // Sleep a bit so we can clearly see the "computing" hatch pattern.
         std::thread::sleep(std::time::Duration::from_secs(1));
@@ -78,7 +79,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         slider * 0.5
     });
 
-    view!(nb, move |ui| {
+    view!(move |ui| {
         let Some(progress) = ui.try_ready(progress) else {
             return;
         };
@@ -89,8 +90,5 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
                 .scale_percent(),
         );
     });
-}
-
-fn main() {
-    notebook!(intro);
+    notebook_end!();
 }

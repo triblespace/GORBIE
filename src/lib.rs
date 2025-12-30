@@ -58,6 +58,7 @@ struct CodeNoteDraw {
 /// Each card is a piece of content that can be displayed in the notebook.
 /// Cards can be stateless, stateful, or reactively derived from other cards.
 pub struct Notebook {
+    title: String,
     header_title: egui::WidgetText,
     pub cards: Vec<Box<dyn cards::Card + 'static>>,
     pub(crate) state_store: Arc<StateStore>,
@@ -73,14 +74,24 @@ pub struct Notebook {
 
 impl Default for Notebook {
     fn default() -> Self {
-        Self::new()
+        Self::new(String::new())
     }
 }
 
 impl Notebook {
-    pub fn new() -> Self {
+    pub fn new(name: impl Into<String>) -> Self {
+        let title = name.into();
+        let header_title = if title.is_empty() {
+            egui::WidgetText::default()
+        } else {
+            egui::RichText::new(title.to_uppercase())
+                .monospace()
+                .strong()
+                .into()
+        };
         Self {
-            header_title: egui::WidgetText::default(),
+            title,
+            header_title,
             cards: Vec::new(),
             state_store: Arc::new(StateStore::new()),
             code_notes_open: Vec::new(),
@@ -106,12 +117,13 @@ impl Notebook {
         self.card_placeholder_sizes.push(egui::Vec2::ZERO);
     }
 
-    pub fn run(self, name: &str) -> eframe::Result {
-        let mut notebook = self;
-        notebook.header_title = egui::RichText::new(name.to_uppercase())
-            .monospace()
-            .strong()
-            .into();
+    pub fn run(self) -> eframe::Result {
+        let notebook = self;
+        let window_title = if notebook.title.is_empty() {
+            "GORBIE".to_owned()
+        } else {
+            notebook.title.clone()
+        };
 
         let mut native_options = eframe::NativeOptions::default();
         native_options.persist_window = true;
@@ -121,7 +133,7 @@ impl Notebook {
             .with_min_inner_size(egui::vec2(480.0, 360.0));
 
         eframe::run_native(
-            name,
+            &window_title,
             native_options,
             Box::new(|cc| {
                 let ctx = cc.egui_ctx.clone();
@@ -1153,17 +1165,33 @@ fn show_postit_tooltip(ui: &egui::Ui, response: &egui::Response, text: &str) {
 }
 
 #[macro_export]
-macro_rules! notebook {
-    ($setup:ident) => {
-        let mut notebook = Notebook::new();
-        $setup(&mut notebook);
-
-        let this_file = file!();
-        let filename = std::path::Path::new(this_file)
+macro_rules! notebook_begin {
+    () => {
+        let __gorbie_notebook_file = file!();
+        let __gorbie_notebook_name = std::path::Path::new(__gorbie_notebook_file)
             .file_name()
             .and_then(|s| s.to_str())
-            .unwrap();
+            .unwrap_or(__gorbie_notebook_file);
+        let mut __gorbie_notebook_owner = $crate::Notebook::new(__gorbie_notebook_name);
+        macro_rules! __gorbie_notebook {
+            () => {
+                __gorbie_notebook_owner
+            };
+        }
+    };
+    ($name:expr) => {
+        let mut __gorbie_notebook_owner = $crate::Notebook::new($name);
+        macro_rules! __gorbie_notebook {
+            () => {
+                __gorbie_notebook_owner
+            };
+        }
+    };
+}
 
-        notebook.run(filename).unwrap();
+#[macro_export]
+macro_rules! notebook_end {
+    () => {
+        __gorbie_notebook!().run().unwrap();
     };
 }
