@@ -111,27 +111,18 @@ impl<T: Send + Sync + std::fmt::Debug + PartialEq + 'static> Card for ReactiveCa
             }
         };
 
-        let is_updating = store
-            .read(value)
-            .map(|current| {
-                matches!(
-                    &*current,
-                    ComputedState::Init(_) | ComputedState::Stale(_, _, _)
-                )
-            })
-            .unwrap_or(false);
+        let is_updating =
+            matches!(&*current, ComputedState::Init(_) | ComputedState::Stale(_, _, _));
         if is_updating {
             ui.ctx().request_repaint();
         }
 
-        let value_text = store
-            .read(value)
-            .map(|current| match &*current {
-                ComputedState::Ready(value, _) => format!("{value:?}"),
-                ComputedState::Stale(previous, _, _) => format!("{previous:?}"),
-                _ => "...".to_owned(),
-            })
-            .unwrap_or_else(|| "...".to_owned());
+        let value_text = match &*current {
+            ComputedState::Ready(value, _) => format!("{value:?}"),
+            ComputedState::Stale(previous, _, _) => format!("{previous:?}"),
+            _ => "...".to_owned(),
+        };
+        drop(current);
 
         let font_id = egui::TextStyle::Monospace.resolve(ui.style());
         let row_height = ui.fonts(|fonts| fonts.row_height(&font_id)) + 8.0;
