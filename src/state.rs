@@ -4,7 +4,11 @@ use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use parking_lot::RawRwLock;
 use parking_lot::RwLock;
+
+pub type ArcReadGuard<T> = parking_lot::lock_api::ArcRwLockReadGuard<RawRwLock, T>;
+pub type ArcWriteGuard<T> = parking_lot::lock_api::ArcRwLockWriteGuard<RawRwLock, T>;
 
 use crate::dataflow::Dependency;
 
@@ -71,8 +75,8 @@ impl DependencyKey {
 
 fn generation_for<T: Dependency + 'static>(store: &StateStore, id: ErasedStateId) -> Option<usize> {
     store
-        .try_with_state(StateId::from_erased(id), |state: &T| state.generation())
-        .and_then(|generation| generation)
+        .try_read(StateId::<T>::from_erased(id))
+        .and_then(|state| state.generation())
 }
 
 pub struct StateStore {
@@ -103,52 +107,32 @@ impl StateStore {
         StateId::new(key)
     }
 
-    pub fn read<T: Clone + 'static>(&self, id: StateId<T>) -> Option<T> {
+    pub fn read<T: 'static>(&self, id: StateId<T>) -> Option<ArcReadGuard<T>> {
         let state = self.state(id)?;
-        let guard = state.read();
-        Some(guard.clone())
+        Some(state.read_arc())
     }
 
-    pub fn try_read<T: Clone + 'static>(&self, id: StateId<T>) -> Option<T> {
+    pub fn try_read<T: 'static>(&self, id: StateId<T>) -> Option<ArcReadGuard<T>> {
         let state = self.state(id)?;
-        let guard = state.try_read()?;
-        Some(guard.clone())
+        state.try_read_arc()
     }
 
-    pub fn read_dependency<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
-        self.with_state(id, |state| state.ready())
-            .and_then(|value| value)
-    }
-
-    pub fn try_read_dependency<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
-        self.try_with_state(id, |state| state.ready())
-            .and_then(|value| value)
-    }
-
-    pub fn with_state<T: 'static, R>(&self, id: StateId<T>, f: impl FnOnce(&T) -> R) -> Option<R> {
+    pub fn read_mut<T: 'static>(&self, id: StateId<T>) -> Option<ArcWriteGuard<T>> {
         let state = self.state(id)?;
-        let guard = state.read();
-        Some(f(&guard))
+        Some(state.write_arc())
     }
 
-    pub fn try_with_state<T: 'static, R>(
-        &self,
-        id: StateId<T>,
-        f: impl FnOnce(&T) -> R,
-    ) -> Option<R> {
+    pub fn try_read_mut<T: 'static>(&self, id: StateId<T>) -> Option<ArcWriteGuard<T>> {
         let state = self.state(id)?;
-        let guard = state.try_read()?;
-        Some(f(&guard))
+        state.try_write_arc()
     }
 
-    pub fn with_state_mut<T: 'static, R>(
-        &self,
-        id: StateId<T>,
-        f: impl FnOnce(&mut T) -> R,
-    ) -> Option<R> {
-        let state = self.state(id)?;
-        let mut guard = state.write();
-        Some(f(&mut guard))
+    pub fn ready<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
+        self.read(id).and_then(|state| state.ready())
+    }
+
+    pub fn try_ready<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
+        self.try_read(id).and_then(|state| state.ready())
     }
 
     fn state<T: 'static>(&self, id: StateId<T>) -> Option<Arc<RwLock<T>>> {
@@ -180,11 +164,11 @@ impl<'a> StateReader<'a> {
         Self { store }
     }
 
-    pub fn read<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
-        self.store.read_dependency(id)
+    pub fn ready<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
+        self.store.ready(id)
     }
 
-    pub fn try_read<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
-        self.store.try_read_dependency(id)
+    pub fn try_ready<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
+        self.store.try_ready(id)
     }
 }

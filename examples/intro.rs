@@ -74,12 +74,12 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         //Derives are executed on a new thread, so we can sleep or perform heavy computations here.
         // Sleep a bit so we can clearly see the "computing" hatch pattern.
         std::thread::sleep(std::time::Duration::from_secs(1));
-        let slider = ctx.read(slider).unwrap_or_default();
+        let slider = ctx.ready(slider).unwrap_or_default();
         slider * 0.5
     });
 
     view!(nb, move |ui| {
-        let Some(progress) = ui.try_read_dependency(progress) else {
+        let Some(progress) = ui.try_ready(progress) else {
             return;
         };
         md!(ui, "Progress: {:.2}%", progress * 100.0);

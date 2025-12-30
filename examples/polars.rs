@@ -36,7 +36,7 @@ In this notebook we're going to use the `polars` crate to create a simple datafr
     });
 
     view!(nb, move |ui| {
-        let Some(df) = ui.try_read_dependency(df) else {
+        let Some(df) = ui.try_ready(df) else {
             return;
         };
         dataframe(ui, &df);

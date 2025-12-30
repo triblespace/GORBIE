@@ -20,9 +20,10 @@ impl<T: std::fmt::Debug + std::default::Default + 'static> Card for StatefulCard
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 let mut ctx = CardContext::new(ui, store);
-                store
-                    .with_state_mut(state, |current| (self.function)(&mut ctx, current))
+                let mut current = store
+                    .read_mut(state)
                     .expect("state handle missing from store");
+                (self.function)(&mut ctx, &mut current);
             });
     }
 

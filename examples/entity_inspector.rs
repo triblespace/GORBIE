@@ -1224,8 +1224,9 @@ _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • 
 
     view!(nb, move |ui| {
         let selected = ui
-            .with_state(inspector, |_, state| state.selected)
-            .expect("inspector state missing");
+            .read(inspector)
+            .expect("inspector state missing")
+            .selected;
         md!(ui, "Selected entity: `{}`", id_short(selected));
     });
 }

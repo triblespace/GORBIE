@@ -52,70 +52,70 @@ impl<T: Send + Sync + std::fmt::Debug + PartialEq + 'static> Card for ReactiveCa
         let function = Arc::clone(&self.function);
         let store_handle = Arc::clone(&self.store);
 
-        store
-            .with_state_mut(value, |current| {
-                *current = match std::mem::replace(current, ComputedState::Undefined) {
-                    ComputedState::Undefined => {
-                        if let Some(generations) = dep_generations.clone() {
-                            self.generations = Some(generations);
-                            ComputedState::Init(std::thread::spawn(move || {
+        let mut current = store
+            .read_mut(value)
+            .expect("reactive state handle missing from store");
+        *current = match std::mem::replace(&mut *current, ComputedState::Undefined) {
+            ComputedState::Undefined => {
+                if let Some(generations) = dep_generations.clone() {
+                    self.generations = Some(generations);
+                    ComputedState::Init(std::thread::spawn(move || {
+                        let reader = StateReader::new(store_handle.as_ref());
+                        (function)(&reader)
+                    }))
+                } else {
+                    ComputedState::Undefined
+                }
+            }
+
+            ComputedState::Init(handle) if handle.is_finished() => {
+                ui.ctx().request_repaint();
+                ComputedState::Ready(handle.join().unwrap(), 0)
+            }
+
+            ComputedState::Init(handle) => ComputedState::Init(handle),
+
+            ComputedState::Ready(current, generation) => {
+                if let Some(generations) = dep_generations.clone() {
+                    if Some(generations.clone()) != self.generations {
+                        self.generations = Some(generations);
+                        ComputedState::Stale(
+                            current,
+                            generation,
+                            std::thread::spawn(move || {
                                 let reader = StateReader::new(store_handle.as_ref());
                                 (function)(&reader)
-                            }))
-                        } else {
-                            ComputedState::Undefined
-                        }
+                            }),
+                        )
+                    } else {
+                        ComputedState::Ready(current, generation)
                     }
+                } else {
+                    ComputedState::Ready(current, generation)
+                }
+            }
+            ComputedState::Stale(previous, generation, join_handle)
+                if join_handle.is_finished() =>
+            {
+                let result = join_handle.join().unwrap();
+                if result != previous {
+                    ui.ctx().request_repaint();
+                    ComputedState::Ready(result, generation + 1)
+                } else {
+                    ComputedState::Ready(result, generation)
+                }
+            }
 
-                    ComputedState::Init(handle) if handle.is_finished() => {
-                        ui.ctx().request_repaint();
-                        ComputedState::Ready(handle.join().unwrap(), 0)
-                    }
-
-                    ComputedState::Init(handle) => ComputedState::Init(handle),
-
-                    ComputedState::Ready(current, generation) => {
-                        if let Some(generations) = dep_generations.clone() {
-                            if Some(generations.clone()) != self.generations {
-                                self.generations = Some(generations);
-                                ComputedState::Stale(
-                                    current,
-                                    generation,
-                                    std::thread::spawn(move || {
-                                        let reader = StateReader::new(store_handle.as_ref());
-                                        (function)(&reader)
-                                    }),
-                                )
-                            } else {
-                                ComputedState::Ready(current, generation)
-                            }
-                        } else {
-                            ComputedState::Ready(current, generation)
-                        }
-                    }
-                    ComputedState::Stale(previous, generation, join_handle)
-                        if join_handle.is_finished() =>
-                    {
-                        let result = join_handle.join().unwrap();
-                        if result != previous {
-                            ui.ctx().request_repaint();
-                            ComputedState::Ready(result, generation + 1)
-                        } else {
-                            ComputedState::Ready(result, generation)
-                        }
-                    }
-
-                    ComputedState::Stale(current, generation, join_handle) => {
-                        ComputedState::Stale(current, generation, join_handle)
-                    }
-                };
-            })
-            .expect("reactive state handle missing from store");
+            ComputedState::Stale(current, generation, join_handle) => {
+                ComputedState::Stale(current, generation, join_handle)
+            }
+        };
 
         let is_updating = store
-            .with_state(value, |current| {
+            .read(value)
+            .map(|current| {
                 matches!(
-                    current,
+                    &*current,
                     ComputedState::Init(_) | ComputedState::Stale(_, _, _)
                 )
             })
@@ -125,7 +125,8 @@ impl<T: Send + Sync + std::fmt::Debug + PartialEq + 'static> Card for ReactiveCa
         }
 
         let value_text = store
-            .with_state(value, |current| match current {
+            .read(value)
+            .map(|current| match &*current {
                 ComputedState::Ready(value, _) => format!("{value:?}"),
                 ComputedState::Stale(previous, _, _) => format!("{previous:?}"),
                 _ => "...".to_owned(),

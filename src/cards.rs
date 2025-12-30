@@ -9,7 +9,7 @@ pub use stateful_card::*;
 pub use stateless_card::*;
 
 use crate::dataflow::Dependency;
-use crate::state::{StateId, StateStore};
+use crate::state::{ArcReadGuard, ArcWriteGuard, StateId, StateStore};
 
 pub struct CardContext<'a> {
     ui: &'a mut egui::Ui,
@@ -25,40 +25,28 @@ impl<'a> CardContext<'a> {
         self.store
     }
 
-    pub fn with_state<T: 'static, R>(
-        &mut self,
-        id: StateId<T>,
-        f: impl FnOnce(&mut egui::Ui, &T) -> R,
-    ) -> Option<R> {
-        let ui = &mut *self.ui;
-        let store = self.store;
-        store.with_state(id, |state| f(ui, state))
-    }
-
-    pub fn with_state_mut<T: 'static, R>(
-        &mut self,
-        id: StateId<T>,
-        f: impl FnOnce(&mut egui::Ui, &mut T) -> R,
-    ) -> Option<R> {
-        let ui = &mut *self.ui;
-        let store = self.store;
-        store.with_state_mut(id, |state| f(ui, state))
-    }
-
-    pub fn read<T: Clone + 'static>(&self, id: StateId<T>) -> Option<T> {
+    pub fn read<T: 'static>(&self, id: StateId<T>) -> Option<ArcReadGuard<T>> {
         self.store.read(id)
     }
 
-    pub fn try_read<T: Clone + 'static>(&self, id: StateId<T>) -> Option<T> {
+    pub fn try_read<T: 'static>(&self, id: StateId<T>) -> Option<ArcReadGuard<T>> {
         self.store.try_read(id)
     }
 
-    pub fn read_dependency<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
-        self.store.read_dependency(id)
+    pub fn read_mut<T: 'static>(&self, id: StateId<T>) -> Option<ArcWriteGuard<T>> {
+        self.store.read_mut(id)
     }
 
-    pub fn try_read_dependency<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
-        self.store.try_read_dependency(id)
+    pub fn try_read_mut<T: 'static>(&self, id: StateId<T>) -> Option<ArcWriteGuard<T>> {
+        self.store.try_read_mut(id)
+    }
+
+    pub fn ready<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
+        self.store.ready(id)
+    }
+
+    pub fn try_ready<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
+        self.store.try_ready(id)
     }
 }
 

@@ -45,7 +45,7 @@ Development is part of the [trible.space](https://trible.space) project.
         let Some(value) = ui.read(slider) else {
             return;
         };
-        ui.add(egui::ProgressBar::new(value).text("output"));
+        ui.add(egui::ProgressBar::new(*value).text("output"));
     });
 }
 

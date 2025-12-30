@@ -627,12 +627,9 @@ fn playbook(nb: &mut Notebook) {
     view!(nb, move |ui| {
         ui.label(egui::RichText::new("SLIDER + METERS").monospace().strong());
 
-        let progress = ui
-            .with_state_mut(widget_state, |ui, state| {
-                let _ = ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).text("LEVEL"));
-                state.progress
-            })
-            .unwrap_or(0.0);
+        let mut state = ui.read_mut(widget_state).expect("widget state missing");
+        let _ = ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).text("LEVEL"));
+        let progress = state.progress;
 
         ui.monospace(format!("Value: {progress:.3}"));
         ui.add(
@@ -660,11 +657,8 @@ fn playbook(nb: &mut Notebook) {
         ui.label(egui::RichText::new("HISTOGRAM").monospace().strong());
         ui.monospace("Uses COUNT/BYTES + slider to shift the synthetic distribution.");
 
-        let (progress, metric_bytes) = ui
-            .with_state(widget_state, |_, state| {
-                (state.progress, state.metric_bytes)
-            })
-            .unwrap_or((0.0, false));
+        let state = ui.read(widget_state).expect("widget state missing");
+        let (progress, metric_bytes) = (state.progress, state.metric_bytes);
 
         let y_axis = if metric_bytes {
             widgets::HistogramYAxis::Bytes
