@@ -7,29 +7,26 @@ use syn::punctuated::Punctuated;
 use syn::{parse_macro_input, Expr, Ident, LitStr, Result, Token};
 
 struct Dependencies {
-    idents: Punctuated<Ident, Token![,]>,
+    exprs: Punctuated<Expr, Token![,]>,
 }
 
 impl Parse for Dependencies {
     fn parse(input: ParseStream) -> Result<Self> {
         let content;
-        syn::parenthesized!(content in input);
-        let idents = content.parse_terminated(Ident::parse, Token![,])?;
-        Ok(Self { idents })
+        syn::bracketed!(content in input);
+        let exprs = content.parse_terminated(Expr::parse, Token![,])?;
+        Ok(Self { exprs })
     }
 }
 
 struct ViewInput {
     notebook: Expr,
-    dependencies: Dependencies,
     code: Expr,
 }
 
 impl Parse for ViewInput {
     fn parse(input: ParseStream) -> Result<Self> {
         let notebook: Expr = input.parse()?;
-        input.parse::<Token![,]>()?;
-        let dependencies: Dependencies = input.parse()?;
         input.parse::<Token![,]>()?;
         let code: Expr = input.parse()?;
         if input.peek(Token![,]) {
@@ -38,17 +35,12 @@ impl Parse for ViewInput {
         if !input.is_empty() {
             return Err(input.error("unexpected tokens"));
         }
-        Ok(Self {
-            notebook,
-            dependencies,
-            code,
-        })
+        Ok(Self { notebook, code })
     }
 }
 
 struct StateInput {
     notebook: Expr,
-    dependencies: Dependencies,
     init: Option<Expr>,
     code: Expr,
 }
@@ -57,8 +49,6 @@ impl Parse for StateInput {
     fn parse(input: ParseStream) -> Result<Self> {
         let notebook: Expr = input.parse()?;
         input.parse::<Token![,]>()?;
-        let dependencies: Dependencies = input.parse()?;
-        input.parse::<Token![,]>()?;
         let first: Expr = input.parse()?;
 
         if input.peek(Token![,]) {
@@ -66,7 +56,6 @@ impl Parse for StateInput {
             if input.is_empty() {
                 return Ok(Self {
                     notebook,
-                    dependencies,
                     init: None,
                     code: first,
                 });
@@ -81,7 +70,6 @@ impl Parse for StateInput {
             }
             Ok(Self {
                 notebook,
-                dependencies,
                 init: Some(first),
                 code: second,
             })
@@ -94,7 +82,6 @@ impl Parse for StateInput {
             }
             Ok(Self {
                 notebook,
-                dependencies,
                 init: None,
                 code: first,
             })
@@ -134,15 +121,9 @@ pub fn view(input: TokenStream) -> TokenStream {
     let code_text = LitStr::new(&macro_source_text("view!", &input), Span::call_site());
     let input = parse_macro_input!(input as ViewInput);
     let gorbie = gorbie_path();
-    let ViewInput {
-        notebook,
-        dependencies,
-        code,
-    } = input;
-    let clones = dependency_clones(&dependencies);
+    let ViewInput { notebook, code } = input;
 
     TokenStream::from(quote!({
-        #(#clones)*
         #gorbie::cards::stateless_card(#notebook, #code, Some(#code_text))
     }))
 }
@@ -154,15 +135,12 @@ pub fn state(input: TokenStream) -> TokenStream {
     let gorbie = gorbie_path();
     let StateInput {
         notebook,
-        dependencies,
         init,
         code,
     } = input;
-    let clones = dependency_clones(&dependencies);
     let init_expr = init.map_or_else(|| quote!(Default::default()), |expr| quote!(#expr));
 
     TokenStream::from(quote!({
-        #(#clones)*
         #gorbie::cards::stateful_card(#notebook, #init_expr, #code, Some(#code_text))
     }))
 }
@@ -177,12 +155,13 @@ pub fn derive(input: TokenStream) -> TokenStream {
         dependencies,
         code,
     } = input;
-    let clones = dependency_clones(&dependencies);
-    let dep_idents = dependencies.idents.iter();
+    let dep_keys = dependencies
+        .exprs
+        .iter()
+        .map(|expr| quote!(#gorbie::state::DependencyKey::new(#expr)));
 
     TokenStream::from(quote!({
-        #(#clones)*
-        #gorbie::cards::reactive_card(#notebook, (#(#dep_idents),*,), #code, Some(#code_text))
+        #gorbie::cards::reactive_card(#notebook, vec![#(#dep_keys),*], #code, Some(#code_text))
     }))
 }
 
@@ -217,14 +196,6 @@ fn package_name() -> String {
     std::env::var("CARGO_PKG_NAME")
         .unwrap_or_else(|_| "GORBIE".to_owned())
         .replace('-', "_")
-}
-
-fn dependency_clones(dependencies: &Dependencies) -> Vec<proc_macro2::TokenStream> {
-    dependencies
-        .idents
-        .iter()
-        .map(|ident| quote!(let #ident = #ident.clone();))
-        .collect()
 }
 
 fn macro_source_text(name: &str, input: &TokenStream) -> String {
@@ -298,9 +269,9 @@ where
                 if !matches!(iter.peek(), Some(proc_macro::TokenTree::Punct(_))) {
                     break;
                 }
-                let proc_macro::TokenTree::Punct(next_punct) = iter
-                    .next()
-                    .expect("peeked punctuation should be present") else {
+                let proc_macro::TokenTree::Punct(next_punct) =
+                    iter.next().expect("peeked punctuation should be present")
+                else {
                     break;
                 };
                 text.push_str(

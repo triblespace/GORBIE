@@ -2,14 +2,14 @@
 //! Sometimes when working with existing code, libraries or even std things like
 //! files, can introduce an impedance mismatch with the reactive data-flow model.
 //! Often it is enough to wrap the object in question into another layer of `Arc`s
-//! and `RWLock`s in addition to what Gorby already does with its `CardState`.
-//! This is also why we compare explicit generations instead of return values, to
-//! broaden the range of types that can be used with `derive!`.
+//! and `RWLock`s in addition to what Gorby already does with its shared state
+//! store. This is also why we compare explicit generations instead of return
+//! values, to broaden the range of types that can be used with `derive!`.
 //!
 //! But sometimes that isn't enough, e.g. when you want to display some application
 //! global state. This is why `state!` and `view!` are carefully designed to not
 //! rely on the dataflow mechanisms introduced by `derive`. Instead they can be
-//! used, like any other mutable rust type, modulo the `CardState` wrapper.
+//! used, like any other mutable rust type, via the typed `StateId` handle.
 //!
 
 #![allow(non_snake_case)]
@@ -17,15 +17,18 @@
 pub mod cards;
 pub mod dataflow;
 pub mod prelude;
+pub mod state;
 pub mod themes;
 pub mod widgets;
 
 pub use gorbie_macros::{derive, state, view};
 
+use crate::state::StateStore;
 use crate::themes::industrial_dark;
 use crate::themes::industrial_fonts;
 use crate::themes::industrial_light;
 use eframe::egui::{self};
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FloatingAnchor {
@@ -57,6 +60,7 @@ struct CodeNoteDraw {
 pub struct Notebook {
     header_title: egui::WidgetText,
     pub cards: Vec<Box<dyn cards::Card + 'static>>,
+    pub(crate) state_store: Arc<StateStore>,
     code_notes_open: Vec<bool>,
     code_note_offsets: Vec<egui::Vec2>,
     code_note_anchors: Vec<FloatingAnchor>,
@@ -78,6 +82,7 @@ impl Notebook {
         Self {
             header_title: egui::WidgetText::default(),
             cards: Vec::new(),
+            state_store: Arc::new(StateStore::new()),
             code_notes_open: Vec::new(),
             code_note_offsets: Vec::new(),
             code_note_anchors: Vec::new(),
@@ -332,7 +337,11 @@ impl eframe::App for Notebook {
                                                 .show(ui, |ui| {
                                                     ui.reset_style();
                                                     ui.set_width(ui.available_width());
-                                                    card.draw(ui);
+                                                    let mut ctx = cards::CardContext::new(
+                                                        ui,
+                                                        self.state_store.as_ref(),
+                                                    );
+                                                    card.draw(&mut ctx);
                                                 });
                                             *card_placeholder_size = inner.response.rect.size();
                                             inner.response.rect
@@ -693,7 +702,13 @@ impl eframe::App for Notebook {
                                                                     ui.set_width(
                                                                         ui.available_width(),
                                                                     );
-                                                                    card.draw(ui);
+                                                                    let mut ctx =
+                                                                        cards::CardContext::new(
+                                                                            ui,
+                                                                            self.state_store
+                                                                                .as_ref(),
+                                                                        );
+                                                                    card.draw(&mut ctx);
                                                                 });
 
                                                             handle_resp_local

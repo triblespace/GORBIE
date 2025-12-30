@@ -24,21 +24,28 @@ In such a setup, the `notebook.rs` script would look something like this:
 use GORBIE::{md, notebook, state, view, Notebook};
 
 fn intro(nb: &mut Notebook) {
-    md(nb,
-        "# GORBIE!
+    view!(nb, |ui| {
+        md!(
+            ui,
+            "# GORBIE!
 This is **GORBIE!**, a _minimalist_ notebook environment for **Rust**!
 
 Development is part of the [trible.space](https://trible.space) project.
 
 ![an image of 'GORBIE!' the cute alien blob and mascot of this project](./assets/gorbie.png)
-");
-
-    let slider = state!(nb, (), 0.5, |ctx, value| {
-        ctx.ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
+"
+        );
     });
 
-    view!(nb, (slider), move |ctx| {
-        ctx.ui.add(egui::ProgressBar::new(*slider.read()).text("output"));
+    let slider = state!(nb, 0.5, |ui, value| {
+        ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
+    });
+
+    view!(nb, move |ui| {
+        let Some(value) = ui.read(slider) else {
+            return;
+        };
+        ui.add(egui::ProgressBar::new(value).text("output"));
     });
 }
 

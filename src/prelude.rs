@@ -8,5 +8,6 @@ pub use crate::derive;
 pub use crate::md;
 pub use crate::notebook;
 pub use crate::state;
+pub use crate::state::StateId;
 pub use crate::view;
 pub use crate::Notebook;

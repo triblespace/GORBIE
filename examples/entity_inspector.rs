@@ -1159,7 +1159,7 @@ impl Default for InspectorState {
 }
 
 fn entity_inspector(nb: &mut Notebook) {
-    view!(nb, (), move |ui| {
+    view!(nb, move |ui| {
         md!(
             ui,
             "# Triblespace entity inspector (prototype)\n\nTables-first tiled layout, with orthogonal “subway” routing through gutters.\n\nClick a table to select."
@@ -1176,7 +1176,6 @@ fn entity_inspector(nb: &mut Notebook) {
 
     let inspector = state!(
         nb,
-        (),
         InspectorState {
             selected: default_selected,
             columns: 0,
@@ -1223,8 +1222,10 @@ _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • 
         }
     );
 
-    view!(nb, (inspector), move |ui| {
-        let selected = inspector.read().selected;
+    view!(nb, move |ui| {
+        let selected = ui
+            .with_state(inspector, |_, state| state.selected)
+            .expect("inspector state missing");
         md!(ui, "Selected entity: `{}`", id_short(selected));
     });
 }

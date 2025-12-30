@@ -18,7 +18,7 @@ use GORBIE::widgets::load_auto;
 use GORBIE::Notebook;
 
 fn polars(nb: &mut Notebook) {
-    let df = state!(nb, (), |ui, value| {
+    let df = state!(nb, |ui, value| {
         md!(
             ui,
             "# Polars
@@ -35,10 +35,11 @@ In this notebook we're going to use the `polars` crate to create a simple datafr
         }
     });
 
-    view!(nb, (df), move |ui| {
-        if let Some(df) = &df.read().ready() {
-            dataframe(ui, df);
-        }
+    view!(nb, move |ui| {
+        let Some(df) = ui.try_read_dependency(df) else {
+            return;
+        };
+        dataframe(ui, &df);
     });
 }
 

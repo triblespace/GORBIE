@@ -164,7 +164,6 @@ fn pile_inspector(nb: &mut Notebook) {
 
     let inspector = state!(
         nb,
-        (),
         InspectorState {
             pile_path: default_path,
             max_rows: 200,
@@ -203,307 +202,311 @@ fn pile_inspector(nb: &mut Notebook) {
         }
     );
 
-    view!(nb, (inspector), move |ui| {
-        let mut state = inspector.write();
+    view!(nb, move |ui| {
+        ui.with_state_mut(inspector, |ui, state| {
+            md!(ui, "## Blob size distribution");
 
-        md!(ui, "## Blob size distribution");
-
-        let Some(result) = state.snapshot.ready() else {
-            md!(ui, "_Load a pile to see the distribution._");
-            return;
-        };
-        let Ok(snapshot) = result else {
-            md!(ui, "_Load a valid pile to see the distribution._");
-            return;
-        };
-
-        const MIN_BUCKET_EXP: u32 = 6; // 64B (pile record alignment).
-        const MAX_BUCKET_EXP: u32 = 36; // 64 GiB and above go into the last bucket.
-
-        let mut buckets = std::collections::BTreeMap::<u32, (u64, u64)>::new(); // exp -> (count, bytes)
-        let mut valid_blobs = 0u64;
-        let mut total_bytes = 0u64;
-        let mut saw_underflow = false;
-        let mut saw_overflow = false;
-
-        for blob in &snapshot.blobs {
-            let Some(len) = blob.length else {
-                continue;
+            let Some(result) = state.snapshot.ready() else {
+                md!(ui, "_Load a pile to see the distribution._");
+                return;
             };
-            valid_blobs += 1;
-            total_bytes = total_bytes.saturating_add(len);
+            let Ok(snapshot) = result else {
+                md!(ui, "_Load a valid pile to see the distribution._");
+                return;
+            };
 
-            let raw_exp = len.max(1).ilog2();
-            let exp = raw_exp.clamp(MIN_BUCKET_EXP, MAX_BUCKET_EXP);
-            saw_underflow |= raw_exp < MIN_BUCKET_EXP;
-            saw_overflow |= raw_exp > MAX_BUCKET_EXP;
-            let entry = buckets.entry(exp).or_insert((0, 0));
-            entry.0 += 1;
-            entry.1 = entry.1.saturating_add(len);
-        }
+            const MIN_BUCKET_EXP: u32 = 6; // 64B (pile record alignment).
+            const MAX_BUCKET_EXP: u32 = 36; // 64 GiB and above go into the last bucket.
 
-        if buckets.is_empty() {
-            md!(ui, "_No valid blob sizes found._");
-            return;
-        }
+            let mut buckets = std::collections::BTreeMap::<u32, (u64, u64)>::new(); // exp -> (count, bytes)
+            let mut valid_blobs = 0u64;
+            let mut total_bytes = 0u64;
+            let mut saw_underflow = false;
+            let mut saw_overflow = false;
 
-        fn bucket_start(exp: u32) -> u64 {
-            1u64 << exp
-        }
+            for blob in &snapshot.blobs {
+                let Some(len) = blob.length else {
+                    continue;
+                };
+                valid_blobs += 1;
+                total_bytes = total_bytes.saturating_add(len);
 
-        fn bucket_end(exp: u32) -> u64 {
-            if exp >= 63 {
-                u64::MAX
-            } else {
-                (1u64 << (exp + 1)).saturating_sub(1)
+                let raw_exp = len.max(1).ilog2();
+                let exp = raw_exp.clamp(MIN_BUCKET_EXP, MAX_BUCKET_EXP);
+                saw_underflow |= raw_exp < MIN_BUCKET_EXP;
+                saw_overflow |= raw_exp > MAX_BUCKET_EXP;
+                let entry = buckets.entry(exp).or_insert((0, 0));
+                entry.0 += 1;
+                entry.1 = entry.1.saturating_add(len);
             }
-        }
 
-        fn bucket_label(
-            exp: u32,
-            min_exp: u32,
-            max_exp: u32,
-            underflowed: bool,
-            overflowed: bool,
-        ) -> String {
-            let start = bucket_start(exp);
-            let prefix = if underflowed && exp == min_exp {
-                "≤"
-            } else {
-                ""
-            };
-            let suffix = if overflowed && exp == max_exp {
-                "+"
-            } else {
-                ""
-            };
-
-            if start >= (1u64 << 30) {
-                let start_g = start >> 30;
-                format!("{prefix}{start_g}G{suffix}")
-            } else if start >= (1u64 << 20) {
-                let start_m = start >> 20;
-                format!("{prefix}{start_m}M{suffix}")
-            } else if start >= (1u64 << 10) {
-                let start_k = start >> 10;
-                format!("{prefix}{start_k}K{suffix}")
-            } else {
-                format!("{prefix}{start}B{suffix}")
+            if buckets.is_empty() {
+                md!(ui, "_No valid blob sizes found._");
+                return;
             }
-        }
 
-        ui.horizontal(|ui| {
-            ui.label("METRIC:");
-            ui.add(widgets::ChoiceToggle::binary(
-                &mut state.histogram_bytes,
-                "COUNT",
-                "BYTES",
-            ));
-        });
-        let y_axis = if state.histogram_bytes {
-            widgets::HistogramYAxis::Bytes
-        } else {
-            widgets::HistogramYAxis::Count
-        };
+            fn bucket_start(exp: u32) -> u64 {
+                1u64 << exp
+            }
 
-        let mut max_value = 0u64;
-        let mut histogram_buckets: Vec<widgets::HistogramBucket<'static>> = Vec::new();
-        for exp in MIN_BUCKET_EXP..=MAX_BUCKET_EXP {
-            let (count, bytes) = buckets.get(&exp).copied().unwrap_or((0, 0));
-            let value = if state.histogram_bytes { bytes } else { count };
-            max_value = max_value.max(value);
+            fn bucket_end(exp: u32) -> u64 {
+                if exp >= 63 {
+                    u64::MAX
+                } else {
+                    (1u64 << (exp + 1)).saturating_sub(1)
+                }
+            }
 
-            let mut bucket = widgets::HistogramBucket::new(
-                value,
-                bucket_label(
-                    exp,
-                    MIN_BUCKET_EXP,
-                    MAX_BUCKET_EXP,
-                    saw_underflow,
-                    saw_overflow,
-                ),
+            fn bucket_label(
+                exp: u32,
+                min_exp: u32,
+                max_exp: u32,
+                underflowed: bool,
+                overflowed: bool,
+            ) -> String {
+                let start = bucket_start(exp);
+                let prefix = if underflowed && exp == min_exp {
+                    "≤"
+                } else {
+                    ""
+                };
+                let suffix = if overflowed && exp == max_exp {
+                    "+"
+                } else {
+                    ""
+                };
+
+                if start >= (1u64 << 30) {
+                    let start_g = start >> 30;
+                    format!("{prefix}{start_g}G{suffix}")
+                } else if start >= (1u64 << 20) {
+                    let start_m = start >> 20;
+                    format!("{prefix}{start_m}M{suffix}")
+                } else if start >= (1u64 << 10) {
+                    let start_k = start >> 10;
+                    format!("{prefix}{start_k}K{suffix}")
+                } else {
+                    format!("{prefix}{start}B{suffix}")
+                }
+            }
+
+            ui.horizontal(|ui| {
+                ui.label("METRIC:");
+                ui.add(widgets::ChoiceToggle::binary(
+                    &mut state.histogram_bytes,
+                    "COUNT",
+                    "BYTES",
+                ));
+            });
+            let y_axis = if state.histogram_bytes {
+                widgets::HistogramYAxis::Bytes
+            } else {
+                widgets::HistogramYAxis::Count
+            };
+
+            let mut max_value = 0u64;
+            let mut histogram_buckets: Vec<widgets::HistogramBucket<'static>> = Vec::new();
+            for exp in MIN_BUCKET_EXP..=MAX_BUCKET_EXP {
+                let (count, bytes) = buckets.get(&exp).copied().unwrap_or((0, 0));
+                let value = if state.histogram_bytes { bytes } else { count };
+                max_value = max_value.max(value);
+
+                let mut bucket = widgets::HistogramBucket::new(
+                    value,
+                    bucket_label(
+                        exp,
+                        MIN_BUCKET_EXP,
+                        MAX_BUCKET_EXP,
+                        saw_underflow,
+                        saw_overflow,
+                    ),
+                );
+
+                if value > 0 {
+                    let range = if saw_overflow && exp == MAX_BUCKET_EXP {
+                        let start = bucket_start(exp);
+                        format!("≥ {}", format_bytes(start))
+                    } else if saw_underflow && exp == MIN_BUCKET_EXP {
+                        let end = bucket_end(exp);
+                        format!("≤ {}", format_bytes(end))
+                    } else {
+                        let start = bucket_start(exp);
+                        let end = bucket_end(exp);
+                        format!("{}–{}", format_bytes(start), format_bytes(end))
+                    };
+                    let metric = if state.histogram_bytes {
+                        format_bytes(bytes)
+                    } else {
+                        format!("{count}")
+                    };
+                    bucket = bucket.tooltip(format!("{range}\n{metric}"));
+                }
+
+                histogram_buckets.push(bucket);
+            }
+
+            if max_value == 0 {
+                md!(ui, "_No data to plot._");
+                return;
+            }
+
+            ui.add(
+                widgets::Histogram::new(&histogram_buckets, y_axis)
+                    .plot_height(80.0)
+                    .max_x_labels(7),
             );
 
-            if value > 0 {
-                let range = if saw_overflow && exp == MAX_BUCKET_EXP {
-                    let start = bucket_start(exp);
-                    format!("≥ {}", format_bytes(start))
-                } else if saw_underflow && exp == MIN_BUCKET_EXP {
-                    let end = bucket_end(exp);
-                    format!("≤ {}", format_bytes(end))
-                } else {
-                    let start = bucket_start(exp);
-                    let end = bucket_end(exp);
-                    format!("{}–{}", format_bytes(start), format_bytes(end))
-                };
-                let metric = if state.histogram_bytes {
-                    format_bytes(bytes)
-                } else {
-                    format!("{count}")
-                };
-                bucket = bucket.tooltip(format!("{range}\n{metric}"));
-            }
-
-            histogram_buckets.push(bucket);
-        }
-
-        if max_value == 0 {
-            md!(ui, "_No data to plot._");
-            return;
-        }
-
-        ui.add(
-            widgets::Histogram::new(&histogram_buckets, y_axis)
-                .plot_height(80.0)
-                .max_x_labels(7),
-        );
-
-        md!(
-            ui,
-            "_{} blobs, {} total._",
-            valid_blobs,
-            format_bytes(total_bytes)
-        );
+            md!(
+                ui,
+                "_{} blobs, {} total._",
+                valid_blobs,
+                format_bytes(total_bytes)
+            );
+        })
+        .expect("inspector state missing");
     });
 
-    view!(nb, (inspector), move |ui| {
-        let state = inspector.read();
+    view!(nb, move |ui| {
+        ui.with_state(inspector, |ui, state| {
+            md!(ui, "## Summary");
 
-        md!(ui, "## Summary");
-
-        let now_ms = now_ms();
-        match &state.snapshot {
-            ComputedState::Undefined => {
-                md!(ui, "_No pile loaded yet._");
-            }
-            ComputedState::Init(_) => {
-                md!(ui, "_Loading…_");
-            }
-            ComputedState::Stale(_, _, _) => {
-                md!(ui, "_Refreshing…_");
-            }
-            ComputedState::Ready(result, _) => match result {
-                Ok(snapshot) => {
-                    let blob_count = snapshot.blobs.len();
-                    let branch_count = snapshot.branches.len();
-                    let oldest = snapshot
-                        .blobs
-                        .iter()
-                        .filter_map(|b| b.timestamp_ms)
-                        .min()
-                        .map(|ts| format_age(now_ms, ts));
-                    let newest = snapshot
-                        .blobs
-                        .iter()
-                        .filter_map(|b| b.timestamp_ms)
-                        .max()
-                        .map(|ts| format_age(now_ms, ts));
-
-                    let oldest = oldest.unwrap_or_else(|| "—".to_owned());
-                    let newest = newest.unwrap_or_else(|| "—".to_owned());
-
-                    md!(
-                        ui,
-                        "- Path: `{}`\n- Size: `{}`\n- Blobs: `{}`\n- Branches: `{}`\n- Oldest: `{}`\n- Newest: `{}`",
-                        snapshot.path.display(),
-                        format_bytes(snapshot.file_len),
-                        blob_count,
-                        branch_count,
-                        oldest,
-                        newest
-                    );
+            let now_ms = now_ms();
+            match &state.snapshot {
+                ComputedState::Undefined => {
+                    md!(ui, "_No pile loaded yet._");
                 }
-                Err(err) => {
-                    md!(ui, "Error: `{err}`");
+                ComputedState::Init(_) => {
+                    md!(ui, "_Loading…_");
                 }
-            },
-        }
+                ComputedState::Stale(_, _, _) => {
+                    md!(ui, "_Refreshing…_");
+                }
+                ComputedState::Ready(result, _) => match result {
+                    Ok(snapshot) => {
+                        let blob_count = snapshot.blobs.len();
+                        let branch_count = snapshot.branches.len();
+                        let oldest = snapshot
+                            .blobs
+                            .iter()
+                            .filter_map(|b| b.timestamp_ms)
+                            .min()
+                            .map(|ts| format_age(now_ms, ts));
+                        let newest = snapshot
+                            .blobs
+                            .iter()
+                            .filter_map(|b| b.timestamp_ms)
+                            .max()
+                            .map(|ts| format_age(now_ms, ts));
+
+                        let oldest = oldest.unwrap_or_else(|| "—".to_owned());
+                        let newest = newest.unwrap_or_else(|| "—".to_owned());
+
+                        md!(
+                            ui,
+                            "- Path: `{}`\n- Size: `{}`\n- Blobs: `{}`\n- Branches: `{}`\n- Oldest: `{}`\n- Newest: `{}`",
+                            snapshot.path.display(),
+                            format_bytes(snapshot.file_len),
+                            blob_count,
+                            branch_count,
+                            oldest,
+                            newest
+                        );
+                    }
+                    Err(err) => {
+                        md!(ui, "Error: `{err}`");
+                    }
+                },
+            }
+        })
+        .expect("inspector state missing");
     });
 
-    view!(nb, (inspector), move |ui| {
-        let state = inspector.read();
+    view!(nb, move |ui| {
+        ui.with_state(inspector, |ui, state| {
+            md!(ui, "## Branches");
 
-        md!(ui, "## Branches");
+            let Some(result) = state.snapshot.ready() else {
+                md!(ui, "_Load a pile to see branches._");
+                return;
+            };
+            let Ok(snapshot) = result else {
+                md!(ui, "_Load a valid pile to see branches._");
+                return;
+            };
 
-        let Some(result) = state.snapshot.ready() else {
-            md!(ui, "_Load a pile to see branches._");
-            return;
-        };
-        let Ok(snapshot) = result else {
-            md!(ui, "_Load a valid pile to see branches._");
-            return;
-        };
+            if snapshot.branches.is_empty() {
+                md!(ui, "_No branches found._");
+                return;
+            }
 
-        if snapshot.branches.is_empty() {
-            md!(ui, "_No branches found._");
-            return;
-        }
-
-        egui::Grid::new("pile-branches")
-            .num_columns(2)
-            .striped(false)
-            .show(ui, |ui| {
-                ui.strong("BRANCH");
-                ui.strong("HEAD");
-                ui.end_row();
-
-                for branch in &snapshot.branches {
-                    ui.monospace(hex_prefix(branch.id, 6));
-                    match &branch.head {
-                        Some(raw) => ui.monospace(hex_prefix(raw, 6)),
-                        None => ui.label("—"),
-                    };
+            egui::Grid::new("pile-branches")
+                .num_columns(2)
+                .striped(false)
+                .show(ui, |ui| {
+                    ui.strong("BRANCH");
+                    ui.strong("HEAD");
                     ui.end_row();
-                }
-            });
+
+                    for branch in &snapshot.branches {
+                        ui.monospace(hex_prefix(branch.id, 6));
+                        match &branch.head {
+                            Some(raw) => ui.monospace(hex_prefix(raw, 6)),
+                            None => ui.label("—"),
+                        };
+                        ui.end_row();
+                    }
+                });
+        })
+        .expect("inspector state missing");
     });
 
-    view!(nb, (inspector), move |ui| {
-        let state = inspector.read();
+    view!(nb, move |ui| {
+        ui.with_state(inspector, |ui, state| {
+            md!(ui, "## Blobs");
 
-        md!(ui, "## Blobs");
+            let Some(result) = state.snapshot.ready() else {
+                md!(ui, "_Load a pile to see blobs._");
+                return;
+            };
+            let Ok(snapshot) = result else {
+                md!(ui, "_Load a valid pile to see blobs._");
+                return;
+            };
 
-        let Some(result) = state.snapshot.ready() else {
-            md!(ui, "_Load a pile to see blobs._");
-            return;
-        };
-        let Ok(snapshot) = result else {
-            md!(ui, "_Load a valid pile to see blobs._");
-            return;
-        };
+            if snapshot.blobs.is_empty() {
+                md!(ui, "_No blobs found._");
+                return;
+            }
 
-        if snapshot.blobs.is_empty() {
-            md!(ui, "_No blobs found._");
-            return;
-        }
+            let max_rows = state.max_rows.max(1);
+            md!(ui, "_Showing up to {max_rows} blobs (most recent first)._");
 
-        let max_rows = state.max_rows.max(1);
-        md!(ui, "_Showing up to {max_rows} blobs (most recent first)._");
+            let now_ms = now_ms();
 
-        let now_ms = now_ms();
-
-        egui::Grid::new("pile-blobs")
-            .num_columns(3)
-            .striped(false)
-            .show(ui, |ui| {
-                ui.strong("BLOB");
-                ui.strong("BYTES");
-                ui.strong("TIME");
-                ui.end_row();
-
-                for blob in snapshot.blobs.iter().take(max_rows) {
-                    ui.monospace(hex_prefix(blob.hash, 6));
-                    match blob.length {
-                        Some(len) => ui.monospace(format_bytes(len)),
-                        None => ui.label("invalid"),
-                    };
-                    match blob.timestamp_ms {
-                        Some(ts) => ui.label(format_age(now_ms, ts)),
-                        None => ui.label("—"),
-                    };
+            egui::Grid::new("pile-blobs")
+                .num_columns(3)
+                .striped(false)
+                .show(ui, |ui| {
+                    ui.strong("BLOB");
+                    ui.strong("BYTES");
+                    ui.strong("TIME");
                     ui.end_row();
-                }
-            });
+
+                    for blob in snapshot.blobs.iter().take(max_rows) {
+                        ui.monospace(hex_prefix(blob.hash, 6));
+                        match blob.length {
+                            Some(len) => ui.monospace(format_bytes(len)),
+                            None => ui.label("invalid"),
+                        };
+                        match blob.timestamp_ms {
+                            Some(ts) => ui.label(format_age(now_ms, ts)),
+                            None => ui.label("—"),
+                        };
+                        ui.end_row();
+                    }
+                });
+        })
+        .expect("inspector state missing");
     });
 }
 

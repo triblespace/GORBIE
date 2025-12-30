@@ -436,7 +436,7 @@ impl Default for WidgetPlaybookState {
 }
 
 fn playbook(nb: &mut Notebook) {
-    view!(nb, (), |ui| {
+    view!(nb, |ui| {
         // Introduction
         md!(
             ui,
@@ -444,7 +444,7 @@ fn playbook(nb: &mut Notebook) {
         );
     });
 
-    view!(nb, (), |ui| {
+    view!(nb, |ui| {
         let light_foreground = GORBIE::themes::ral(9011);
         let light_background = GORBIE::themes::ral(7047);
         let light_surface = GORBIE::themes::ral(7047);
@@ -521,7 +521,7 @@ fn playbook(nb: &mut Notebook) {
         });
     });
 
-    let _palette_state = state!(nb, (), PaletteState::default(), |ui, state| {
+    let _palette_state = state!(nb, PaletteState::default(), |ui, state| {
         ui.label(egui::RichText::new("RAL PICKER").monospace().strong());
         ui.add_space(12.0);
 
@@ -596,14 +596,14 @@ fn playbook(nb: &mut Notebook) {
         });
     });
 
-    view!(nb, (), |ui| {
+    view!(nb, |ui| {
         md!(
             ui,
             "## Widget Playbook\n\nA quick showcase of our custom widgets. The value is normalized to `[0, 1]`."
         );
     });
 
-    let widget_state = state!(nb, (), WidgetPlaybookState::default(), |ui, state| {
+    let widget_state = state!(nb, WidgetPlaybookState::default(), |ui, state| {
         ui.label(egui::RichText::new("BUTTONS").monospace().strong());
         ui.horizontal(|ui| {
             let _ = ui.add(widgets::Button::new("BUTTON"));
@@ -624,13 +624,15 @@ fn playbook(nb: &mut Notebook) {
         });
     });
 
-    view!(nb, (widget_state), move |ui| {
+    view!(nb, move |ui| {
         ui.label(egui::RichText::new("SLIDER + METERS").monospace().strong());
 
-        let mut state = widget_state.write();
-        let _ = ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).text("LEVEL"));
-        let progress = state.progress;
-        drop(state);
+        let progress = ui
+            .with_state_mut(widget_state, |ui, state| {
+                let _ = ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).text("LEVEL"));
+                state.progress
+            })
+            .unwrap_or(0.0);
 
         ui.monospace(format!("Value: {progress:.3}"));
         ui.add(
@@ -654,14 +656,15 @@ fn playbook(nb: &mut Notebook) {
         );
     });
 
-    view!(nb, (widget_state), move |ui| {
+    view!(nb, move |ui| {
         ui.label(egui::RichText::new("HISTOGRAM").monospace().strong());
         ui.monospace("Uses COUNT/BYTES + slider to shift the synthetic distribution.");
 
-        let (progress, metric_bytes) = {
-            let state = widget_state.read();
-            (state.progress, state.metric_bytes)
-        };
+        let (progress, metric_bytes) = ui
+            .with_state(widget_state, |_, state| {
+                (state.progress, state.metric_bytes)
+            })
+            .unwrap_or((0.0, false));
 
         let y_axis = if metric_bytes {
             widgets::HistogramYAxis::Bytes

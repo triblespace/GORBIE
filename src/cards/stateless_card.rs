@@ -1,18 +1,21 @@
 use crate::cards::Card;
+use crate::cards::CardContext;
 use crate::Notebook;
 
 pub struct StatelessCard {
-    function: Box<dyn FnMut(&mut egui::Ui)>,
+    function: Box<dyn FnMut(&mut CardContext)>,
     code: Option<String>,
 }
 
 impl Card for StatelessCard {
-    fn draw(&mut self, ui: &mut egui::Ui) {
+    fn draw(&mut self, ctx: &mut CardContext) {
+        let CardContext { ui, store } = ctx;
         egui::Frame::new()
             .inner_margin(egui::Margin::symmetric(16, 12))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                (self.function)(ui);
+                let mut ctx = CardContext::new(ui, store);
+                (self.function)(&mut ctx);
             });
     }
 
@@ -23,7 +26,7 @@ impl Card for StatelessCard {
 
 pub fn stateless_card(
     nb: &mut Notebook,
-    function: impl FnMut(&mut egui::Ui) + 'static,
+    function: impl FnMut(&mut CardContext) + 'static,
     code: Option<&str>,
 ) {
     nb.push(Box::new(StatelessCard {

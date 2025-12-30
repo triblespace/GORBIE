@@ -10,7 +10,7 @@ use std::ops::DerefMut;
 use GORBIE::prelude::*;
 
 fn intro(nb: &mut Notebook) {
-    view!(nb, (), move |ui| {
+    view!(nb, move |ui| {
         md!(
             ui,
             "# GORBIE!
@@ -61,7 +61,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         );
     });
 
-    let slider = state!(nb, (), (0.5).into(), |ui, value: &mut NotifiedState<_>| {
+    let slider = state!(nb, (0.5).into(), |ui, value: &mut NotifiedState<_>| {
         if ui
             .add(widgets::Slider::new(value.deref_mut(), 0.0..=1.0).text("input"))
             .changed()
@@ -70,23 +70,21 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         }
     });
 
-    let progress = derive!(nb, (slider), move |(slider,)| {
+    let progress = derive!(nb, [slider], move |ctx| {
         //Derives are executed on a new thread, so we can sleep or perform heavy computations here.
         // Sleep a bit so we can clearly see the "computing" hatch pattern.
         std::thread::sleep(std::time::Duration::from_secs(1));
+        let slider = ctx.read(slider).unwrap_or_default();
         slider * 0.5
     });
 
-    view!(nb, (progress), move |ui| {
-        let Some(progress) = progress.try_read() else {
+    view!(nb, move |ui| {
+        let Some(progress) = ui.try_read_dependency(progress) else {
             return;
         };
-        let Some(progress) = progress.ready() else {
-            return;
-        };
-        md!(ui, "Progress: {:.2}%", *progress * 100.0);
+        md!(ui, "Progress: {:.2}%", progress * 100.0);
         ui.add(
-            widgets::ProgressBar::new(*progress)
+            widgets::ProgressBar::new(progress)
                 .text("output")
                 .scale_percent(),
         );
