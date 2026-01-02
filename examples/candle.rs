@@ -6,14 +6,13 @@
 //! ```
 
 use GORBIE::md;
-use GORBIE::notebook_begin;
-use GORBIE::notebook_end;
+use GORBIE::notebook;
 use GORBIE::state;
 use GORBIE::view;
 use GORBIE::widgets;
 
+#[notebook]
 fn main() {
-    notebook_begin!();
     state!(_prompt = "", move |ui, value| {
         md!(ui,
         "# Candle
@@ -30,5 +29,4 @@ In this notebook we're going to use huggingfaces `candle` crate, to create a sim
     });
 
     view!(|_ui| {});
-    notebook_end!();
 }

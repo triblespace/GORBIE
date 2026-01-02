@@ -9,8 +9,7 @@
 use egui::Color32;
 use egui::{self};
 use GORBIE::md;
-use GORBIE::notebook_begin;
-use GORBIE::notebook_end;
+use GORBIE::notebook;
 use GORBIE::state;
 use GORBIE::view;
 use GORBIE::widgets;
@@ -435,8 +434,8 @@ impl Default for WidgetPlaybookState {
     }
 }
 
+#[notebook]
 fn main() {
-    notebook_begin!();
     view!(|ui| {
         // Introduction
         md!(
@@ -692,5 +691,4 @@ fn main() {
             ui.add(widgets::Histogram::new(&buckets, y_axis).plot_height(96.0));
         });
     });
-    notebook_end!();
 }

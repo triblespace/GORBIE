@@ -21,11 +21,11 @@ In such a setup, the `notebook.rs` script would look something like this:
 //! egui = "0.31"
 //! ```
 
-use GORBIE::{md, notebook_begin, notebook_end, state, view};
+use GORBIE::{md, notebook, state, view};
 
-notebook_begin!();
-
-view!(|ui| {
+#[notebook]
+fn main() {
+    view!(|ui| {
     md!(
         ui,
         "# GORBIE!
@@ -36,20 +36,19 @@ Development is part of the [trible.space](https://trible.space) project.
 ![an image of 'GORBIE!' the cute alien blob and mascot of this project](./assets/gorbie.png)
 "
     );
-});
+    });
 
-state!(slider = 0.5, |ui, value| {
-    ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
-});
+    state!(slider = 0.5, |ui, value| {
+        ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
+    });
 
-view!(move |ui| {
-    let Some(value) = ui.read(slider) else {
-        return;
-    };
-    ui.add(egui::ProgressBar::new(*value).text("output"));
-});
-
-notebook_end!();
+    view!(move |ui| {
+        let Some(value) = ui.read(slider) else {
+            return;
+        };
+        ui.add(egui::ProgressBar::new(*value).text("output"));
+    });
+}
 ```
 
 To run this script, you need to have `watchexec` and `rust-script` installed.

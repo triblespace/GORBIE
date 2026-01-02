@@ -4,7 +4,34 @@ use proc_macro_crate::{crate_name, FoundCrate};
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{parse_macro_input, Expr, Ident, LitStr, Result, Token};
+use syn::{parse_macro_input, Expr, Ident, ItemFn, LitStr, Result, Token};
+
+struct NotebookAttr {
+    name: Option<LitStr>,
+}
+
+impl Parse for NotebookAttr {
+    fn parse(input: ParseStream) -> Result<Self> {
+        if input.is_empty() {
+            return Ok(Self { name: None });
+        }
+
+        let name_key: Ident = input.parse()?;
+        if name_key != "name" {
+            return Err(input.error("expected `name = \"...\"`"));
+        }
+        input.parse::<Token![=]>()?;
+        let name: LitStr = input.parse()?;
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+        }
+        if !input.is_empty() {
+            return Err(input.error("unexpected tokens"));
+        }
+
+        Ok(Self { name: Some(name) })
+    }
+}
 
 struct Dependencies {
     exprs: Punctuated<Expr, Token![,]>,
@@ -227,6 +254,47 @@ pub fn reactive(input: TokenStream) -> TokenStream {
             Some(#code_text),
         );
     ))
+}
+
+#[proc_macro_attribute]
+pub fn notebook(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let NotebookAttr { name } = parse_macro_input!(attr as NotebookAttr);
+    let mut input = parse_macro_input!(item as ItemFn);
+    let gorbie = gorbie_path();
+
+    let mut setup_stmts: Vec<syn::Stmt> = Vec::new();
+    if let Some(name) = name {
+        setup_stmts.push(syn::parse_quote!(
+            let mut __gorbie_notebook_owner = #gorbie::Notebook::new(#name);
+        ));
+    } else {
+        setup_stmts.push(syn::parse_quote!(let __gorbie_notebook_file = file!();));
+        setup_stmts.push(syn::parse_quote!(
+            let __gorbie_notebook_name = std::path::Path::new(__gorbie_notebook_file)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or(__gorbie_notebook_file);
+        ));
+        setup_stmts.push(syn::parse_quote!(
+            let mut __gorbie_notebook_owner = #gorbie::Notebook::new(__gorbie_notebook_name);
+        ));
+    }
+
+    setup_stmts.push(syn::parse_quote!(
+        macro_rules! __gorbie_notebook {
+            () => {
+                __gorbie_notebook_owner
+            };
+        }
+    ));
+
+    let mut stmts = Vec::with_capacity(setup_stmts.len() + input.block.stmts.len() + 1);
+    stmts.extend(setup_stmts);
+    stmts.extend(input.block.stmts.clone());
+    stmts.push(syn::parse_quote!(__gorbie_notebook!().run().unwrap();));
+    input.block.stmts = stmts;
+
+    TokenStream::from(quote!(#input))
 }
 
 fn gorbie_path() -> proc_macro2::TokenStream {

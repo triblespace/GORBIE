@@ -1158,8 +1158,8 @@ impl Default for InspectorState {
     }
 }
 
+#[notebook]
 fn main() {
-    notebook_begin!();
     view!(move |ui| {
         md!(
             ui,
@@ -1229,5 +1229,4 @@ _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • 
             .selected;
         md!(ui, "Selected entity: `{}`", id_short(selected));
     });
-    notebook_end!();
 }

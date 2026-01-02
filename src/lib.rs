@@ -21,7 +21,7 @@ pub mod state;
 pub mod themes;
 pub mod widgets;
 
-pub use gorbie_macros::{reactive, state, view};
+pub use gorbie_macros::{notebook, reactive, state, view};
 
 use crate::state::StateStore;
 use crate::themes::industrial_dark;
@@ -366,14 +366,15 @@ impl eframe::App for Notebook {
 
                                         let button_size = egui::vec2(18.0, 18.0);
                                         let button_spacing = 6.0;
-                                        let button_x = card_rect.right() + 8.0;
+                                        let button_x = (card_rect.right() + 8.0).round();
                                         let has_code_note = card.code().is_some();
                                         let show_detach_button = !*card_detached;
                                         let (detach_pos, code_button_pos) = if has_code_note {
                                             let stack_height =
                                                 button_size.y * 2.0 + button_spacing;
-                                            let stack_top =
-                                                card_rect.center().y - stack_height / 2.0;
+                                            let stack_top = (card_rect.center().y
+                                                - stack_height / 2.0)
+                                                .round();
                                             (
                                                 Some(egui::pos2(button_x, stack_top)),
                                                 Some(egui::pos2(
@@ -385,7 +386,8 @@ impl eframe::App for Notebook {
                                             (
                                                 Some(egui::pos2(
                                                     button_x,
-                                                    card_rect.center().y - button_size.y / 2.0,
+                                                    (card_rect.center().y - button_size.y / 2.0)
+                                                        .round(),
                                                 )),
                                                 None,
                                             )
@@ -394,7 +396,7 @@ impl eframe::App for Notebook {
                                         if let Some(detach_pos) = detach_pos {
                                             let detach_id = ui.id().with("detach_button");
                                             let detach_area = egui::Area::new(detach_id)
-                                                .order(egui::Order::Foreground)
+                                                .order(egui::Order::Middle)
                                                 .fixed_pos(detach_pos)
                                                 .movable(false)
                                                 .constrain_to(egui::Rect::EVERYTHING);
@@ -427,7 +429,7 @@ impl eframe::App for Notebook {
                                                         rect,
                                                         0.0,
                                                         stroke,
-                                                        egui::StrokeKind::Middle,
+                                                        egui::StrokeKind::Inside,
                                                     );
                                                     ui.painter().text(
                                                         rect.center(),
@@ -495,7 +497,7 @@ impl eframe::App for Notebook {
                                             let flag_pos =
                                                 code_button_pos.expect("code button position");
                                             let flag_resp = egui::Area::new(flag_id)
-                                                .order(egui::Order::Foreground)
+                                                .order(egui::Order::Middle)
                                                 .fixed_pos(flag_pos)
                                                 .movable(false)
                                                 .constrain_to(egui::Rect::EVERYTHING)
@@ -528,7 +530,7 @@ impl eframe::App for Notebook {
                                                         rect,
                                                         0.0,
                                                         stroke,
-                                                        egui::StrokeKind::Middle,
+                                                        egui::StrokeKind::Inside,
                                                     );
                                                     ui.painter().text(
                                                         rect.center(),
@@ -1164,34 +1166,4 @@ fn show_postit_tooltip(ui: &egui::Ui, response: &egui::Response, text: &str) {
     });
 }
 
-#[macro_export]
-macro_rules! notebook_begin {
-    () => {
-        let __gorbie_notebook_file = file!();
-        let __gorbie_notebook_name = std::path::Path::new(__gorbie_notebook_file)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or(__gorbie_notebook_file);
-        let mut __gorbie_notebook_owner = $crate::Notebook::new(__gorbie_notebook_name);
-        macro_rules! __gorbie_notebook {
-            () => {
-                __gorbie_notebook_owner
-            };
-        }
-    };
-    ($name:expr) => {
-        let mut __gorbie_notebook_owner = $crate::Notebook::new($name);
-        macro_rules! __gorbie_notebook {
-            () => {
-                __gorbie_notebook_owner
-            };
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! notebook_end {
-    () => {
-        __gorbie_notebook!().run().unwrap();
-    };
-}
+// notebook initialization is handled by the #[notebook] attribute macro.

@@ -15,8 +15,7 @@ use triblespace::core::repo::{BlobStore, BlobStoreList, BlobStoreMeta, BranchSto
 use triblespace::core::value::RawValue;
 use GORBIE::dataflow::ComputedState;
 use GORBIE::md;
-use GORBIE::notebook_begin;
-use GORBIE::notebook_end;
+use GORBIE::notebook;
 use GORBIE::state;
 use GORBIE::view;
 use GORBIE::widgets;
@@ -90,6 +89,159 @@ fn format_age(now_ms: u64, ts_ms: u64) -> String {
     }
 }
 
+fn summary_header(ui: &mut egui::Ui, title: &str, status: &str, status_color: egui::Color32) {
+    let height = 22.0;
+    let width = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+    let painter = ui.painter();
+
+    let fill = GORBIE::themes::blend(
+        ui.visuals().window_fill,
+        ui.visuals().widgets.noninteractive.bg_stroke.color,
+        0.2,
+    );
+    let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+
+    painter.rect_filled(rect, 0.0, fill);
+    painter.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Inside);
+
+    let stripe_color = ui.visuals().widgets.noninteractive.bg_stroke.color;
+    let stripe_x = rect.x_range();
+    let stripe_top = rect.top() + 4.0;
+    let stripe_spacing = 4.0;
+    for idx in 0..3 {
+        painter.hline(
+            stripe_x,
+            stripe_top + idx as f32 * stripe_spacing,
+            egui::Stroke::new(1.0, stripe_color),
+        );
+    }
+
+    painter.text(
+        rect.left_center() + egui::vec2(6.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        title,
+        egui::FontId::monospace(10.0),
+        ui.visuals().text_color(),
+    );
+    painter.text(
+        rect.right_center() - egui::vec2(6.0, 0.0),
+        egui::Align2::RIGHT_CENTER,
+        status,
+        egui::FontId::monospace(10.0),
+        status_color,
+    );
+}
+
+fn summary_tile(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: impl std::fmt::Display,
+    accent: egui::Color32,
+    width: f32,
+) {
+    let height = 64.0;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+    let painter = ui.painter();
+    let fill = GORBIE::themes::blend(ui.visuals().window_fill, accent, 0.08);
+    let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+
+    painter.rect_filled(rect, 0.0, fill);
+    painter.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Inside);
+
+    let accent_rect = egui::Rect::from_min_max(
+        rect.left_top(),
+        egui::pos2(rect.right(), rect.top() + 4.0),
+    );
+    painter.rect_filled(accent_rect, 0.0, accent);
+
+    painter.text(
+        rect.left_top() + egui::vec2(6.0, 8.0),
+        egui::Align2::LEFT_TOP,
+        label,
+        egui::FontId::monospace(9.0),
+        accent,
+    );
+    painter.text(
+        rect.left_bottom() + egui::vec2(6.0, -6.0),
+        egui::Align2::LEFT_BOTTOM,
+        format!("{value}"),
+        egui::FontId::monospace(20.0),
+        ui.visuals().text_color(),
+    );
+}
+
+fn summary_meta(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &str,
+    accent: egui::Color32,
+    width: f32,
+) {
+    let height = 36.0;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+    let painter = ui.painter();
+    let fill = GORBIE::themes::blend(ui.visuals().window_fill, accent, 0.04);
+    let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+
+    painter.rect_filled(rect, 0.0, fill);
+    painter.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Inside);
+
+    let bar_rect = egui::Rect::from_min_max(
+        rect.left_top(),
+        egui::pos2(rect.left() + 4.0, rect.bottom()),
+    );
+    painter.rect_filled(bar_rect, 0.0, accent);
+
+    painter.text(
+        rect.left_top() + egui::vec2(10.0, 6.0),
+        egui::Align2::LEFT_TOP,
+        label,
+        egui::FontId::monospace(9.0),
+        accent,
+    );
+    painter.text(
+        rect.left_bottom() + egui::vec2(10.0, -6.0),
+        egui::Align2::LEFT_BOTTOM,
+        value,
+        egui::FontId::monospace(12.0),
+        ui.visuals().text_color(),
+    );
+}
+
+fn summary_path(ui: &mut egui::Ui, path: &str, accent: egui::Color32) {
+    let fill = GORBIE::themes::blend(ui.visuals().window_fill, accent, 0.06);
+    let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+    egui::Frame::new()
+        .fill(fill)
+        .stroke(stroke)
+        .inner_margin(egui::Margin::symmetric(10, 6))
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new("PATH").monospace().color(accent));
+            ui.add(
+                egui::Label::new(egui::RichText::new(path).monospace())
+                    .truncate()
+                    .wrap_mode(egui::TextWrapMode::Truncate),
+            );
+        });
+}
+
+fn summary_message(ui: &mut egui::Ui, label: &str, message: &str, accent: egui::Color32) {
+    let fill = GORBIE::themes::blend(ui.visuals().window_fill, accent, 0.06);
+    let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+    egui::Frame::new()
+        .fill(fill)
+        .stroke(stroke)
+        .inner_margin(egui::Margin::symmetric(10, 6))
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new(label).monospace().color(accent));
+            ui.add(
+                egui::Label::new(egui::RichText::new(message).monospace())
+                    .wrap_mode(egui::TextWrapMode::Wrap),
+            );
+        });
+}
+
 fn load_pile(path: PathBuf) -> Result<PileSnapshot, String> {
     let mut pile: Pile = Pile::open(&path).map_err(|err| err.to_string())?;
     pile.restore().map_err(|err| err.to_string())?;
@@ -157,8 +309,8 @@ impl Default for InspectorState {
     }
 }
 
+#[notebook]
 fn main() {
-    notebook_begin!();
     let default_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "./repo.pile".to_owned());
@@ -172,9 +324,9 @@ fn main() {
         },
         |ui, state| {
             md!(
-                ui,
-                "# Triblespace pile inspector\n\nOpen a `.pile` file on disk and inspect its blob and branch indices.\n\nTip: pass a path as the first CLI arg to prefill this field."
-            );
+            ui,
+            "# Triblespace pile inspector\n\nOpen a `.pile` file on disk and inspect its blob and branch indices.\n\nTip: pass a path as the first CLI arg to prefill this field."
+        );
 
             ui.horizontal(|ui| {
                 ui.label("Pile path:");
@@ -366,55 +518,98 @@ fn main() {
 
     view!(move |ui| {
         let state = ui.read(inspector).expect("inspector state missing");
-        md!(ui, "## Summary");
-
         let now_ms = now_ms();
-        match &state.snapshot {
-            ComputedState::Undefined => {
-                md!(ui, "_No pile loaded yet._");
-            }
-            ComputedState::Init(_) => {
-                md!(ui, "_Loading…_");
-            }
-            ComputedState::Stale(_, _, _) => {
-                md!(ui, "_Refreshing…_");
-            }
-            ComputedState::Ready(result, _) => match result {
-                Ok(snapshot) => {
-                    let blob_count = snapshot.blobs.len();
-                    let branch_count = snapshot.branches.len();
-                    let oldest = snapshot
-                        .blobs
-                        .iter()
-                        .filter_map(|b| b.timestamp_ms)
-                        .min()
-                        .map(|ts| format_age(now_ms, ts));
-                    let newest = snapshot
-                        .blobs
-                        .iter()
-                        .filter_map(|b| b.timestamp_ms)
-                        .max()
-                        .map(|ts| format_age(now_ms, ts));
+        let accent_ok = GORBIE::themes::ral(6024);
+        let accent_warn = GORBIE::themes::ral(1023);
+        let accent_error = GORBIE::themes::ral(3020);
+        let accent_primary = GORBIE::themes::ral(2009);
+        let accent_secondary = GORBIE::themes::ral(5015);
 
-                    let oldest = oldest.unwrap_or_else(|| "—".to_owned());
-                    let newest = newest.unwrap_or_else(|| "—".to_owned());
+        let (status_label, status_color) = match &state.snapshot {
+            ComputedState::Undefined => ("NO PILE", ui.visuals().widgets.noninteractive.bg_stroke.color),
+            ComputedState::Init(_) => ("LOADING", accent_warn),
+            ComputedState::Stale(_, _, _) => ("REFRESH", accent_warn),
+            ComputedState::Ready(Ok(_), _) => ("READY", accent_ok),
+            ComputedState::Ready(Err(_), _) => ("ERROR", accent_error),
+        };
 
-                    md!(
-                        ui,
-                        "- Path: `{}`\n- Size: `{}`\n- Blobs: `{}`\n- Branches: `{}`\n- Oldest: `{}`\n- Newest: `{}`",
-                        snapshot.path.display(),
-                        format_bytes(snapshot.file_len),
-                        blob_count,
-                        branch_count,
-                        oldest,
-                        newest
-                    );
+        let panel_fill = ui.visuals().widgets.noninteractive.bg_fill;
+        let panel_stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+        egui::Frame::new()
+            .fill(panel_fill)
+            .stroke(panel_stroke)
+            .inner_margin(egui::Margin::same(12))
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
+
+                summary_header(ui, "PILE SUMMARY", status_label, status_color);
+                ui.add_space(8.0);
+
+                match &state.snapshot {
+                    ComputedState::Undefined => {
+                        summary_message(ui, "STATE", "No pile loaded yet.", status_color);
+                    }
+                    ComputedState::Init(_) => {
+                        summary_message(ui, "STATE", "Loading pile data.", status_color);
+                    }
+                    ComputedState::Stale(_, _, _) => {
+                        summary_message(ui, "STATE", "Refreshing pile data.", status_color);
+                    }
+                    ComputedState::Ready(Err(err), _) => {
+                        summary_message(ui, "ERROR", &format!("{err}"), status_color);
+                    }
+                    ComputedState::Ready(Ok(snapshot), _) => {
+                        let blob_count = snapshot.blobs.len();
+                        let branch_count = snapshot.branches.len();
+                        let oldest = snapshot
+                            .blobs
+                            .iter()
+                            .filter_map(|b| b.timestamp_ms)
+                            .min()
+                            .map(|ts| format_age(now_ms, ts));
+                        let newest = snapshot
+                            .blobs
+                            .iter()
+                            .filter_map(|b| b.timestamp_ms)
+                            .max()
+                            .map(|ts| format_age(now_ms, ts));
+
+                        let oldest = oldest.unwrap_or_else(|| "—".to_owned());
+                        let newest = newest.unwrap_or_else(|| "—".to_owned());
+
+                        let tile_spacing = ui.spacing().item_spacing.x;
+                        let tile_width =
+                            ((ui.available_width() - tile_spacing * 2.0) / 3.0).max(120.0);
+
+                        ui.horizontal_wrapped(|ui| {
+                            summary_tile(
+                                ui,
+                                "SIZE",
+                                format_bytes(snapshot.file_len),
+                                accent_primary,
+                                tile_width,
+                            );
+                            summary_tile(ui, "BLOBS", blob_count, accent_secondary, tile_width);
+                            summary_tile(
+                                ui,
+                                "BRANCHES",
+                                branch_count,
+                                accent_secondary,
+                                tile_width,
+                            );
+                        });
+
+                        summary_path(ui, &snapshot.path.display().to_string(), accent_primary);
+
+                        let meta_width =
+                            ((ui.available_width() - tile_spacing) / 2.0).max(160.0);
+                        ui.horizontal_wrapped(|ui| {
+                            summary_meta(ui, "OLDEST", &oldest, accent_warn, meta_width);
+                            summary_meta(ui, "NEWEST", &newest, accent_warn, meta_width);
+                        });
+                    }
                 }
-                Err(err) => {
-                    md!(ui, "Error: `{err}`");
-                }
-            },
-        }
+            });
     });
 
     view!(move |ui| {
@@ -500,5 +695,4 @@ fn main() {
                 }
             });
     });
-    notebook_end!();
 }

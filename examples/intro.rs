@@ -9,8 +9,8 @@ use std::ops::DerefMut;
 
 use GORBIE::prelude::*;
 
+#[notebook]
 fn main() {
-    notebook_begin!();
     view!(move |ui| {
         md!(
             ui,
@@ -90,5 +90,4 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
                 .scale_percent(),
         );
     });
-    notebook_end!();
 }
