@@ -3,12 +3,18 @@
 //! [dependencies]
 //! GORBIE = { path = ".." }
 //! egui = "0.32"
+//! rapier2d = "0.18"
 //! triblespace = { path = "../../triblespace-rs" }
 //! ```
 
+use std::cmp::Ordering;
+use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashSet, VecDeque};
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use rapier2d::prelude::*;
 use triblespace::core::id::Id;
 use triblespace::core::repo::pile::Pile;
 use triblespace::core::repo::{BlobStore, BlobStoreList, BlobStoreMeta, BranchStore};
@@ -64,6 +70,303 @@ impl Default for SummaryTuning {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct SummaryLevels {
+    size: f32,
+    blob: f32,
+    avg_blob: f32,
+    age: f32,
+    branch: f32,
+}
+
+impl SummaryLevels {
+    fn quantized(self) -> [u16; 5] {
+        [
+            quantize_level_u16(self.size),
+            quantize_level_u16(self.blob),
+            quantize_level_u16(self.avg_blob),
+            quantize_level_u16(self.age),
+            quantize_level_u16(self.branch),
+        ]
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SummarySimFingerprint {
+    data_hash: u64,
+    width: u32,
+    height: u32,
+    levels: [u16; 5],
+}
+
+impl SummarySimFingerprint {
+    fn new(snapshot: &PileSnapshot, levels: SummaryLevels, rect: egui::Rect) -> Self {
+        let width = rect.width().round().max(1.0) as u32;
+        let height = rect.height().round().max(1.0) as u32;
+        Self {
+            data_hash: snapshot_hash(snapshot),
+            width,
+            height,
+            levels: levels.quantized(),
+        }
+    }
+
+    fn seed(self) -> u64 {
+        let mut seed = self.data_hash;
+        for level in self.levels {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(u64::from(level));
+        }
+        seed
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PileBlock {
+    size: f32,
+    age_level: f32,
+    has_branch: bool,
+    seed: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SimLayout {
+    half_width: f32,
+    height: f32,
+    ground_offset: f32,
+    wall_thickness: f32,
+    spawn_y: f32,
+}
+
+impl SimLayout {
+    fn from_rect(rect: egui::Rect) -> Self {
+        let ground_offset = 2.0;
+        let wall_thickness = 6.0;
+        let height = (rect.height() - ground_offset - 2.0).max(40.0);
+        let half_width = (rect.width() * 0.5 - wall_thickness - 2.0).max(30.0);
+        let spawn_y = height * 0.72;
+        Self {
+            half_width,
+            height,
+            ground_offset,
+            wall_thickness,
+            spawn_y,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct BlockInstance {
+    handle: RigidBodyHandle,
+    block: PileBlock,
+}
+
+struct PileSimulation {
+    layout: SimLayout,
+    pending: VecDeque<PileBlock>,
+    blocks: Vec<BlockInstance>,
+    bodies: RigidBodySet,
+    colliders: ColliderSet,
+    pipeline: PhysicsPipeline,
+    island_manager: IslandManager,
+    broad_phase: BroadPhase,
+    narrow_phase: NarrowPhase,
+    impulse_joints: ImpulseJointSet,
+    multibody_joints: MultibodyJointSet,
+    ccd_solver: CCDSolver,
+    gravity: Vector<f32>,
+    integration_parameters: IntegrationParameters,
+    spawn_accumulator: f32,
+    settled_frames: u32,
+    settled: bool,
+    rng: Lcg,
+}
+
+impl std::fmt::Debug for PileSimulation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PileSimulation")
+            .field("pending", &self.pending.len())
+            .field("blocks", &self.blocks.len())
+            .field("settled_frames", &self.settled_frames)
+            .field("settled", &self.settled)
+            .finish()
+    }
+}
+
+impl PileSimulation {
+    fn new(blocks: Vec<PileBlock>, layout: SimLayout, seed: u64) -> Self {
+        let mut bodies = RigidBodySet::new();
+        let mut colliders = ColliderSet::new();
+
+        let ground_handle =
+            bodies.insert(RigidBodyBuilder::fixed().translation(vector![0.0, 0.0]).build());
+        let ground = ColliderBuilder::cuboid(layout.half_width, layout.wall_thickness)
+            .friction(0.9)
+            .build();
+        colliders.insert_with_parent(ground, ground_handle, &mut bodies);
+
+        let wall_height = layout.height * 0.9;
+        let wall_half = vector![layout.wall_thickness, wall_height * 0.5];
+        let wall_y = wall_half.y;
+        let left_x = -layout.half_width - wall_half.x;
+        let right_x = layout.half_width + wall_half.x;
+        let wall_collider = || {
+            ColliderBuilder::cuboid(wall_half.x, wall_half.y)
+                .friction(0.8)
+                .build()
+        };
+        let left_handle =
+            bodies.insert(RigidBodyBuilder::fixed().translation(vector![left_x, wall_y]).build());
+        colliders.insert_with_parent(wall_collider(), left_handle, &mut bodies);
+        let right_handle =
+            bodies.insert(RigidBodyBuilder::fixed().translation(vector![right_x, wall_y]).build());
+        colliders.insert_with_parent(wall_collider(), right_handle, &mut bodies);
+
+        let pending = VecDeque::from(blocks);
+        let rng = Lcg::new(seed);
+        let mut simulation = Self {
+            layout,
+            pending,
+            blocks: Vec::new(),
+            bodies,
+            colliders,
+            pipeline: PhysicsPipeline::new(),
+            island_manager: IslandManager::new(),
+            broad_phase: BroadPhase::new(),
+            narrow_phase: NarrowPhase::new(),
+            impulse_joints: ImpulseJointSet::new(),
+            multibody_joints: MultibodyJointSet::new(),
+            ccd_solver: CCDSolver::new(),
+            gravity: vector![0.0, -980.0],
+            integration_parameters: IntegrationParameters::default(),
+            spawn_accumulator: 0.0,
+            settled_frames: 0,
+            settled: false,
+            rng,
+        };
+        simulation.spawn_next();
+        simulation
+    }
+
+    fn spawn_next(&mut self) {
+        let Some(block) = self.pending.pop_front() else {
+            return;
+        };
+        let half = block.size * 0.5;
+        let spawn_span =
+            (self.layout.half_width - half - self.layout.wall_thickness * 1.5).max(half);
+        let x = self.rng.range_f32(-spawn_span, spawn_span);
+        let y = self.layout.spawn_y + self.rng.range_f32(half * 0.4, half * 1.6);
+        let body = RigidBodyBuilder::dynamic()
+            .translation(vector![x, y])
+            .linear_damping(1.7)
+            .angular_damping(2.2)
+            .build();
+        let handle = self.bodies.insert(body);
+        let collider = ColliderBuilder::cuboid(half, half)
+            .friction(0.9)
+            .restitution(0.0)
+            .density(1.0)
+            .build();
+        self.colliders
+            .insert_with_parent(collider, handle, &mut self.bodies);
+        self.blocks.push(BlockInstance { handle, block });
+    }
+
+    fn step(&mut self, dt: f32) -> bool {
+        if self.settled {
+            return false;
+        }
+
+        let dt = dt.clamp(1.0 / 240.0, 1.0 / 30.0);
+        self.spawn_accumulator += dt;
+        let spawn_interval = 0.08;
+        while self.spawn_accumulator >= spawn_interval && !self.pending.is_empty() {
+            self.spawn_accumulator -= spawn_interval;
+            self.spawn_next();
+        }
+
+        self.integration_parameters.dt = dt;
+        self.pipeline.step(
+            &self.gravity,
+            &self.integration_parameters,
+            &mut self.island_manager,
+            &mut self.broad_phase,
+            &mut self.narrow_phase,
+            &mut self.bodies,
+            &mut self.colliders,
+            &mut self.impulse_joints,
+            &mut self.multibody_joints,
+            &mut self.ccd_solver,
+            None,
+            &(),
+            &(),
+        );
+
+        if self.pending.is_empty() && self.is_settled() {
+            self.settled = true;
+        }
+
+        !self.settled
+    }
+
+    fn is_settled(&mut self) -> bool {
+        let mut max_speed = 0.0_f32;
+        for block in &self.blocks {
+            if let Some(body) = self.bodies.get(block.handle) {
+                max_speed = max_speed.max(body.linvel().norm());
+            }
+        }
+
+        if max_speed < 5.0 {
+            self.settled_frames += 1;
+        } else {
+            self.settled_frames = 0;
+        }
+
+        self.settled_frames > 20
+    }
+}
+
+#[derive(Debug, Default)]
+struct SummarySimState {
+    fingerprint: Option<SummarySimFingerprint>,
+    sim: Option<PileSimulation>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Lcg {
+    state: u64,
+}
+
+impl Lcg {
+    fn new(seed: u64) -> Self {
+        Self { state: seed.max(1) }
+    }
+
+    fn next_u32(&mut self) -> u32 {
+        self.state = self
+            .state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1);
+        (self.state >> 32) as u32
+    }
+
+    fn next_f32(&mut self) -> f32 {
+        let value = self.next_u32();
+        value as f32 / u32::MAX as f32
+    }
+
+    fn range_f32(&mut self, min: f32, max: f32) -> f32 {
+        min + (max - min) * self.next_f32()
+    }
+}
+
+fn quantize_level_u16(level: f32) -> u16 {
+    (level.clamp(0.0, 1.0) * 1000.0).round() as u16
+}
+
 fn hex_prefix(bytes: impl AsRef<[u8]>, prefix_len: usize) -> String {
     let bytes = bytes.as_ref();
     let prefix_len = prefix_len.min(bytes.len());
@@ -117,11 +420,6 @@ fn normalize_log2(value: u64, min_exp: f32, max_exp: f32) -> f32 {
     ((value - min_exp) / (max_exp - min_exp)).clamp(0.0, 1.0)
 }
 
-fn quantize_level(level: f32, steps: u32) -> f32 {
-    let steps = steps.max(2) as f32;
-    (level.clamp(0.0, 1.0) * (steps - 1.0)).round() / (steps - 1.0)
-}
-
 fn expand_card_rect(rect: egui::Rect, padding: egui::Margin) -> egui::Rect {
     egui::Rect::from_min_max(
         rect.min - padding.left_top(),
@@ -149,7 +447,8 @@ fn draw_cobweb(
     painter: &egui::Painter,
     corner: egui::Pos2,
     size: f32,
-    direction: egui::Vec2,
+    x_axis: egui::Vec2,
+    y_axis: egui::Vec2,
     color: egui::Color32,
 ) {
     let stroke = egui::Stroke::new(1.0, color);
@@ -163,8 +462,9 @@ fn draw_cobweb(
         for step in 0..=steps {
             let t = step as f32 / steps as f32;
             let angle = t * angle_span;
-            let dir = egui::vec2(angle.cos() * direction.x, angle.sin() * direction.y);
-            points.push(corner + dir * radius);
+            let dx = angle.cos() * radius;
+            let dy = angle.sin() * radius;
+            points.push(corner + x_axis * dx + y_axis * dy);
         }
         painter.add(egui::Shape::line(points, stroke));
     }
@@ -173,8 +473,9 @@ fn draw_cobweb(
     for idx in 0..spokes {
         let t = idx as f32 / (spokes - 1) as f32;
         let angle = t * angle_span;
-        let dir = egui::vec2(angle.cos() * direction.x, angle.sin() * direction.y);
-        painter.line_segment([corner, corner + dir * size], stroke);
+        let dx = angle.cos() * size;
+        let dy = angle.sin() * size;
+        painter.line_segment([corner, corner + x_axis * dx + y_axis * dy], stroke);
     }
 }
 
@@ -202,99 +503,371 @@ fn draw_sprout(painter: &egui::Painter, base: egui::Pos2, height: f32, color: eg
     painter.circle_filled(tip, 1.5, color);
 }
 
-fn summary_pile_panel(
-    ui: &mut egui::Ui,
-    width: f32,
-    size_level: f32,
-    blob_level: f32,
-    avg_blob_level: f32,
-    age_level: f32,
-    branch_level: f32,
-    bg_color: egui::Color32,
+fn rotated_rect_points(center: egui::Pos2, size: f32, angle: f32) -> [egui::Pos2; 4] {
+    let half = size * 0.5;
+    let (sin, cos) = angle.sin_cos();
+    let corners = [
+        egui::vec2(-half, -half),
+        egui::vec2(half, -half),
+        egui::vec2(half, half),
+        egui::vec2(-half, half),
+    ];
+
+    let mut out = [egui::Pos2::ZERO; 4];
+    for (idx, corner) in corners.iter().enumerate() {
+        let rotated = egui::vec2(
+            corner.x * cos - corner.y * sin,
+            corner.x * sin + corner.y * cos,
+        );
+        out[idx] = center + rotated;
+    }
+
+    out
+}
+
+fn top_edge_indices(points: &[egui::Pos2; 4]) -> (usize, usize) {
+    let mut best = (0usize, 1usize, (points[0].y + points[1].y) * 0.5);
+    for idx in 1..4 {
+        let a = idx;
+        let b = (idx + 1) % 4;
+        let a_pos = points[a];
+        let b_pos = points[b];
+        let avg_y = (a_pos.y + b_pos.y) * 0.5;
+        if avg_y < best.2 {
+            best = (a, b, avg_y);
+        }
+    }
+    (best.0, best.1)
+}
+
+fn normalize_vec2(vec: egui::Vec2) -> egui::Vec2 {
+    let len = vec.length();
+    if len > f32::EPSILON {
+        vec / len
+    } else {
+        vec
+    }
+}
+
+fn corner_axes(points: &[egui::Pos2; 4], corner: usize) -> (egui::Vec2, egui::Vec2) {
+    let next = (corner + 1) % 4;
+    let prev = (corner + 3) % 4;
+    let axis_a = normalize_vec2(points[next] - points[corner]);
+    let axis_b = normalize_vec2(points[prev] - points[corner]);
+    (axis_a, axis_b)
+}
+
+fn snapshot_hash(snapshot: &PileSnapshot) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    snapshot.path.hash(&mut hasher);
+    snapshot.file_len.hash(&mut hasher);
+    snapshot.blobs.len().hash(&mut hasher);
+    snapshot.branches.len().hash(&mut hasher);
+    if let Some(blob) = snapshot.blobs.first() {
+        blob.hash.hash(&mut hasher);
+        blob.timestamp_ms.hash(&mut hasher);
+        blob.length.hash(&mut hasher);
+    }
+    if let Some(branch) = snapshot.branches.first() {
+        branch.id.hash(&mut hasher);
+        branch.head.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+fn hash_u64(hash: RawValue) -> u64 {
+    let mut bytes = [0u8; 8];
+    bytes.copy_from_slice(&hash[..8]);
+    u64::from_le_bytes(bytes)
+}
+
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
+fn target_sample_count(blob_count: usize, level: f32) -> usize {
+    if blob_count <= 3 {
+        return blob_count;
+    }
+    let min_samples = 12usize.min(blob_count);
+    let max_samples = 72usize.min(blob_count);
+    let t = level.clamp(0.0, 1.0);
+    let count = min_samples as f32 + (max_samples - min_samples) as f32 * t;
+    count.round() as usize
+}
+
+fn size_log_range(blobs: &[&BlobInfo]) -> (f32, f32) {
+    let mut min_log = f32::MAX;
+    let mut max_log = f32::MIN;
+    for blob in blobs {
+        let Some(length) = blob.length else {
+            continue;
+        };
+        let log = (length.max(1) as f32).log2();
+        min_log = min_log.min(log);
+        max_log = max_log.max(log);
+    }
+    if !min_log.is_finite() || !max_log.is_finite() {
+        return (0.0, 1.0);
+    }
+    if (max_log - min_log).abs() < f32::EPSILON {
+        return (min_log, min_log + 1.0);
+    }
+    (min_log, max_log)
+}
+
+fn size_range(sim_rect: egui::Rect, levels: SummaryLevels) -> (f32, f32) {
+    let base_min = (sim_rect.height() * 0.06).clamp(8.0, 18.0);
+    let base_max = (sim_rect.height() * 0.14).clamp(14.0, 32.0);
+    let size_scale = 0.75 + levels.size * 0.7;
+    let variance_scale = 0.85 + levels.avg_blob * 0.7;
+    let mut min_size = base_min * size_scale;
+    let mut max_size = base_max * size_scale * variance_scale;
+    let cap = (sim_rect.width() * 0.2).max(12.0);
+    max_size = max_size.min(cap);
+    min_size = min_size.min(max_size * 0.85).max(6.0);
+    (min_size, max_size.max(min_size + 1.0))
+}
+
+fn select_sample<'a>(
+    candidates: &[&'a BlobInfo],
+    count: usize,
+    branch_heads: &HashSet<RawValue>,
+) -> Vec<&'a BlobInfo> {
+    if count == 0 {
+        return Vec::new();
+    }
+    let mut entries: Vec<(u64, &BlobInfo)> = candidates
+        .iter()
+        .copied()
+        .filter(|blob| !branch_heads.contains(&blob.hash))
+        .map(|blob| (hash_u64(blob.hash), blob))
+        .collect();
+    entries.sort_by_key(|(key, _)| *key);
+    entries.truncate(count);
+    entries.into_iter().map(|(_, blob)| blob).collect()
+}
+
+fn build_summary_blocks(
+    snapshot: &PileSnapshot,
+    levels: SummaryLevels,
+    sim_rect: egui::Rect,
+) -> Vec<PileBlock> {
+    let candidates: Vec<&BlobInfo> = snapshot
+        .blobs
+        .iter()
+        .filter(|blob| blob.length.is_some())
+        .collect();
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+
+    let branch_heads: HashSet<RawValue> = snapshot
+        .branches
+        .iter()
+        .filter_map(|branch| branch.head)
+        .collect();
+
+    let sample_count = target_sample_count(candidates.len(), levels.blob);
+    let mut branch_blobs: Vec<&BlobInfo> = candidates
+        .iter()
+        .copied()
+        .filter(|blob| branch_heads.contains(&blob.hash))
+        .collect();
+    branch_blobs.sort_by_key(|blob| hash_u64(blob.hash));
+    if branch_blobs.len() > sample_count {
+        branch_blobs.truncate(sample_count);
+    }
+
+    let remaining = sample_count.saturating_sub(branch_blobs.len());
+    let mut selected = select_sample(&candidates, remaining, &branch_heads);
+    selected.extend(branch_blobs);
+    if selected.is_empty() {
+        return Vec::new();
+    }
+
+    let (min_log, max_log) = size_log_range(&selected);
+    let (min_size, max_size) = size_range(sim_rect, levels);
+    let age_weight = 0.4 + levels.age * 0.8;
+
+    let oldest_ts = snapshot.blobs.iter().filter_map(|blob| blob.timestamp_ms).min();
+    let newest_ts = snapshot.blobs.iter().filter_map(|blob| blob.timestamp_ms).max();
+    let age_span = match (oldest_ts, newest_ts) {
+        (Some(oldest), Some(newest)) => newest.saturating_sub(oldest),
+        _ => 0,
+    };
+
+    let mut blocks: Vec<PileBlock> = selected
+        .into_iter()
+        .map(|blob| {
+            let length = blob.length.unwrap_or(1);
+            let log = (length.max(1) as f32).log2();
+            let t = ((log - min_log) / (max_log - min_log)).clamp(0.0, 1.0);
+            let size = lerp(min_size, max_size, t).clamp(6.0, max_size);
+            let age_level = match (blob.timestamp_ms, newest_ts, age_span) {
+                (Some(ts), Some(newest), span) if span > 0 => {
+                    newest.saturating_sub(ts) as f32 / span as f32
+                }
+                _ => 0.0,
+            };
+            PileBlock {
+                size,
+                age_level: (age_level * age_weight).clamp(0.0, 1.0),
+                has_branch: branch_heads.contains(&blob.hash),
+                seed: hash_u64(blob.hash),
+            }
+        })
+        .collect();
+
+    blocks.sort_by(|a, b| {
+        let size_cmp = b
+            .size
+            .partial_cmp(&a.size)
+            .unwrap_or(Ordering::Equal);
+        if size_cmp == Ordering::Equal {
+            a.seed.cmp(&b.seed)
+        } else {
+            size_cmp
+        }
+    });
+
+    blocks
+}
+
+fn summary_sim_rect(panel_rect: egui::Rect) -> egui::Rect {
+    let inner = panel_rect.shrink(6.0);
+    let overlay_width = (inner.width() * 0.32).max(160.0).min(inner.width() * 0.55);
+    egui::Rect::from_min_max(
+        egui::pos2(inner.left() + overlay_width, inner.top()),
+        inner.right_bottom(),
+    )
+}
+
+fn draw_pile_sim(
+    ui: &egui::Ui,
+    sim: Option<&PileSimulation>,
+    sim_rect: egui::Rect,
+    levels: SummaryLevels,
     label_color: egui::Color32,
     pile_color: egui::Color32,
     web_color: egui::Color32,
     sprout_color: egui::Color32,
-    padding: egui::Margin,
-) -> egui::Rect {
-    let size_level = quantize_level(size_level, 5);
-    let blob_level = quantize_level(blob_level, 5);
-    let avg_blob_level = quantize_level(avg_blob_level, 4);
-    let age_level = quantize_level(age_level, 4);
-    let branch_level = quantize_level(branch_level, 4);
-
-    let rect = summary_panel_base(ui, width, bg_color, padding);
-    let painter = ui.painter();
-    let stroke = egui::Stroke::new(1.0, pile_color);
-
-    let inner = rect.shrink(6.0);
-    let ground_y = rect.bottom() - 1.0;
+) {
+    let layout = sim
+        .map(|sim| sim.layout)
+        .unwrap_or_else(|| SimLayout::from_rect(sim_rect));
+    let painter = ui.painter().with_clip_rect(sim_rect);
+    let ground_y = sim_rect.bottom() - layout.ground_offset;
     painter.hline(
-        egui::Rangef::new(inner.left(), inner.right()),
+        egui::Rangef::new(sim_rect.left(), sim_rect.right()),
         ground_y,
         egui::Stroke::new(1.0, label_color),
     );
 
-    let pile_width = inner.width() * (0.45 + size_level * 0.45);
-    let pile_height = inner.height() * (0.4 + size_level * 0.45);
-    let pile_rect = egui::Rect::from_min_max(
-        egui::pos2(inner.right() - pile_width, ground_y - pile_height),
-        egui::pos2(inner.right(), ground_y),
-    );
+    let Some(sim) = sim else {
+        return;
+    };
 
-    let rows = (2.0 + size_level * 4.0).round().clamp(2.0, 6.0) as usize;
-    let base_boxes = (3.0 + blob_level * 7.0).round().clamp(3.0, 10.0) as usize;
-    let max_box_width = pile_rect.width() / base_boxes as f32;
-    let max_box_height = pile_rect.height() / rows as f32;
-    let base_box = max_box_width.min(max_box_height);
-    let gap = (base_box * 0.15).clamp(1.0, 3.0);
-    let scale = 0.9 + avg_blob_level * 0.25;
-    let mut box_size = (base_box - gap).max(2.0) * scale;
-    box_size = box_size.min(base_box);
+    let center_x = sim_rect.center().x;
+    let web_scale = 0.5 + levels.age * 0.9;
+    let sprout_scale = 0.6 + levels.branch * 0.8;
+    let stroke = egui::Stroke::new(1.0, pile_color);
+    for block in &sim.blocks {
+        let Some(body) = sim.bodies.get(block.handle) else {
+            continue;
+        };
+        let pos = body.translation();
+        let center = egui::pos2(center_x + pos.x, ground_y - pos.y);
+        let angle = body.rotation().angle();
+        let points = rotated_rect_points(center, block.block.size, angle);
+        for idx in 0..4 {
+            painter.line_segment(
+                [points[idx], points[(idx + 1) % 4]],
+                stroke,
+            );
+        }
 
-    for row in 0..rows {
-        let row_boxes = base_boxes.saturating_sub(row).max(1);
-        let row_width = row_boxes as f32 * box_size + (row_boxes.saturating_sub(1)) as f32 * gap;
-        let row_left = pile_rect.center().x - row_width / 2.0;
-        let row_y = pile_rect.bottom() - box_size * (row + 1) as f32;
-        for col in 0..row_boxes {
-            let x = row_left + col as f32 * (box_size + gap);
-            let y = row_y;
-            let rect = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(box_size, box_size));
-            painter.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Inside);
+        if block.block.has_branch {
+            let (edge_a, edge_b) = top_edge_indices(&points);
+            let a = points[edge_a];
+            let b = points[edge_b];
+            let base = egui::pos2((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
+            let height = block.block.size * 0.45 * sprout_scale;
+            draw_sprout(&painter, base, height, sprout_color);
+        }
+
+        if block.block.age_level > 0.55 {
+            let web_size = (block.block.size * 0.35 * block.block.age_level * web_scale).max(4.0);
+            let (edge_a, edge_b) = top_edge_indices(&points);
+            let left = if points[edge_a].x <= points[edge_b].x {
+                edge_a
+            } else {
+                edge_b
+            };
+            let right = if left == edge_a { edge_b } else { edge_a };
+            let corner = if block.block.seed & 1 == 0 {
+                left
+            } else {
+                right
+            };
+            let (axis_a, axis_b) = corner_axes(&points, corner);
+            draw_cobweb(
+                &painter,
+                points[corner],
+                web_size,
+                axis_a,
+                axis_b,
+                web_color,
+            );
         }
     }
+}
 
-    let web_count = (age_level * 2.0).round() as usize;
-    let web_size = 14.0 + age_level * 16.0;
-    if web_count >= 1 {
-        let corner = egui::pos2(rect.right() - 2.0, rect.top() + 2.0);
-        draw_cobweb(painter, corner, web_size, egui::vec2(-1.0, 1.0), web_color);
-    }
-    if web_count >= 2 {
-        let corner = egui::pos2(rect.left() + 2.0, rect.top() + 2.0);
-        draw_cobweb(
-            painter,
-            corner,
-            web_size * 0.9,
-            egui::vec2(1.0, 1.0),
+impl SummarySimState {
+    fn update_and_draw(
+        &mut self,
+        ui: &mut egui::Ui,
+        snapshot: &PileSnapshot,
+        levels: SummaryLevels,
+        sim_rect: egui::Rect,
+        label_color: egui::Color32,
+        pile_color: egui::Color32,
+        web_color: egui::Color32,
+        sprout_color: egui::Color32,
+    ) -> bool {
+        let fingerprint = SummarySimFingerprint::new(snapshot, levels, sim_rect);
+        if self.fingerprint != Some(fingerprint) {
+            let blocks = build_summary_blocks(snapshot, levels, sim_rect);
+            self.sim = if blocks.is_empty() {
+                None
+            } else {
+                Some(PileSimulation::new(
+                    blocks,
+                    SimLayout::from_rect(sim_rect),
+                    fingerprint.seed(),
+                ))
+            };
+            self.fingerprint = Some(fingerprint);
+        }
+
+        let mut active = false;
+        if let Some(sim) = &mut self.sim {
+            active = sim.step(1.0 / 60.0);
+        }
+
+        draw_pile_sim(
+            ui,
+            self.sim.as_ref(),
+            sim_rect,
+            levels,
+            label_color,
+            pile_color,
             web_color,
+            sprout_color,
         );
-    }
 
-    let sprout_count = (branch_level * 3.0).round() as usize;
-    let sprout_height = 6.0 + branch_level * 10.0;
-    for idx in 0..sprout_count {
-        let t = (idx + 1) as f32 / (sprout_count + 1) as f32;
-        let base = egui::pos2(
-            pile_rect.left() + pile_rect.width() * t,
-            pile_rect.bottom() - 1.0,
-        );
-        let height = sprout_height * (0.9 + idx as f32 * 0.06);
-        draw_sprout(painter, base, height, sprout_color);
+        active
     }
-
-    rect
 }
 
 fn summary_overlay_row(
@@ -465,6 +1038,7 @@ struct InspectorState {
     max_rows: usize,
     histogram_bytes: bool,
     snapshot: ComputedState<Result<PileSnapshot, String>>,
+    summary_sim: SummarySimState,
 }
 
 impl Default for InspectorState {
@@ -474,6 +1048,7 @@ impl Default for InspectorState {
             max_rows: 200,
             histogram_bytes: false,
             snapshot: ComputedState::Undefined,
+            summary_sim: SummarySimState::default(),
         }
     }
 }
@@ -491,6 +1066,7 @@ fn main() {
             max_rows: 200,
             histogram_bytes: false,
             snapshot: ComputedState::Undefined,
+            summary_sim: SummarySimState::default(),
         },
         move |ui, state| {
             ui.with_padding(padding, |ui| {
@@ -741,7 +1317,7 @@ fn main() {
     view!(move |ui| {
         let summary_padding = egui::Margin::ZERO;
         ui.with_padding(summary_padding, |ui| {
-            let state = ui.read(inspector).expect("inspector state missing");
+            let mut state = ui.read_mut(inspector).expect("inspector state missing");
             let tuning = ui.read(summary_tuning).expect("summary tuning missing");
             let now_ms = now_ms();
             let bg_color = egui::Color32::from_rgb(8, 8, 8);
@@ -753,7 +1329,12 @@ fn main() {
             let accent_warn = egui::Color32::from_rgb(255, 196, 0);
             let accent_error = egui::Color32::from_rgb(255, 80, 90);
 
-            let status_color = match &state.snapshot {
+            let InspectorState {
+                snapshot,
+                summary_sim,
+                ..
+            } = &mut *state;
+            let status_color = match &*snapshot {
                 ComputedState::Undefined => label_color,
                 ComputedState::Init(_) | ComputedState::Stale(_, _, _) => accent_warn,
                 ComputedState::Ready(Ok(_), _) => accent_ok,
@@ -765,7 +1346,7 @@ fn main() {
                 .show(ui, |ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 
-                    match &state.snapshot {
+                    match snapshot {
                         ComputedState::Undefined => {
                             summary_status_panel(
                                 ui,
@@ -840,48 +1421,54 @@ fn main() {
                                 0
                             };
                             let live_avg_blob_level = normalize_log2(avg_blob_size + 1, 6.0, 24.0);
-                            let size_level = if tuning.enabled {
-                                tuning.size_level
-                            } else {
-                                live_size_level
-                            };
-                            let blob_level = if tuning.enabled {
-                                tuning.blob_level
-                            } else {
-                                live_blob_level
-                            };
-                            let branch_level = if tuning.enabled {
-                                tuning.branch_level
-                            } else {
-                                live_branch_level
-                            };
-                            let age_level = if tuning.enabled {
-                                tuning.age_level
-                            } else {
-                                live_age_level
-                            };
-                            let avg_blob_level = if tuning.enabled {
-                                tuning.avg_blob_level
-                            } else {
-                                live_avg_blob_level
+                            let levels = SummaryLevels {
+                                size: if tuning.enabled {
+                                    tuning.size_level
+                                } else {
+                                    live_size_level
+                                },
+                                blob: if tuning.enabled {
+                                    tuning.blob_level
+                                } else {
+                                    live_blob_level
+                                },
+                                avg_blob: if tuning.enabled {
+                                    tuning.avg_blob_level
+                                } else {
+                                    live_avg_blob_level
+                                },
+                                age: if tuning.enabled {
+                                    tuning.age_level
+                                } else {
+                                    live_age_level
+                                },
+                                branch: if tuning.enabled {
+                                    tuning.branch_level
+                                } else {
+                                    live_branch_level
+                                },
                             };
 
-                            let total_width = ui.available_width();
-                            let panel_rect = summary_pile_panel(
+                            let panel_rect = summary_panel_base(
                                 ui,
-                                total_width,
-                                size_level,
-                                blob_level,
-                                avg_blob_level,
-                                age_level,
-                                branch_level,
+                                ui.available_width(),
                                 bg_color,
+                                summary_padding,
+                            );
+                            let sim_rect = summary_sim_rect(panel_rect);
+                            let active = summary_sim.update_and_draw(
+                                ui,
+                                snapshot,
+                                levels,
+                                sim_rect,
                                 label_color,
                                 pile_color,
                                 web_color,
                                 sprout_color,
-                                summary_padding,
                             );
+                            if active {
+                                ui.ctx().request_repaint();
+                            }
                             summary_overlay_text(
                                 ui,
                                 panel_rect,
