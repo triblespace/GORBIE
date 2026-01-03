@@ -111,8 +111,10 @@ impl<T: Send + Sync + std::fmt::Debug + PartialEq + 'static> Card for ReactiveCa
             }
         };
 
-        let is_updating =
-            matches!(&*current, ComputedState::Init(_) | ComputedState::Stale(_, _, _));
+        let is_updating = matches!(
+            &*current,
+            ComputedState::Init(_) | ComputedState::Stale(_, _, _)
+        );
         if is_updating {
             ui.ctx().request_repaint();
         }

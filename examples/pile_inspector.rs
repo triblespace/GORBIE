@@ -18,6 +18,7 @@ use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::state;
 use GORBIE::view;
+use GORBIE::view_full_bleed;
 use GORBIE::widgets;
 
 #[derive(Clone, Debug)]
@@ -39,6 +40,29 @@ struct PileSnapshot {
     file_len: u64,
     blobs: Vec<BlobInfo>,
     branches: Vec<BranchInfo>,
+}
+
+#[derive(Clone, Debug)]
+struct SummaryTuning {
+    enabled: bool,
+    size_level: f32,
+    blob_level: f32,
+    avg_blob_level: f32,
+    age_level: f32,
+    branch_level: f32,
+}
+
+impl Default for SummaryTuning {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            size_level: 0.6,
+            blob_level: 0.6,
+            avg_blob_level: 0.5,
+            age_level: 0.4,
+            branch_level: 0.3,
+        }
+    }
 }
 
 fn hex_prefix(bytes: impl AsRef<[u8]>, prefix_len: usize) -> String {
@@ -89,157 +113,280 @@ fn format_age(now_ms: u64, ts_ms: u64) -> String {
     }
 }
 
-fn summary_header(ui: &mut egui::Ui, title: &str, status: &str, status_color: egui::Color32) {
-    let height = 22.0;
-    let width = ui.available_width();
+fn normalize_log2(value: u64, min_exp: f32, max_exp: f32) -> f32 {
+    let value = (value.max(1) as f32).log2();
+    ((value - min_exp) / (max_exp - min_exp)).clamp(0.0, 1.0)
+}
+
+fn quantize_level(level: f32, steps: u32) -> f32 {
+    let steps = steps.max(2) as f32;
+    (level.clamp(0.0, 1.0) * (steps - 1.0)).round() / (steps - 1.0)
+}
+
+fn summary_panel_base(ui: &mut egui::Ui, width: f32, bg_color: egui::Color32) -> egui::Rect {
+    let height = 150.0;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
-    let painter = ui.painter();
+    ui.painter().rect_filled(rect, 0.0, bg_color);
 
-    let fill = GORBIE::themes::blend(
-        ui.visuals().window_fill,
-        ui.visuals().widgets.noninteractive.bg_stroke.color,
-        0.2,
+    rect
+}
+
+fn draw_cobweb(
+    painter: &egui::Painter,
+    corner: egui::Pos2,
+    size: f32,
+    direction: egui::Vec2,
+    color: egui::Color32,
+) {
+    let stroke = egui::Stroke::new(1.0, color);
+    let steps = 6;
+    let rings = 3;
+    let angle_span = std::f32::consts::FRAC_PI_2;
+
+    for ring in 1..=rings {
+        let radius = size * ring as f32 / rings as f32;
+        let mut points = Vec::with_capacity(steps + 1);
+        for step in 0..=steps {
+            let t = step as f32 / steps as f32;
+            let angle = t * angle_span;
+            let dir = egui::vec2(angle.cos() * direction.x, angle.sin() * direction.y);
+            points.push(corner + dir * radius);
+        }
+        painter.add(egui::Shape::line(points, stroke));
+    }
+
+    let spokes = 4;
+    for idx in 0..spokes {
+        let t = idx as f32 / (spokes - 1) as f32;
+        let angle = t * angle_span;
+        let dir = egui::vec2(angle.cos() * direction.x, angle.sin() * direction.y);
+        painter.line_segment([corner, corner + dir * size], stroke);
+    }
+}
+
+fn draw_sprout(painter: &egui::Painter, base: egui::Pos2, height: f32, color: egui::Color32) {
+    let stroke = egui::Stroke::new(1.0, color);
+    let tip = base + egui::vec2(0.0, -height);
+    painter.line_segment([base, tip], stroke);
+
+    let leaf_span = height * 0.35;
+    let leaf_y = base.y - height * 0.6;
+    painter.line_segment(
+        [
+            egui::pos2(base.x, leaf_y),
+            egui::pos2(base.x - leaf_span, leaf_y - leaf_span * 0.4),
+        ],
+        stroke,
     );
-    let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+    painter.line_segment(
+        [
+            egui::pos2(base.x, leaf_y),
+            egui::pos2(base.x + leaf_span, leaf_y - leaf_span * 0.3),
+        ],
+        stroke,
+    );
+    painter.circle_filled(tip, 1.5, color);
+}
 
-    painter.rect_filled(rect, 0.0, fill);
-    painter.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Inside);
+fn summary_pile_panel(
+    ui: &mut egui::Ui,
+    width: f32,
+    size_level: f32,
+    blob_level: f32,
+    avg_blob_level: f32,
+    age_level: f32,
+    branch_level: f32,
+    bg_color: egui::Color32,
+    label_color: egui::Color32,
+    pile_color: egui::Color32,
+    web_color: egui::Color32,
+    sprout_color: egui::Color32,
+) -> egui::Rect {
+    let size_level = quantize_level(size_level, 5);
+    let blob_level = quantize_level(blob_level, 5);
+    let avg_blob_level = quantize_level(avg_blob_level, 4);
+    let age_level = quantize_level(age_level, 4);
+    let branch_level = quantize_level(branch_level, 4);
 
-    let stripe_color = ui.visuals().widgets.noninteractive.bg_stroke.color;
-    let stripe_x = rect.x_range();
-    let stripe_top = rect.top() + 4.0;
-    let stripe_spacing = 4.0;
-    for idx in 0..3 {
-        painter.hline(
-            stripe_x,
-            stripe_top + idx as f32 * stripe_spacing,
-            egui::Stroke::new(1.0, stripe_color),
+    let rect = summary_panel_base(ui, width, bg_color);
+    let painter = ui.painter();
+    let stroke = egui::Stroke::new(1.0, pile_color);
+
+    let inner = rect.shrink(6.0);
+    let ground_y = rect.bottom() - 1.0;
+    painter.hline(
+        egui::Rangef::new(inner.left(), inner.right()),
+        ground_y,
+        egui::Stroke::new(1.0, label_color),
+    );
+
+    let pile_width = inner.width() * (0.45 + size_level * 0.45);
+    let pile_height = inner.height() * (0.4 + size_level * 0.45);
+    let pile_rect = egui::Rect::from_min_max(
+        egui::pos2(inner.right() - pile_width, ground_y - pile_height),
+        egui::pos2(inner.right(), ground_y),
+    );
+
+    let rows = (2.0 + size_level * 4.0).round().clamp(2.0, 6.0) as usize;
+    let base_boxes = (3.0 + blob_level * 7.0).round().clamp(3.0, 10.0) as usize;
+    let max_box_width = pile_rect.width() / base_boxes as f32;
+    let max_box_height = pile_rect.height() / rows as f32;
+    let base_box = max_box_width.min(max_box_height);
+    let gap = (base_box * 0.15).clamp(1.0, 3.0);
+    let scale = 0.9 + avg_blob_level * 0.25;
+    let mut box_size = (base_box - gap).max(2.0) * scale;
+    box_size = box_size.min(base_box);
+
+    for row in 0..rows {
+        let row_boxes = base_boxes.saturating_sub(row).max(1);
+        let row_width = row_boxes as f32 * box_size + (row_boxes.saturating_sub(1)) as f32 * gap;
+        let row_left = pile_rect.center().x - row_width / 2.0;
+        let row_y = pile_rect.bottom() - box_size * (row + 1) as f32;
+        for col in 0..row_boxes {
+            let x = row_left + col as f32 * (box_size + gap);
+            let y = row_y;
+            let rect = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(box_size, box_size));
+            painter.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Inside);
+        }
+    }
+
+    let web_count = (age_level * 2.0).round() as usize;
+    let web_size = 14.0 + age_level * 16.0;
+    if web_count >= 1 {
+        let corner = egui::pos2(rect.right() - 2.0, rect.top() + 2.0);
+        draw_cobweb(painter, corner, web_size, egui::vec2(-1.0, 1.0), web_color);
+    }
+    if web_count >= 2 {
+        let corner = egui::pos2(rect.left() + 2.0, rect.top() + 2.0);
+        draw_cobweb(
+            painter,
+            corner,
+            web_size * 0.9,
+            egui::vec2(1.0, 1.0),
+            web_color,
         );
     }
 
-    painter.text(
-        rect.left_center() + egui::vec2(6.0, 0.0),
-        egui::Align2::LEFT_CENTER,
-        title,
-        egui::FontId::monospace(10.0),
-        ui.visuals().text_color(),
-    );
-    painter.text(
-        rect.right_center() - egui::vec2(6.0, 0.0),
-        egui::Align2::RIGHT_CENTER,
-        status,
-        egui::FontId::monospace(10.0),
-        status_color,
-    );
+    let sprout_count = (branch_level * 3.0).round() as usize;
+    let sprout_height = 6.0 + branch_level * 10.0;
+    for idx in 0..sprout_count {
+        let t = (idx + 1) as f32 / (sprout_count + 1) as f32;
+        let base = egui::pos2(
+            pile_rect.left() + pile_rect.width() * t,
+            pile_rect.bottom() - 1.0,
+        );
+        let height = sprout_height * (0.9 + idx as f32 * 0.06);
+        draw_sprout(painter, base, height, sprout_color);
+    }
+
+    rect
 }
 
-fn summary_tile(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: impl std::fmt::Display,
-    accent: egui::Color32,
-    width: f32,
-) {
-    let height = 64.0;
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
-    let painter = ui.painter();
-    let fill = GORBIE::themes::blend(ui.visuals().window_fill, accent, 0.08);
-    let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
-
-    painter.rect_filled(rect, 0.0, fill);
-    painter.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Inside);
-
-    let accent_rect = egui::Rect::from_min_max(
-        rect.left_top(),
-        egui::pos2(rect.right(), rect.top() + 4.0),
-    );
-    painter.rect_filled(accent_rect, 0.0, accent);
-
-    painter.text(
-        rect.left_top() + egui::vec2(6.0, 8.0),
-        egui::Align2::LEFT_TOP,
-        label,
-        egui::FontId::monospace(9.0),
-        accent,
-    );
-    painter.text(
-        rect.left_bottom() + egui::vec2(6.0, -6.0),
-        egui::Align2::LEFT_BOTTOM,
-        format!("{value}"),
-        egui::FontId::monospace(20.0),
-        ui.visuals().text_color(),
-    );
-}
-
-fn summary_meta(
+fn summary_overlay_row(
     ui: &mut egui::Ui,
     label: &str,
     value: &str,
-    accent: egui::Color32,
-    width: f32,
+    label_color: egui::Color32,
+    value_color: egui::Color32,
 ) {
-    let height = 36.0;
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
-    let painter = ui.painter();
-    let fill = GORBIE::themes::blend(ui.visuals().window_fill, accent, 0.04);
-    let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
-
-    painter.rect_filled(rect, 0.0, fill);
-    painter.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Inside);
-
-    let bar_rect = egui::Rect::from_min_max(
-        rect.left_top(),
-        egui::pos2(rect.left() + 4.0, rect.bottom()),
-    );
-    painter.rect_filled(bar_rect, 0.0, accent);
-
-    painter.text(
-        rect.left_top() + egui::vec2(10.0, 6.0),
-        egui::Align2::LEFT_TOP,
-        label,
-        egui::FontId::monospace(9.0),
-        accent,
-    );
-    painter.text(
-        rect.left_bottom() + egui::vec2(10.0, -6.0),
-        egui::Align2::LEFT_BOTTOM,
-        value,
-        egui::FontId::monospace(12.0),
-        ui.visuals().text_color(),
-    );
+    ui.label(egui::RichText::new(label).monospace().color(label_color));
+    ui.label(egui::RichText::new(value).monospace().color(value_color));
+    ui.end_row();
 }
 
-fn summary_path(ui: &mut egui::Ui, path: &str, accent: egui::Color32) {
-    let fill = GORBIE::themes::blend(ui.visuals().window_fill, accent, 0.06);
-    let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
-    egui::Frame::new()
-        .fill(fill)
-        .stroke(stroke)
-        .inner_margin(egui::Margin::symmetric(10, 6))
-        .show(ui, |ui| {
-            ui.label(egui::RichText::new("PATH").monospace().color(accent));
+fn summary_overlay_text(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    size_value: &str,
+    blob_count: usize,
+    branch_count: usize,
+    oldest: &str,
+    newest: &str,
+    path: &str,
+    label_color: egui::Color32,
+    pile_color: egui::Color32,
+    web_color: egui::Color32,
+    sprout_color: egui::Color32,
+) {
+    let overlay_rect = rect.shrink(8.0).with_max_y(rect.bottom() - 6.0);
+    let previous_clip = ui.clip_rect();
+    ui.set_clip_rect(previous_clip.intersect(rect));
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(overlay_rect)
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+        |ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);
+
+            egui::Grid::new("pile-summary-overlay")
+                .min_col_width(70.0)
+                .spacing(egui::vec2(12.0, 0.0))
+                .show(ui, |ui| {
+                    summary_overlay_row(ui, "SIZE", size_value, label_color, pile_color);
+                    summary_overlay_row(
+                        ui,
+                        "BLOBS",
+                        &format!("{blob_count}"),
+                        label_color,
+                        pile_color,
+                    );
+                    summary_overlay_row(
+                        ui,
+                        "BRANCHES",
+                        &format!("{branch_count}"),
+                        label_color,
+                        sprout_color,
+                    );
+                    summary_overlay_row(ui, "OLDEST", oldest, label_color, web_color);
+                    summary_overlay_row(ui, "NEWEST", newest, label_color, web_color);
+                });
+
+            ui.add_space(1.0);
+            ui.label(egui::RichText::new("PATH").monospace().color(pile_color));
             ui.add(
-                egui::Label::new(egui::RichText::new(path).monospace())
+                egui::Label::new(egui::RichText::new(path).monospace().color(label_color))
                     .truncate()
                     .wrap_mode(egui::TextWrapMode::Truncate),
             );
-        });
+        },
+    );
+    ui.set_clip_rect(previous_clip);
 }
 
-fn summary_message(ui: &mut egui::Ui, label: &str, message: &str, accent: egui::Color32) {
-    let fill = GORBIE::themes::blend(ui.visuals().window_fill, accent, 0.06);
-    let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
-    egui::Frame::new()
-        .fill(fill)
-        .stroke(stroke)
-        .inner_margin(egui::Margin::symmetric(10, 6))
-        .show(ui, |ui| {
-            ui.label(egui::RichText::new(label).monospace().color(accent));
-            ui.add(
-                egui::Label::new(egui::RichText::new(message).monospace())
-                    .wrap_mode(egui::TextWrapMode::Wrap),
-            );
-        });
+fn extend_panel_background(
+    ui: &mut egui::Ui,
+    panel_rect: egui::Rect,
+    bg_color: egui::Color32,
+) {
+    let content_rect = ui.min_rect();
+    if content_rect.bottom() <= panel_rect.bottom() {
+        return;
+    }
+
+    let fill_rect = egui::Rect::from_min_max(
+        egui::pos2(panel_rect.left(), panel_rect.bottom()),
+        egui::pos2(panel_rect.right(), content_rect.bottom()),
+    );
+    ui.painter().rect_filled(fill_rect, 0.0, bg_color);
+}
+
+fn summary_status_panel(
+    ui: &mut egui::Ui,
+    width: f32,
+    message: &str,
+    accent: egui::Color32,
+    bg_color: egui::Color32,
+) {
+    let rect = summary_panel_base(ui, width, bg_color);
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(rect.shrink(8.0))
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+        |ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(6.0, 2.0);
+            ui.label(egui::RichText::new(message).monospace().color(accent));
+        },
+    );
 }
 
 fn load_pile(path: PathBuf) -> Result<PileSnapshot, String> {
@@ -353,6 +500,52 @@ fn main() {
             });
         }
     );
+
+    state!(summary_tuning = SummaryTuning::default(), |ui, tuning| {
+        md!(ui, "## Summary knobs");
+        ui.horizontal(|ui| {
+            ui.label("MODE:");
+            ui.add(widgets::ChoiceToggle::binary(
+                &mut tuning.enabled,
+                "LIVE",
+                "TUNE",
+            ));
+        });
+        ui.add_space(6.0);
+        ui.add_enabled_ui(tuning.enabled, |ui| {
+            ui.add(
+                widgets::Slider::new(&mut tuning.size_level, 0.0..=1.0)
+                    .text("SIZE")
+                    .max_decimals(2),
+            );
+            ui.add(
+                widgets::Slider::new(&mut tuning.blob_level, 0.0..=1.0)
+                    .text("BLOBS")
+                    .max_decimals(2),
+            );
+            ui.add(
+                widgets::Slider::new(&mut tuning.avg_blob_level, 0.0..=1.0)
+                    .text("AVG BLOB")
+                    .max_decimals(2),
+            );
+            ui.add(
+                widgets::Slider::new(&mut tuning.age_level, 0.0..=1.0)
+                    .text("AGE")
+                    .max_decimals(2),
+            );
+            ui.add(
+                widgets::Slider::new(&mut tuning.branch_level, 0.0..=1.0)
+                    .text("BRANCHES")
+                    .max_decimals(2),
+            );
+        });
+        if !tuning.enabled {
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("Enable TUNE to override the pile visualization.").small(),
+            );
+        }
+    });
 
     view!(move |ui| {
         let mut state = ui.read_mut(inspector).expect("inspector state missing");
@@ -516,97 +709,154 @@ fn main() {
         );
     });
 
-    view!(move |ui| {
+    view_full_bleed!(move |ui| {
         let state = ui.read(inspector).expect("inspector state missing");
+        let tuning = ui.read(summary_tuning).expect("summary tuning missing");
         let now_ms = now_ms();
-        let accent_ok = GORBIE::themes::ral(6024);
-        let accent_warn = GORBIE::themes::ral(1023);
-        let accent_error = GORBIE::themes::ral(3020);
-        let accent_primary = GORBIE::themes::ral(2009);
-        let accent_secondary = GORBIE::themes::ral(5015);
+        let bg_color = egui::Color32::from_rgb(8, 8, 8);
+        let label_color = egui::Color32::from_rgb(200, 200, 200);
+        let pile_color = egui::Color32::from_rgb(255, 140, 0);
+        let web_color = egui::Color32::from_rgb(235, 235, 235);
+        let sprout_color = egui::Color32::from_rgb(0, 220, 120);
+        let accent_ok = sprout_color;
+        let accent_warn = egui::Color32::from_rgb(255, 196, 0);
+        let accent_error = egui::Color32::from_rgb(255, 80, 90);
 
-        let (status_label, status_color) = match &state.snapshot {
-            ComputedState::Undefined => ("NO PILE", ui.visuals().widgets.noninteractive.bg_stroke.color),
-            ComputedState::Init(_) => ("LOADING", accent_warn),
-            ComputedState::Stale(_, _, _) => ("REFRESH", accent_warn),
-            ComputedState::Ready(Ok(_), _) => ("READY", accent_ok),
-            ComputedState::Ready(Err(_), _) => ("ERROR", accent_error),
+        let status_color = match &state.snapshot {
+            ComputedState::Undefined => label_color,
+            ComputedState::Init(_) | ComputedState::Stale(_, _, _) => accent_warn,
+            ComputedState::Ready(Ok(_), _) => accent_ok,
+            ComputedState::Ready(Err(_), _) => accent_error,
         };
 
-        let panel_fill = ui.visuals().widgets.noninteractive.bg_fill;
-        let panel_stroke = ui.visuals().widgets.noninteractive.bg_stroke;
-        egui::Frame::new()
-            .fill(panel_fill)
-            .stroke(panel_stroke)
-            .inner_margin(egui::Margin::same(12))
+        egui::Frame::NONE
+            .inner_margin(egui::Margin::same(0))
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 
-                summary_header(ui, "PILE SUMMARY", status_label, status_color);
-                ui.add_space(8.0);
-
                 match &state.snapshot {
                     ComputedState::Undefined => {
-                        summary_message(ui, "STATE", "No pile loaded yet.", status_color);
+                        summary_status_panel(
+                            ui,
+                            ui.available_width(),
+                            "No pile loaded yet.",
+                            status_color,
+                            bg_color,
+                        );
                     }
                     ComputedState::Init(_) => {
-                        summary_message(ui, "STATE", "Loading pile data.", status_color);
+                        summary_status_panel(
+                            ui,
+                            ui.available_width(),
+                            "Loading pile data.",
+                            status_color,
+                            bg_color,
+                        );
                     }
                     ComputedState::Stale(_, _, _) => {
-                        summary_message(ui, "STATE", "Refreshing pile data.", status_color);
+                        summary_status_panel(
+                            ui,
+                            ui.available_width(),
+                            "Refreshing pile data.",
+                            status_color,
+                            bg_color,
+                        );
                     }
                     ComputedState::Ready(Err(err), _) => {
-                        summary_message(ui, "ERROR", &format!("{err}"), status_color);
+                        summary_status_panel(
+                            ui,
+                            ui.available_width(),
+                            &format!("{err}"),
+                            status_color,
+                            bg_color,
+                        );
                     }
                     ComputedState::Ready(Ok(snapshot), _) => {
                         let blob_count = snapshot.blobs.len();
                         let branch_count = snapshot.branches.len();
-                        let oldest = snapshot
-                            .blobs
-                            .iter()
-                            .filter_map(|b| b.timestamp_ms)
-                            .min()
-                            .map(|ts| format_age(now_ms, ts));
-                        let newest = snapshot
-                            .blobs
-                            .iter()
-                            .filter_map(|b| b.timestamp_ms)
-                            .max()
-                            .map(|ts| format_age(now_ms, ts));
+                        let oldest_ts = snapshot.blobs.iter().filter_map(|b| b.timestamp_ms).min();
+                        let newest_ts = snapshot.blobs.iter().filter_map(|b| b.timestamp_ms).max();
 
-                        let oldest = oldest.unwrap_or_else(|| "—".to_owned());
-                        let newest = newest.unwrap_or_else(|| "—".to_owned());
+                        let oldest = oldest_ts
+                            .map(|ts| format_age(now_ms, ts))
+                            .unwrap_or_else(|| "—".to_owned());
+                        let newest = newest_ts
+                            .map(|ts| format_age(now_ms, ts))
+                            .unwrap_or_else(|| "—".to_owned());
 
-                        let tile_spacing = ui.spacing().item_spacing.x;
-                        let tile_width =
-                            ((ui.available_width() - tile_spacing * 2.0) / 3.0).max(120.0);
+                        let age_span_secs = match (oldest_ts, newest_ts) {
+                            (Some(oldest_ts), Some(newest_ts)) => {
+                                newest_ts.saturating_sub(oldest_ts) / 1000
+                            }
+                            _ => 0,
+                        };
 
-                        ui.horizontal_wrapped(|ui| {
-                            summary_tile(
-                                ui,
-                                "SIZE",
-                                format_bytes(snapshot.file_len),
-                                accent_primary,
-                                tile_width,
-                            );
-                            summary_tile(ui, "BLOBS", blob_count, accent_secondary, tile_width);
-                            summary_tile(
-                                ui,
-                                "BRANCHES",
-                                branch_count,
-                                accent_secondary,
-                                tile_width,
-                            );
-                        });
+                        let live_size_level = normalize_log2(snapshot.file_len, 10.0, 30.0);
+                        let live_blob_level = normalize_log2(blob_count as u64 + 1, 0.0, 20.0);
+                        let live_branch_level = normalize_log2(branch_count as u64 + 1, 0.0, 12.0);
+                        let live_age_level = normalize_log2(age_span_secs + 1, 0.0, 20.0);
+                        let avg_blob_size = if blob_count > 0 {
+                            snapshot.file_len / blob_count as u64
+                        } else {
+                            0
+                        };
+                        let live_avg_blob_level = normalize_log2(avg_blob_size + 1, 6.0, 24.0);
+                        let size_level = if tuning.enabled {
+                            tuning.size_level
+                        } else {
+                            live_size_level
+                        };
+                        let blob_level = if tuning.enabled {
+                            tuning.blob_level
+                        } else {
+                            live_blob_level
+                        };
+                        let branch_level = if tuning.enabled {
+                            tuning.branch_level
+                        } else {
+                            live_branch_level
+                        };
+                        let age_level = if tuning.enabled {
+                            tuning.age_level
+                        } else {
+                            live_age_level
+                        };
+                        let avg_blob_level = if tuning.enabled {
+                            tuning.avg_blob_level
+                        } else {
+                            live_avg_blob_level
+                        };
 
-                        summary_path(ui, &snapshot.path.display().to_string(), accent_primary);
-
-                        let meta_width =
-                            ((ui.available_width() - tile_spacing) / 2.0).max(160.0);
-                        ui.horizontal_wrapped(|ui| {
-                            summary_meta(ui, "OLDEST", &oldest, accent_warn, meta_width);
-                            summary_meta(ui, "NEWEST", &newest, accent_warn, meta_width);
-                        });
+                        let total_width = ui.available_width();
+                        let panel_rect = summary_pile_panel(
+                            ui,
+                            total_width,
+                            size_level,
+                            blob_level,
+                            avg_blob_level,
+                            age_level,
+                            branch_level,
+                            bg_color,
+                            label_color,
+                            pile_color,
+                            web_color,
+                            sprout_color,
+                        );
+                        summary_overlay_text(
+                            ui,
+                            panel_rect,
+                            &format_bytes(snapshot.file_len),
+                            blob_count,
+                            branch_count,
+                            &oldest,
+                            &newest,
+                            &snapshot.path.display().to_string(),
+                            label_color,
+                            pile_color,
+                            web_color,
+                            sprout_color,
+                        );
+                        extend_panel_background(ui, panel_rect, bg_color);
                     }
                 }
             });

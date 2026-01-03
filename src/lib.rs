@@ -21,7 +21,7 @@ pub mod state;
 pub mod themes;
 pub mod widgets;
 
-pub use gorbie_macros::{notebook, reactive, state, view};
+pub use gorbie_macros::{notebook, reactive, state, view, view_full_bleed};
 
 use crate::state::StateStore;
 use crate::themes::industrial_dark;
@@ -655,6 +655,12 @@ impl eframe::App for Notebook {
                                                         let mut handle_resp = None;
                                                         let inner = frame.show(ui, |ui| {
                                                             let handle_height = 18.0;
+                                                            let previous_spacing =
+                                                                ui.spacing().item_spacing;
+                                                            ui.spacing_mut().item_spacing = egui::vec2(
+                                                                previous_spacing.x,
+                                                                0.0,
+                                                            );
                                                             let (handle_rect, handle_resp_local) =
                                                                 ui.allocate_exact_size(
                                                                     egui::vec2(
@@ -663,6 +669,8 @@ impl eframe::App for Notebook {
                                                                     ),
                                                                     egui::Sense::click_and_drag(),
                                                                 );
+                                                            ui.spacing_mut().item_spacing =
+                                                                previous_spacing;
                                                             if handle_resp_local.dragged() {
                                                                 ui.ctx().set_cursor_icon(
                                                                     egui::CursorIcon::Grabbing,
@@ -702,11 +710,8 @@ impl eframe::App for Notebook {
                                                                 "Dock card",
                                                             );
 
-                                                            handle_resp = Some(
-                                                                handle_resp_local.clone(),
-                                                            );
-
-                                                            ui.add_space(6.0);
+                                                            handle_resp =
+                                                                Some(handle_resp_local.clone());
                                                             egui::Frame::group(ui.style())
                                                                 .stroke(egui::Stroke::NONE)
                                                                 .corner_radius(0.0)
@@ -724,7 +729,6 @@ impl eframe::App for Notebook {
                                                                         );
                                                                     card.draw(&mut ctx);
                                                                 });
-
                                                             handle_resp_local
                                                         });
 

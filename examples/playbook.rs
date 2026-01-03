@@ -603,26 +603,29 @@ fn main() {
         );
     });
 
-    state!(widget_state = WidgetPlaybookState::default(), |ui, state| {
-        ui.label(egui::RichText::new("BUTTONS").monospace().strong());
-        ui.horizontal(|ui| {
-            let _ = ui.add(widgets::Button::new("BUTTON"));
-            let _ = ui.add(widgets::Button::new("SMALL").small());
-            ui.add_enabled(false, widgets::Button::new("DISABLED"));
-            let _ = ui.add(widgets::Button::new("SELECTED").selected(true));
-            let _ = ui.add(widgets::ToggleButton::new(&mut state.toggle_on, "TOGGLE"));
-        });
+    state!(
+        widget_state = WidgetPlaybookState::default(),
+        |ui, state| {
+            ui.label(egui::RichText::new("BUTTONS").monospace().strong());
+            ui.horizontal(|ui| {
+                let _ = ui.add(widgets::Button::new("BUTTON"));
+                let _ = ui.add(widgets::Button::new("SMALL").small());
+                ui.add_enabled(false, widgets::Button::new("DISABLED"));
+                let _ = ui.add(widgets::Button::new("SELECTED").selected(true));
+                let _ = ui.add(widgets::ToggleButton::new(&mut state.toggle_on, "TOGGLE"));
+            });
 
-        ui.add_space(12.0);
-        ui.label(egui::RichText::new("CHOICE TOGGLE").monospace().strong());
-        ui.horizontal(|ui| {
-            ui.add(widgets::ChoiceToggle::binary(
-                &mut state.metric_bytes,
-                "COUNT",
-                "BYTES",
-            ));
-        });
-    });
+            ui.add_space(12.0);
+            ui.label(egui::RichText::new("CHOICE TOGGLE").monospace().strong());
+            ui.horizontal(|ui| {
+                ui.add(widgets::ChoiceToggle::binary(
+                    &mut state.metric_bytes,
+                    "COUNT",
+                    "BYTES",
+                ));
+            });
+        }
+    );
 
     view!(move |ui| {
         ui.label(egui::RichText::new("SLIDER + METERS").monospace().strong());

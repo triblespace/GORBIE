@@ -192,12 +192,26 @@ pub fn view(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as ViewInput);
     let gorbie = gorbie_path();
     let ViewInput { notebook, code } = input;
-    let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| {
-        quote!(#expr)
-    });
+    let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| quote!(#expr));
 
     TokenStream::from(quote!({
         #gorbie::cards::stateless_card(#notebook, #code, Some(#code_text))
+    }))
+}
+
+#[proc_macro]
+pub fn view_full_bleed(input: TokenStream) -> TokenStream {
+    let code_text = LitStr::new(
+        &macro_source_text("view_full_bleed!", &input),
+        Span::call_site(),
+    );
+    let input = parse_macro_input!(input as ViewInput);
+    let gorbie = gorbie_path();
+    let ViewInput { notebook, code } = input;
+    let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| quote!(#expr));
+
+    TokenStream::from(quote!({
+        #gorbie::cards::stateless_card_full_bleed(#notebook, #code, Some(#code_text))
     }))
 }
 
@@ -212,9 +226,7 @@ pub fn state(input: TokenStream) -> TokenStream {
         init,
         code,
     } = input;
-    let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| {
-        quote!(#expr)
-    });
+    let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| quote!(#expr));
     let init_expr = quote!(#init);
 
     TokenStream::from(quote!(
@@ -238,9 +250,7 @@ pub fn reactive(input: TokenStream) -> TokenStream {
         dependencies,
         code,
     } = input;
-    let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| {
-        quote!(#expr)
-    });
+    let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| quote!(#expr));
     let dep_keys = dependencies
         .exprs
         .iter()
