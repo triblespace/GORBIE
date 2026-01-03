@@ -18,7 +18,6 @@ use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::state;
 use GORBIE::view;
-use GORBIE::view_full_bleed;
 use GORBIE::widgets;
 
 #[derive(Clone, Debug)]
@@ -123,10 +122,25 @@ fn quantize_level(level: f32, steps: u32) -> f32 {
     (level.clamp(0.0, 1.0) * (steps - 1.0)).round() / (steps - 1.0)
 }
 
-fn summary_panel_base(ui: &mut egui::Ui, width: f32, bg_color: egui::Color32) -> egui::Rect {
+fn expand_card_rect(rect: egui::Rect, padding: egui::Margin) -> egui::Rect {
+    egui::Rect::from_min_max(
+        rect.min - padding.left_top(),
+        rect.max + padding.right_bottom(),
+    )
+}
+
+fn summary_panel_base(
+    ui: &mut egui::Ui,
+    width: f32,
+    bg_color: egui::Color32,
+    padding: egui::Margin,
+) -> egui::Rect {
     let height = 150.0;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
-    ui.painter().rect_filled(rect, 0.0, bg_color);
+    let full_rect = expand_card_rect(rect, padding);
+    ui.painter()
+        .with_clip_rect(full_rect)
+        .rect_filled(full_rect, 0.0, bg_color);
 
     rect
 }
@@ -201,6 +215,7 @@ fn summary_pile_panel(
     pile_color: egui::Color32,
     web_color: egui::Color32,
     sprout_color: egui::Color32,
+    padding: egui::Margin,
 ) -> egui::Rect {
     let size_level = quantize_level(size_level, 5);
     let blob_level = quantize_level(blob_level, 5);
@@ -208,7 +223,7 @@ fn summary_pile_panel(
     let age_level = quantize_level(age_level, 4);
     let branch_level = quantize_level(branch_level, 4);
 
-    let rect = summary_panel_base(ui, width, bg_color);
+    let rect = summary_panel_base(ui, width, bg_color, padding);
     let painter = ui.painter();
     let stroke = egui::Stroke::new(1.0, pile_color);
 
@@ -357,6 +372,7 @@ fn extend_panel_background(
     ui: &mut egui::Ui,
     panel_rect: egui::Rect,
     bg_color: egui::Color32,
+    padding: egui::Margin,
 ) {
     let content_rect = ui.min_rect();
     if content_rect.bottom() <= panel_rect.bottom() {
@@ -364,10 +380,15 @@ fn extend_panel_background(
     }
 
     let fill_rect = egui::Rect::from_min_max(
-        egui::pos2(panel_rect.left(), panel_rect.bottom()),
-        egui::pos2(panel_rect.right(), content_rect.bottom()),
+        egui::pos2(panel_rect.left() - padding.leftf(), panel_rect.bottom()),
+        egui::pos2(
+            panel_rect.right() + padding.rightf(),
+            content_rect.bottom() + padding.bottomf(),
+        ),
     );
-    ui.painter().rect_filled(fill_rect, 0.0, bg_color);
+    ui.painter()
+        .with_clip_rect(fill_rect)
+        .rect_filled(fill_rect, 0.0, bg_color);
 }
 
 fn summary_status_panel(
@@ -376,8 +397,9 @@ fn summary_status_panel(
     message: &str,
     accent: egui::Color32,
     bg_color: egui::Color32,
+    padding: egui::Margin,
 ) {
-    let rect = summary_panel_base(ui, width, bg_color);
+    let rect = summary_panel_base(ui, width, bg_color, padding);
     ui.scope_builder(
         egui::UiBuilder::new()
             .max_rect(rect.shrink(8.0))
@@ -461,6 +483,7 @@ fn main() {
     let default_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "./repo.pile".to_owned());
+    let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
 
     state!(
         inspector = InspectorState {
@@ -469,87 +492,92 @@ fn main() {
             histogram_bytes: false,
             snapshot: ComputedState::Undefined,
         },
-        |ui, state| {
-            md!(
-            ui,
-            "# Triblespace pile inspector\n\nOpen a `.pile` file on disk and inspect its blob and branch indices.\n\nTip: pass a path as the first CLI arg to prefill this field."
-        );
-
-            ui.horizontal(|ui| {
-                ui.label("Pile path:");
-                ui.add(widgets::TextField::singleline(&mut state.pile_path));
-                ui.label("Rows:");
-                ui.add(
-                    widgets::NumberField::new(&mut state.max_rows)
-                        .constrain_value(&|_, next| next.clamp(10, 10_000))
-                        .speed(10.0),
-                );
-
-                let pile_path = PathBuf::from(state.pile_path.trim());
-                let snapshot = widgets::load_button(
+        move |ui, state| {
+            ui.with_padding(padding, |ui| {
+                md!(
                     ui,
-                    &mut state.snapshot,
-                    "Open pile",
-                    "Refresh pile",
-                    move || load_pile(pile_path.clone()),
+                    "# Triblespace pile inspector\n\nOpen a `.pile` file on disk and inspect its blob and branch indices.\n\nTip: pass a path as the first CLI arg to prefill this field."
                 );
 
-                if let Some(Err(err)) = snapshot {
-                    ui.label(err.as_str());
-                }
+                ui.horizontal(|ui| {
+                    ui.label("Pile path:");
+                    ui.add(widgets::TextField::singleline(&mut state.pile_path));
+                    ui.label("Rows:");
+                    ui.add(
+                        widgets::NumberField::new(&mut state.max_rows)
+                            .constrain_value(&|_, next| next.clamp(10, 10_000))
+                            .speed(10.0),
+                    );
+
+                    let pile_path = PathBuf::from(state.pile_path.trim());
+                    let snapshot = widgets::load_button(
+                        ui,
+                        &mut state.snapshot,
+                        "Open pile",
+                        "Refresh pile",
+                        move || load_pile(pile_path.clone()),
+                    );
+
+                    if let Some(Err(err)) = snapshot {
+                        ui.label(err.as_str());
+                    }
+                });
             });
         }
     );
 
-    state!(summary_tuning = SummaryTuning::default(), |ui, tuning| {
-        md!(ui, "## Summary knobs");
-        ui.horizontal(|ui| {
-            ui.label("MODE:");
-            ui.add(widgets::ChoiceToggle::binary(
-                &mut tuning.enabled,
-                "LIVE",
-                "TUNE",
-            ));
+    state!(summary_tuning = SummaryTuning::default(), move |ui, tuning| {
+        ui.with_padding(padding, |ui| {
+            md!(ui, "## Summary knobs");
+            ui.horizontal(|ui| {
+                ui.label("MODE:");
+                ui.add(widgets::ChoiceToggle::binary(
+                    &mut tuning.enabled,
+                    "LIVE",
+                    "TUNE",
+                ));
+            });
+            ui.add_space(6.0);
+            ui.add_enabled_ui(tuning.enabled, |ui| {
+                ui.add(
+                    widgets::Slider::new(&mut tuning.size_level, 0.0..=1.0)
+                        .text("SIZE")
+                        .max_decimals(2),
+                );
+                ui.add(
+                    widgets::Slider::new(&mut tuning.blob_level, 0.0..=1.0)
+                        .text("BLOBS")
+                        .max_decimals(2),
+                );
+                ui.add(
+                    widgets::Slider::new(&mut tuning.avg_blob_level, 0.0..=1.0)
+                        .text("AVG BLOB")
+                        .max_decimals(2),
+                );
+                ui.add(
+                    widgets::Slider::new(&mut tuning.age_level, 0.0..=1.0)
+                        .text("AGE")
+                        .max_decimals(2),
+                );
+                ui.add(
+                    widgets::Slider::new(&mut tuning.branch_level, 0.0..=1.0)
+                        .text("BRANCHES")
+                        .max_decimals(2),
+                );
+            });
+            if !tuning.enabled {
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new("Enable TUNE to override the pile visualization.").small(),
+                );
+            }
         });
-        ui.add_space(6.0);
-        ui.add_enabled_ui(tuning.enabled, |ui| {
-            ui.add(
-                widgets::Slider::new(&mut tuning.size_level, 0.0..=1.0)
-                    .text("SIZE")
-                    .max_decimals(2),
-            );
-            ui.add(
-                widgets::Slider::new(&mut tuning.blob_level, 0.0..=1.0)
-                    .text("BLOBS")
-                    .max_decimals(2),
-            );
-            ui.add(
-                widgets::Slider::new(&mut tuning.avg_blob_level, 0.0..=1.0)
-                    .text("AVG BLOB")
-                    .max_decimals(2),
-            );
-            ui.add(
-                widgets::Slider::new(&mut tuning.age_level, 0.0..=1.0)
-                    .text("AGE")
-                    .max_decimals(2),
-            );
-            ui.add(
-                widgets::Slider::new(&mut tuning.branch_level, 0.0..=1.0)
-                    .text("BRANCHES")
-                    .max_decimals(2),
-            );
-        });
-        if !tuning.enabled {
-            ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new("Enable TUNE to override the pile visualization.").small(),
-            );
-        }
     });
 
     view!(move |ui| {
-        let mut state = ui.read_mut(inspector).expect("inspector state missing");
-        md!(ui, "## Blob size distribution");
+        ui.with_padding(padding, |ui| {
+            let mut state = ui.read_mut(inspector).expect("inspector state missing");
+            md!(ui, "## Blob size distribution");
 
         let Some(result) = state.snapshot.ready() else {
             md!(ui, "_Load a pile to see the distribution._");
@@ -701,170 +729,184 @@ fn main() {
                 .max_x_labels(7),
         );
 
-        md!(
-            ui,
-            "_{} blobs, {} total._",
-            valid_blobs,
-            format_bytes(total_bytes)
-        );
-    });
-
-    view_full_bleed!(move |ui| {
-        let state = ui.read(inspector).expect("inspector state missing");
-        let tuning = ui.read(summary_tuning).expect("summary tuning missing");
-        let now_ms = now_ms();
-        let bg_color = egui::Color32::from_rgb(8, 8, 8);
-        let label_color = egui::Color32::from_rgb(200, 200, 200);
-        let pile_color = egui::Color32::from_rgb(255, 140, 0);
-        let web_color = egui::Color32::from_rgb(235, 235, 235);
-        let sprout_color = egui::Color32::from_rgb(0, 220, 120);
-        let accent_ok = sprout_color;
-        let accent_warn = egui::Color32::from_rgb(255, 196, 0);
-        let accent_error = egui::Color32::from_rgb(255, 80, 90);
-
-        let status_color = match &state.snapshot {
-            ComputedState::Undefined => label_color,
-            ComputedState::Init(_) | ComputedState::Stale(_, _, _) => accent_warn,
-            ComputedState::Ready(Ok(_), _) => accent_ok,
-            ComputedState::Ready(Err(_), _) => accent_error,
-        };
-
-        egui::Frame::NONE
-            .inner_margin(egui::Margin::same(0))
-            .show(ui, |ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
-
-                match &state.snapshot {
-                    ComputedState::Undefined => {
-                        summary_status_panel(
-                            ui,
-                            ui.available_width(),
-                            "No pile loaded yet.",
-                            status_color,
-                            bg_color,
-                        );
-                    }
-                    ComputedState::Init(_) => {
-                        summary_status_panel(
-                            ui,
-                            ui.available_width(),
-                            "Loading pile data.",
-                            status_color,
-                            bg_color,
-                        );
-                    }
-                    ComputedState::Stale(_, _, _) => {
-                        summary_status_panel(
-                            ui,
-                            ui.available_width(),
-                            "Refreshing pile data.",
-                            status_color,
-                            bg_color,
-                        );
-                    }
-                    ComputedState::Ready(Err(err), _) => {
-                        summary_status_panel(
-                            ui,
-                            ui.available_width(),
-                            &format!("{err}"),
-                            status_color,
-                            bg_color,
-                        );
-                    }
-                    ComputedState::Ready(Ok(snapshot), _) => {
-                        let blob_count = snapshot.blobs.len();
-                        let branch_count = snapshot.branches.len();
-                        let oldest_ts = snapshot.blobs.iter().filter_map(|b| b.timestamp_ms).min();
-                        let newest_ts = snapshot.blobs.iter().filter_map(|b| b.timestamp_ms).max();
-
-                        let oldest = oldest_ts
-                            .map(|ts| format_age(now_ms, ts))
-                            .unwrap_or_else(|| "—".to_owned());
-                        let newest = newest_ts
-                            .map(|ts| format_age(now_ms, ts))
-                            .unwrap_or_else(|| "—".to_owned());
-
-                        let age_span_secs = match (oldest_ts, newest_ts) {
-                            (Some(oldest_ts), Some(newest_ts)) => {
-                                newest_ts.saturating_sub(oldest_ts) / 1000
-                            }
-                            _ => 0,
-                        };
-
-                        let live_size_level = normalize_log2(snapshot.file_len, 10.0, 30.0);
-                        let live_blob_level = normalize_log2(blob_count as u64 + 1, 0.0, 20.0);
-                        let live_branch_level = normalize_log2(branch_count as u64 + 1, 0.0, 12.0);
-                        let live_age_level = normalize_log2(age_span_secs + 1, 0.0, 20.0);
-                        let avg_blob_size = if blob_count > 0 {
-                            snapshot.file_len / blob_count as u64
-                        } else {
-                            0
-                        };
-                        let live_avg_blob_level = normalize_log2(avg_blob_size + 1, 6.0, 24.0);
-                        let size_level = if tuning.enabled {
-                            tuning.size_level
-                        } else {
-                            live_size_level
-                        };
-                        let blob_level = if tuning.enabled {
-                            tuning.blob_level
-                        } else {
-                            live_blob_level
-                        };
-                        let branch_level = if tuning.enabled {
-                            tuning.branch_level
-                        } else {
-                            live_branch_level
-                        };
-                        let age_level = if tuning.enabled {
-                            tuning.age_level
-                        } else {
-                            live_age_level
-                        };
-                        let avg_blob_level = if tuning.enabled {
-                            tuning.avg_blob_level
-                        } else {
-                            live_avg_blob_level
-                        };
-
-                        let total_width = ui.available_width();
-                        let panel_rect = summary_pile_panel(
-                            ui,
-                            total_width,
-                            size_level,
-                            blob_level,
-                            avg_blob_level,
-                            age_level,
-                            branch_level,
-                            bg_color,
-                            label_color,
-                            pile_color,
-                            web_color,
-                            sprout_color,
-                        );
-                        summary_overlay_text(
-                            ui,
-                            panel_rect,
-                            &format_bytes(snapshot.file_len),
-                            blob_count,
-                            branch_count,
-                            &oldest,
-                            &newest,
-                            &snapshot.path.display().to_string(),
-                            label_color,
-                            pile_color,
-                            web_color,
-                            sprout_color,
-                        );
-                        extend_panel_background(ui, panel_rect, bg_color);
-                    }
-                }
-            });
+            md!(
+                ui,
+                "_{} blobs, {} total._",
+                valid_blobs,
+                format_bytes(total_bytes)
+            );
+        });
     });
 
     view!(move |ui| {
-        let state = ui.read(inspector).expect("inspector state missing");
-        md!(ui, "## Branches");
+        let summary_padding = egui::Margin::ZERO;
+        ui.with_padding(summary_padding, |ui| {
+            let state = ui.read(inspector).expect("inspector state missing");
+            let tuning = ui.read(summary_tuning).expect("summary tuning missing");
+            let now_ms = now_ms();
+            let bg_color = egui::Color32::from_rgb(8, 8, 8);
+            let label_color = egui::Color32::from_rgb(200, 200, 200);
+            let pile_color = egui::Color32::from_rgb(255, 140, 0);
+            let web_color = egui::Color32::from_rgb(235, 235, 235);
+            let sprout_color = egui::Color32::from_rgb(0, 220, 120);
+            let accent_ok = sprout_color;
+            let accent_warn = egui::Color32::from_rgb(255, 196, 0);
+            let accent_error = egui::Color32::from_rgb(255, 80, 90);
+
+            let status_color = match &state.snapshot {
+                ComputedState::Undefined => label_color,
+                ComputedState::Init(_) | ComputedState::Stale(_, _, _) => accent_warn,
+                ComputedState::Ready(Ok(_), _) => accent_ok,
+                ComputedState::Ready(Err(_), _) => accent_error,
+            };
+
+            egui::Frame::NONE
+                .inner_margin(egui::Margin::same(0))
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
+
+                    match &state.snapshot {
+                        ComputedState::Undefined => {
+                            summary_status_panel(
+                                ui,
+                                ui.available_width(),
+                                "No pile loaded yet.",
+                                status_color,
+                                bg_color,
+                                summary_padding,
+                            );
+                        }
+                        ComputedState::Init(_) => {
+                            summary_status_panel(
+                                ui,
+                                ui.available_width(),
+                                "Loading pile data.",
+                                status_color,
+                                bg_color,
+                                summary_padding,
+                            );
+                        }
+                        ComputedState::Stale(_, _, _) => {
+                            summary_status_panel(
+                                ui,
+                                ui.available_width(),
+                                "Refreshing pile data.",
+                                status_color,
+                                bg_color,
+                                summary_padding,
+                            );
+                        }
+                        ComputedState::Ready(Err(err), _) => {
+                            summary_status_panel(
+                                ui,
+                                ui.available_width(),
+                                &format!("{err}"),
+                                status_color,
+                                bg_color,
+                                summary_padding,
+                            );
+                        }
+                        ComputedState::Ready(Ok(snapshot), _) => {
+                            let blob_count = snapshot.blobs.len();
+                            let branch_count = snapshot.branches.len();
+                            let oldest_ts =
+                                snapshot.blobs.iter().filter_map(|b| b.timestamp_ms).min();
+                            let newest_ts =
+                                snapshot.blobs.iter().filter_map(|b| b.timestamp_ms).max();
+
+                            let oldest = oldest_ts
+                                .map(|ts| format_age(now_ms, ts))
+                                .unwrap_or_else(|| "—".to_owned());
+                            let newest = newest_ts
+                                .map(|ts| format_age(now_ms, ts))
+                                .unwrap_or_else(|| "—".to_owned());
+
+                            let age_span_secs = match (oldest_ts, newest_ts) {
+                                (Some(oldest_ts), Some(newest_ts)) => {
+                                    newest_ts.saturating_sub(oldest_ts) / 1000
+                                }
+                                _ => 0,
+                            };
+
+                            let live_size_level = normalize_log2(snapshot.file_len, 10.0, 30.0);
+                            let live_blob_level =
+                                normalize_log2(blob_count as u64 + 1, 0.0, 20.0);
+                            let live_branch_level =
+                                normalize_log2(branch_count as u64 + 1, 0.0, 12.0);
+                            let live_age_level = normalize_log2(age_span_secs + 1, 0.0, 20.0);
+                            let avg_blob_size = if blob_count > 0 {
+                                snapshot.file_len / blob_count as u64
+                            } else {
+                                0
+                            };
+                            let live_avg_blob_level = normalize_log2(avg_blob_size + 1, 6.0, 24.0);
+                            let size_level = if tuning.enabled {
+                                tuning.size_level
+                            } else {
+                                live_size_level
+                            };
+                            let blob_level = if tuning.enabled {
+                                tuning.blob_level
+                            } else {
+                                live_blob_level
+                            };
+                            let branch_level = if tuning.enabled {
+                                tuning.branch_level
+                            } else {
+                                live_branch_level
+                            };
+                            let age_level = if tuning.enabled {
+                                tuning.age_level
+                            } else {
+                                live_age_level
+                            };
+                            let avg_blob_level = if tuning.enabled {
+                                tuning.avg_blob_level
+                            } else {
+                                live_avg_blob_level
+                            };
+
+                            let total_width = ui.available_width();
+                            let panel_rect = summary_pile_panel(
+                                ui,
+                                total_width,
+                                size_level,
+                                blob_level,
+                                avg_blob_level,
+                                age_level,
+                                branch_level,
+                                bg_color,
+                                label_color,
+                                pile_color,
+                                web_color,
+                                sprout_color,
+                                summary_padding,
+                            );
+                            summary_overlay_text(
+                                ui,
+                                panel_rect,
+                                &format_bytes(snapshot.file_len),
+                                blob_count,
+                                branch_count,
+                                &oldest,
+                                &newest,
+                                &snapshot.path.display().to_string(),
+                                label_color,
+                                pile_color,
+                                web_color,
+                                sprout_color,
+                            );
+                            extend_panel_background(ui, panel_rect, bg_color, summary_padding);
+                        }
+                    }
+                });
+        });
+    });
+
+    view!(move |ui| {
+        ui.with_padding(padding, |ui| {
+            let state = ui.read(inspector).expect("inspector state missing");
+            md!(ui, "## Branches");
 
         let Some(result) = state.snapshot.ready() else {
             md!(ui, "_Load a pile to see branches._");
@@ -880,28 +922,30 @@ fn main() {
             return;
         }
 
-        egui::Grid::new("pile-branches")
-            .num_columns(2)
-            .striped(false)
-            .show(ui, |ui| {
-                ui.strong("BRANCH");
-                ui.strong("HEAD");
-                ui.end_row();
-
-                for branch in &snapshot.branches {
-                    ui.monospace(hex_prefix(branch.id, 6));
-                    match &branch.head {
-                        Some(raw) => ui.monospace(hex_prefix(raw, 6)),
-                        None => ui.label("—"),
-                    };
+            egui::Grid::new("pile-branches")
+                .num_columns(2)
+                .striped(false)
+                .show(ui, |ui| {
+                    ui.strong("BRANCH");
+                    ui.strong("HEAD");
                     ui.end_row();
-                }
-            });
+
+                    for branch in &snapshot.branches {
+                        ui.monospace(hex_prefix(branch.id, 6));
+                        match &branch.head {
+                            Some(raw) => ui.monospace(hex_prefix(raw, 6)),
+                            None => ui.label("—"),
+                        };
+                        ui.end_row();
+                    }
+                });
+        });
     });
 
     view!(move |ui| {
-        let state = ui.read(inspector).expect("inspector state missing");
-        md!(ui, "## Blobs");
+        ui.with_padding(padding, |ui| {
+            let state = ui.read(inspector).expect("inspector state missing");
+            md!(ui, "## Blobs");
 
         let Some(result) = state.snapshot.ready() else {
             md!(ui, "_Load a pile to see blobs._");
@@ -922,27 +966,28 @@ fn main() {
 
         let now_ms = now_ms();
 
-        egui::Grid::new("pile-blobs")
-            .num_columns(3)
-            .striped(false)
-            .show(ui, |ui| {
-                ui.strong("BLOB");
-                ui.strong("BYTES");
-                ui.strong("TIME");
-                ui.end_row();
-
-                for blob in snapshot.blobs.iter().take(max_rows) {
-                    ui.monospace(hex_prefix(blob.hash, 6));
-                    match blob.length {
-                        Some(len) => ui.monospace(format_bytes(len)),
-                        None => ui.label("invalid"),
-                    };
-                    match blob.timestamp_ms {
-                        Some(ts) => ui.label(format_age(now_ms, ts)),
-                        None => ui.label("—"),
-                    };
+            egui::Grid::new("pile-blobs")
+                .num_columns(3)
+                .striped(false)
+                .show(ui, |ui| {
+                    ui.strong("BLOB");
+                    ui.strong("BYTES");
+                    ui.strong("TIME");
                     ui.end_row();
-                }
-            });
+
+                    for blob in snapshot.blobs.iter().take(max_rows) {
+                        ui.monospace(hex_prefix(blob.hash, 6));
+                        match blob.length {
+                            Some(len) => ui.monospace(format_bytes(len)),
+                            None => ui.label("invalid"),
+                        };
+                        match blob.timestamp_ms {
+                            Some(ts) => ui.label(format_age(now_ms, ts)),
+                            None => ui.label("—"),
+                        };
+                        ui.end_row();
+                    }
+                });
+        });
     });
 }

@@ -22,31 +22,38 @@ In such a setup, the `notebook.rs` script would look something like this:
 //! ```
 
 use GORBIE::{md, notebook, state, view};
+use GORBIE::cards::DEFAULT_CARD_PADDING;
 
 #[notebook]
 fn main() {
     view!(|ui| {
-    md!(
-        ui,
-        "# GORBIE!
+        ui.with_padding(DEFAULT_CARD_PADDING, |ui| {
+            md!(
+                ui,
+                "# GORBIE!
 This is **GORBIE!**, a _minimalist_ notebook environment for **Rust**!
 
 Development is part of the [trible.space](https://trible.space) project.
 
 ![an image of 'GORBIE!' the cute alien blob and mascot of this project](./assets/gorbie.png)
 "
-    );
+            );
+        });
     });
 
     state!(slider = 0.5, |ui, value| {
-        ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
+        ui.with_padding(DEFAULT_CARD_PADDING, |ui| {
+            ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
+        });
     });
 
     view!(move |ui| {
-        let Some(value) = ui.read(slider) else {
-            return;
-        };
-        ui.add(egui::ProgressBar::new(*value).text("output"));
+        ui.with_padding(DEFAULT_CARD_PADDING, |ui| {
+            let Some(value) = ui.read(slider) else {
+                return;
+            };
+            ui.add(egui::ProgressBar::new(*value).text("output"));
+        });
     });
 }
 ```

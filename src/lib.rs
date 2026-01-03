@@ -21,7 +21,7 @@ pub mod state;
 pub mod themes;
 pub mod widgets;
 
-pub use gorbie_macros::{notebook, reactive, state, view, view_full_bleed};
+pub use gorbie_macros::{notebook, reactive, state, view};
 
 use crate::state::StateStore;
 use crate::themes::industrial_dark;

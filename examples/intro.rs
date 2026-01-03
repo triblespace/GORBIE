@@ -11,10 +11,12 @@ use GORBIE::prelude::*;
 
 #[notebook]
 fn main() {
+    let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
     view!(move |ui| {
-        md!(
-            ui,
-            "# GORBIE!
+        ui.with_padding(padding, |ui| {
+            md!(
+                ui,
+                "# GORBIE!
 This is **GORBIE!**, a _minimalist_ notebook environment for **Rust**!
 
 It's much closer to a library and a shell script than the heavy environemnts
@@ -59,16 +61,19 @@ Proin tincidunt felis metus, sit amet tempus eros semper at.\
 Aenean in turpis tortor. Integer ut nibh a massa maximus bibendum.\
 Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
 "
-        );
+            );
+        });
     });
 
-    state!(slider = (0.5).into(), |ui, value: &mut NotifiedState<_>| {
-        if ui
-            .add(widgets::Slider::new(value.deref_mut(), 0.0..=1.0).text("input"))
-            .changed()
-        {
-            value.notify();
-        }
+    state!(slider = (0.5).into(), move |ui, value: &mut NotifiedState<_>| {
+        ui.with_padding(padding, |ui| {
+            if ui
+                .add(widgets::Slider::new(value.deref_mut(), 0.0..=1.0).text("input"))
+                .changed()
+            {
+                value.notify();
+            }
+        });
     });
 
     reactive!(progress = [slider], move |ctx| {
@@ -80,14 +85,16 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
     });
 
     view!(move |ui| {
-        let Some(progress) = ui.try_ready(progress) else {
-            return;
-        };
-        md!(ui, "Progress: {:.2}%", progress * 100.0);
-        ui.add(
-            widgets::ProgressBar::new(progress)
-                .text("output")
-                .scale_percent(),
-        );
+        ui.with_padding(padding, |ui| {
+            let Some(progress) = ui.try_ready(progress) else {
+                return;
+            };
+            md!(ui, "Progress: {:.2}%", progress * 100.0);
+            ui.add(
+                widgets::ProgressBar::new(progress)
+                    .text("output")
+                    .scale_percent(),
+            );
+        });
     });
 }

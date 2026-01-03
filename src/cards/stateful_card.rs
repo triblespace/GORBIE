@@ -15,16 +15,12 @@ impl<T: std::fmt::Debug + std::default::Default + 'static> Card for StatefulCard
     fn draw(&mut self, ctx: &mut CardContext) {
         let CardContext { ui, store } = ctx;
         let state = self.state;
-        egui::Frame::new()
-            .inner_margin(egui::Margin::symmetric(16, 12))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                let mut ctx = CardContext::new(ui, store);
-                let mut current = store
-                    .read_mut(state)
-                    .expect("state handle missing from store");
-                (self.function)(&mut ctx, &mut current);
-            });
+        ui.set_width(ui.available_width());
+        let mut ctx = CardContext::new(ui, store);
+        let mut current = store
+            .read_mut(state)
+            .expect("state handle missing from store");
+        (self.function)(&mut ctx, &mut current);
     }
 
     fn code(&self) -> Option<&str> {

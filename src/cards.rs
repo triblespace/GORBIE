@@ -11,6 +11,8 @@ pub use stateless_card::*;
 use crate::dataflow::Dependency;
 use crate::state::{ArcReadGuard, ArcWriteGuard, StateId, StateStore};
 
+pub const DEFAULT_CARD_PADDING: egui::Margin = egui::Margin::symmetric(16, 12);
+
 pub struct CardContext<'a> {
     ui: &'a mut egui::Ui,
     store: &'a StateStore,
@@ -47,6 +49,21 @@ impl<'a> CardContext<'a> {
 
     pub fn try_ready<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
         self.store.try_ready(id)
+    }
+
+    pub fn with_padding<R>(
+        &mut self,
+        padding: impl Into<egui::Margin>,
+        add_contents: impl FnOnce(&mut CardContext) -> R,
+    ) -> egui::InnerResponse<R> {
+        let CardContext { ui, store } = self;
+        egui::Frame::new()
+            .inner_margin(padding)
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                let mut ctx = CardContext::new(ui, store);
+                add_contents(&mut ctx)
+            })
     }
 }
 

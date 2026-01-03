@@ -10,5 +10,4 @@ pub use crate::reactive;
 pub use crate::state;
 pub use crate::state::StateId;
 pub use crate::view;
-pub use crate::view_full_bleed;
 pub use crate::Notebook;

@@ -200,22 +200,6 @@ pub fn view(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn view_full_bleed(input: TokenStream) -> TokenStream {
-    let code_text = LitStr::new(
-        &macro_source_text("view_full_bleed!", &input),
-        Span::call_site(),
-    );
-    let input = parse_macro_input!(input as ViewInput);
-    let gorbie = gorbie_path();
-    let ViewInput { notebook, code } = input;
-    let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| quote!(#expr));
-
-    TokenStream::from(quote!({
-        #gorbie::cards::stateless_card_full_bleed(#notebook, #code, Some(#code_text))
-    }))
-}
-
-#[proc_macro]
 pub fn state(input: TokenStream) -> TokenStream {
     let code_text = LitStr::new(&macro_source_text("state!", &input), Span::call_site());
     let input = parse_macro_input!(input as StateInput);

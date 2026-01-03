@@ -436,65 +436,38 @@ impl Default for WidgetPlaybookState {
 
 #[notebook]
 fn main() {
-    view!(|ui| {
-        // Introduction
-        md!(
-            ui,
-            "# Palette Playbook\n\nBase tokens map semantic roles → RAL paint chips. Derived colors are small blends on top."
-        );
+    let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
+    view!(move |ui| {
+        ui.with_padding(padding, |ui| {
+            // Introduction
+            md!(
+                ui,
+                "# Palette Playbook\n\nBase tokens map semantic roles → RAL paint chips. Derived colors are small blends on top."
+            );
+        });
     });
 
-    view!(|ui| {
-        let light_foreground = GORBIE::themes::ral(9011);
-        let light_background = GORBIE::themes::ral(7047);
-        let light_surface = GORBIE::themes::ral(7047);
+    view!(move |ui| {
+        ui.with_padding(padding, |ui| {
+            let light_foreground = GORBIE::themes::ral(9011);
+            let light_background = GORBIE::themes::ral(7047);
+            let light_surface = GORBIE::themes::ral(7047);
 
-        let dark_foreground = GORBIE::themes::ral(9003);
-        let dark_background = GORBIE::themes::ral(7046);
-        let dark_surface = GORBIE::themes::ral(7047);
+            let dark_foreground = GORBIE::themes::ral(9003);
+            let dark_background = GORBIE::themes::ral(7046);
+            let dark_surface = GORBIE::themes::ral(7047);
 
-        // Derived samples (same rules used in `themes::industrial`)
-        let light_surface_muted = blend(light_surface, light_background, 0.2);
-        let light_border = blend(light_foreground, light_background, 0.4);
-        let light_control_fill_hover = blend(light_background, light_foreground, 0.05);
+            // Derived samples (same rules used in `themes::industrial`)
+            let light_surface_muted = blend(light_surface, light_background, 0.2);
+            let light_border = blend(light_foreground, light_background, 0.4);
+            let light_control_fill_hover = blend(light_background, light_foreground, 0.05);
 
-        let dark_surface_muted = blend(dark_surface, dark_background, 0.2);
-        let dark_border = blend(dark_foreground, dark_background, 0.4);
-        let dark_control_fill_hover = blend(dark_background, dark_foreground, 0.05);
+            let dark_surface_muted = blend(dark_surface, dark_background, 0.2);
+            let dark_border = blend(dark_foreground, dark_background, 0.4);
+            let dark_control_fill_hover = blend(dark_background, dark_foreground, 0.05);
 
-        ui.label(egui::RichText::new("TOKENS").monospace().strong());
-        egui::Grid::new("palette_tokens")
-            .num_columns(3)
-            .spacing(egui::vec2(16.0, 6.0))
-            .show(ui, |ui| {
-                ui.label("");
-                ui.monospace("LIGHT");
-                ui.monospace("DARK");
-                ui.end_row();
-
-                ui.monospace("FOREGROUND");
-                ral_cell(ui, 9011);
-                ral_cell(ui, 9003);
-                ui.end_row();
-
-                ui.monospace("BACKGROUND");
-                ral_cell(ui, 7047);
-                ral_cell(ui, 7046);
-                ui.end_row();
-
-                ui.monospace("SURFACE");
-                ral_cell(ui, 7047);
-                ral_cell(ui, 7047);
-                ui.end_row();
-
-                ui.monospace("ACCENT");
-                ral_cell(ui, 2009);
-                ral_cell(ui, 2009);
-                ui.end_row();
-            });
-
-        ui.collapsing(egui::RichText::new("DERIVED").monospace(), |ui| {
-            egui::Grid::new("palette_derived")
+            ui.label(egui::RichText::new("TOKENS").monospace().strong());
+            egui::Grid::new("palette_tokens")
                 .num_columns(3)
                 .spacing(egui::vec2(16.0, 6.0))
                 .show(ui, |ui| {
@@ -503,195 +476,237 @@ fn main() {
                     ui.monospace("DARK");
                     ui.end_row();
 
-                    ui.monospace("BORDER (FG/BG 0.4)");
-                    hex_cell(ui, light_border);
-                    hex_cell(ui, dark_border);
+                    ui.monospace("FOREGROUND");
+                    ral_cell(ui, 9011);
+                    ral_cell(ui, 9003);
                     ui.end_row();
 
-                    ui.monospace("MUTED SURFACE (S/BG 0.2)");
-                    hex_cell(ui, light_surface_muted);
-                    hex_cell(ui, dark_surface_muted);
+                    ui.monospace("BACKGROUND");
+                    ral_cell(ui, 7047);
+                    ral_cell(ui, 7046);
                     ui.end_row();
 
-                    ui.monospace("HOVER (BG/FG 0.05)");
-                    hex_cell(ui, light_control_fill_hover);
-                    hex_cell(ui, dark_control_fill_hover);
+                    ui.monospace("SURFACE");
+                    ral_cell(ui, 7047);
+                    ral_cell(ui, 7047);
+                    ui.end_row();
+
+                    ui.monospace("ACCENT");
+                    ral_cell(ui, 2009);
+                    ral_cell(ui, 2009);
                     ui.end_row();
                 });
+
+            ui.collapsing(egui::RichText::new("DERIVED").monospace(), |ui| {
+                egui::Grid::new("palette_derived")
+                    .num_columns(3)
+                    .spacing(egui::vec2(16.0, 6.0))
+                    .show(ui, |ui| {
+                        ui.label("");
+                        ui.monospace("LIGHT");
+                        ui.monospace("DARK");
+                        ui.end_row();
+
+                        ui.monospace("BORDER (FG/BG 0.4)");
+                        hex_cell(ui, light_border);
+                        hex_cell(ui, dark_border);
+                        ui.end_row();
+
+                        ui.monospace("MUTED SURFACE (S/BG 0.2)");
+                        hex_cell(ui, light_surface_muted);
+                        hex_cell(ui, dark_surface_muted);
+                        ui.end_row();
+
+                        ui.monospace("HOVER (BG/FG 0.05)");
+                        hex_cell(ui, light_control_fill_hover);
+                        hex_cell(ui, dark_control_fill_hover);
+                        ui.end_row();
+                    });
+            });
         });
     });
 
-    state!(_palette_state = PaletteState::default(), |ui, state| {
-        ui.label(egui::RichText::new("RAL PICKER").monospace().strong());
-        ui.add_space(12.0);
+    state!(_palette_state = PaletteState::default(), move |ui, state| {
+        ui.with_padding(padding, |ui| {
+            ui.label(egui::RichText::new("RAL PICKER").monospace().strong());
+            ui.add_space(12.0);
 
-        let histogram_size = rgb_histogram_editor_size(ui);
-        let preview_size = egui::vec2(histogram_size.y, histogram_size.y);
+            let histogram_size = rgb_histogram_editor_size(ui);
+            let preview_size = egui::vec2(histogram_size.y, histogram_size.y);
 
-        ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
-            let (preview_rect, preview_resp) =
-                ui.allocate_exact_size(preview_size, egui::Sense::hover());
-            ui.add_space(16.0);
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                let (preview_rect, preview_resp) =
+                    ui.allocate_exact_size(preview_size, egui::Sense::hover());
+                ui.add_space(16.0);
 
-            let rgb_edit = rgb_histogram_editor(ui, &mut state.rgb);
-            if rgb_edit.changed || rgb_edit.interaction_ended {
-                state.ral_code = closest_ral_from_rgb(state.rgb);
-            }
-            if rgb_edit.interaction_ended {
-                if let Some((_, color)) = ral_lookup(state.ral_code) {
-                    state.rgb = [color.r(), color.g(), color.b()];
+                let rgb_edit = rgb_histogram_editor(ui, &mut state.rgb);
+                if rgb_edit.changed || rgb_edit.interaction_ended {
+                    state.ral_code = closest_ral_from_rgb(state.rgb);
                 }
-            }
+                if rgb_edit.interaction_ended {
+                    if let Some((_, color)) = ral_lookup(state.ral_code) {
+                        state.rgb = [color.r(), color.g(), color.b()];
+                    }
+                }
 
-            ui.add_space(24.0);
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    ui.monospace("RAL");
-                    let ral_response = ui.add(
-                        widgets::NumberField::new(&mut state.ral_code)
-                            .constrain_value(&|current, proposed| {
-                                let proposed = proposed.clamp(0u16, 9999u16);
-                                closest_ral_code(current, proposed)
-                            })
-                            .update_while_editing(false)
-                            .speed(0.25),
-                    );
+                ui.add_space(24.0);
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.monospace("RAL");
+                        let ral_response = ui.add(
+                            widgets::NumberField::new(&mut state.ral_code)
+                                .constrain_value(&|current, proposed| {
+                                    let proposed = proposed.clamp(0u16, 9999u16);
+                                    closest_ral_code(current, proposed)
+                                })
+                                .update_while_editing(false)
+                                .speed(0.25),
+                        );
 
-                    if ral_response.changed() {
-                        if let Some((_, color)) = ral_lookup(state.ral_code) {
-                            state.rgb = [color.r(), color.g(), color.b()];
+                        if ral_response.changed() {
+                            if let Some((_, color)) = ral_lookup(state.ral_code) {
+                                state.rgb = [color.r(), color.g(), color.b()];
+                            }
                         }
+                    });
+
+                    ui.add_space(8.0);
+
+                    let code = state.ral_code;
+                    if let Some((name, ral_color)) = ral_lookup(code) {
+                        ui.label(name);
+                        ui.monospace(to_hex(ral_color));
+                    } else {
+                        ui.label(egui::RichText::new("Unknown RAL code").monospace());
                     }
                 });
 
-                ui.add_space(8.0);
+                let color = Color32::from_rgb(state.rgb[0], state.rgb[1], state.rgb[2]);
+                let hex = to_hex(color);
+                if ui.is_rect_visible(preview_rect) {
+                    ui.painter().rect_filled(preview_rect, 0.0, color);
+                    ui.painter().rect_stroke(
+                        preview_rect,
+                        0.0,
+                        ui.visuals().window_stroke,
+                        egui::StrokeKind::Inside,
+                    );
+                }
 
                 let code = state.ral_code;
-                if let Some((name, ral_color)) = ral_lookup(code) {
-                    ui.label(name);
-                    ui.monospace(to_hex(ral_color));
-                } else {
-                    ui.label(egui::RichText::new("Unknown RAL code").monospace());
-                }
+                let name = ral_lookup(code)
+                    .map(|(name, _)| name)
+                    .unwrap_or("Unknown RAL");
+                let tooltip = format!("RAL {code} — {name}\n{hex}");
+                let _ = preview_resp.on_hover_text(tooltip);
             });
-
-            let color = Color32::from_rgb(state.rgb[0], state.rgb[1], state.rgb[2]);
-            let hex = to_hex(color);
-            if ui.is_rect_visible(preview_rect) {
-                ui.painter().rect_filled(preview_rect, 0.0, color);
-                ui.painter().rect_stroke(
-                    preview_rect,
-                    0.0,
-                    ui.visuals().window_stroke,
-                    egui::StrokeKind::Inside,
-                );
-            }
-
-            let code = state.ral_code;
-            let name = ral_lookup(code)
-                .map(|(name, _)| name)
-                .unwrap_or("Unknown RAL");
-            let tooltip = format!("RAL {code} — {name}\n{hex}");
-            let _ = preview_resp.on_hover_text(tooltip);
         });
     });
 
-    view!(|ui| {
-        md!(
-            ui,
-            "## Widget Playbook\n\nA quick showcase of our custom widgets. The value is normalized to `[0, 1]`."
-        );
+    view!(move |ui| {
+        ui.with_padding(padding, |ui| {
+            md!(
+                ui,
+                "## Widget Playbook\n\nA quick showcase of our custom widgets. The value is normalized to `[0, 1]`."
+            );
+        });
     });
 
     state!(
         widget_state = WidgetPlaybookState::default(),
-        |ui, state| {
-            ui.label(egui::RichText::new("BUTTONS").monospace().strong());
-            ui.horizontal(|ui| {
-                let _ = ui.add(widgets::Button::new("BUTTON"));
-                let _ = ui.add(widgets::Button::new("SMALL").small());
-                ui.add_enabled(false, widgets::Button::new("DISABLED"));
-                let _ = ui.add(widgets::Button::new("SELECTED").selected(true));
-                let _ = ui.add(widgets::ToggleButton::new(&mut state.toggle_on, "TOGGLE"));
-            });
+        move |ui, state| {
+            ui.with_padding(padding, |ui| {
+                ui.label(egui::RichText::new("BUTTONS").monospace().strong());
+                ui.horizontal(|ui| {
+                    let _ = ui.add(widgets::Button::new("BUTTON"));
+                    let _ = ui.add(widgets::Button::new("SMALL").small());
+                    ui.add_enabled(false, widgets::Button::new("DISABLED"));
+                    let _ = ui.add(widgets::Button::new("SELECTED").selected(true));
+                    let _ = ui.add(widgets::ToggleButton::new(&mut state.toggle_on, "TOGGLE"));
+                });
 
-            ui.add_space(12.0);
-            ui.label(egui::RichText::new("CHOICE TOGGLE").monospace().strong());
-            ui.horizontal(|ui| {
-                ui.add(widgets::ChoiceToggle::binary(
-                    &mut state.metric_bytes,
-                    "COUNT",
-                    "BYTES",
-                ));
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("CHOICE TOGGLE").monospace().strong());
+                ui.horizontal(|ui| {
+                    ui.add(widgets::ChoiceToggle::binary(
+                        &mut state.metric_bytes,
+                        "COUNT",
+                        "BYTES",
+                    ));
+                });
             });
         }
     );
 
     view!(move |ui| {
-        ui.label(egui::RichText::new("SLIDER + METERS").monospace().strong());
+        ui.with_padding(padding, |ui| {
+            ui.label(egui::RichText::new("SLIDER + METERS").monospace().strong());
 
-        let mut state = ui.read_mut(widget_state).expect("widget state missing");
-        let _ = ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).text("LEVEL"));
-        let progress = state.progress;
+            let mut state = ui.read_mut(widget_state).expect("widget state missing");
+            let _ = ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).text("LEVEL"));
+            let progress = state.progress;
 
-        ui.monospace(format!("Value: {progress:.3}"));
-        ui.add(
-            widgets::ProgressBar::new(progress)
-                .text("OUTPUT")
-                .scale_percent(),
-        );
+            ui.monospace(format!("Value: {progress:.3}"));
+            ui.add(
+                widgets::ProgressBar::new(progress)
+                    .text("OUTPUT")
+                    .scale_percent(),
+            );
 
-        let green = GORBIE::themes::ral(6024);
-        let yellow = GORBIE::themes::ral(1023);
-        let red = GORBIE::themes::ral(3020);
+            let green = GORBIE::themes::ral(6024);
+            let yellow = GORBIE::themes::ral(1023);
+            let red = GORBIE::themes::ral(3020);
 
-        ui.add(
-            widgets::ProgressBar::new(progress)
-                .text("SIGNAL")
-                .segments(60)
-                .scale_labels([(0.0, "0 (off)"), (0.7, "70!"), (0.9, "90"), (1.0, "100")])
-                .zone(0.0..=0.7, green)
-                .zone(0.7..=0.9, yellow)
-                .zone(0.9..=1.0, red),
-        );
+            ui.add(
+                widgets::ProgressBar::new(progress)
+                    .text("SIGNAL")
+                    .segments(60)
+                    .scale_labels([(0.0, "0 (off)"), (0.7, "70!"), (0.9, "90"), (1.0, "100")])
+                    .zone(0.0..=0.7, green)
+                    .zone(0.7..=0.9, yellow)
+                    .zone(0.9..=1.0, red),
+            );
+        });
     });
 
     view!(move |ui| {
-        ui.label(egui::RichText::new("HISTOGRAM").monospace().strong());
-        ui.monospace("Uses COUNT/BYTES + slider to shift the synthetic distribution.");
+        ui.with_padding(padding, |ui| {
+            ui.label(egui::RichText::new("HISTOGRAM").monospace().strong());
+            ui.monospace("Uses COUNT/BYTES + slider to shift the synthetic distribution.");
 
-        let state = ui.read(widget_state).expect("widget state missing");
-        let (progress, metric_bytes) = (state.progress, state.metric_bytes);
+            let state = ui.read(widget_state).expect("widget state missing");
+            let (progress, metric_bytes) = (state.progress, state.metric_bytes);
 
-        let y_axis = if metric_bytes {
-            widgets::HistogramYAxis::Bytes
-        } else {
-            widgets::HistogramYAxis::Count
-        };
+            let y_axis = if metric_bytes {
+                widgets::HistogramYAxis::Bytes
+            } else {
+                widgets::HistogramYAxis::Count
+            };
 
-        let min_exp = 6u32;
-        let max_exp = 24u32;
-        let exp_span = (max_exp - min_exp).max(1) as f32;
-        let center = min_exp as f32 + progress * exp_span;
+            let min_exp = 6u32;
+            let max_exp = 24u32;
+            let exp_span = (max_exp - min_exp).max(1) as f32;
+            let center = min_exp as f32 + progress * exp_span;
 
-        let mut buckets = Vec::new();
-        for exp in min_exp..=max_exp {
-            let dist = (exp as f32 - center).abs();
-            let t = (1.0 - dist / exp_span).clamp(0.0, 1.0);
-            let count = (180.0 * (t * t)) as u64;
-            let bytes = count.saturating_mul(1u64 << exp);
-            let value = if metric_bytes { bytes } else { count };
-            let label = bucket_label(exp);
-            buckets.push(
-                widgets::HistogramBucket::new(value, label.clone()).tooltip(format!(
-                    "bucket: {label}\ncount: {count}\nbytes: {}",
-                    format_bytes(bytes)
-                )),
-            );
-        }
+            let mut buckets = Vec::new();
+            for exp in min_exp..=max_exp {
+                let dist = (exp as f32 - center).abs();
+                let t = (1.0 - dist / exp_span).clamp(0.0, 1.0);
+                let count = (180.0 * (t * t)) as u64;
+                let bytes = count.saturating_mul(1u64 << exp);
+                let value = if metric_bytes { bytes } else { count };
+                let label = bucket_label(exp);
+                buckets.push(
+                    widgets::HistogramBucket::new(value, label.clone()).tooltip(format!(
+                        "bucket: {label}\ncount: {count}\nbytes: {}",
+                        format_bytes(bytes)
+                    )),
+                );
+            }
 
-        ui.push_id("histogram-demo", |ui| {
-            ui.add(widgets::Histogram::new(&buckets, y_axis).plot_height(96.0));
+            ui.push_id("histogram-demo", |ui| {
+                ui.add(widgets::Histogram::new(&buckets, y_axis).plot_height(96.0));
+            });
         });
     });
 }

@@ -1160,11 +1160,14 @@ impl Default for InspectorState {
 
 #[notebook]
 fn main() {
+    let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
     view!(move |ui| {
-        md!(
-            ui,
-            "# Hi Triblespace entity inspector (prototype)\n\nTables-first tiled layout, with orthogonal “subway” routing through gutters.\n\nClick a table to select."
-        );
+        ui.with_padding(padding, |ui| {
+            md!(
+                ui,
+                "# Hi Triblespace entity inspector (prototype)\n\nTables-first tiled layout, with orthogonal “subway” routing through gutters.\n\nClick a table to select."
+            );
+        });
     });
 
     let (space, mut storage, default_selected) = build_demo_space();
@@ -1181,52 +1184,56 @@ fn main() {
             columns: 0,
         },
         move |ui, state| {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("COLUMNS").monospace().strong());
-                let max_columns = graph.nodes.len().max(1);
-                let constrain = |_: usize, next: usize| next.min(max_columns);
-                ui.add(
-                    widgets::NumberField::new(&mut state.columns)
-                        .speed(0.25)
-                        .constrain_value(&constrain),
-                );
-                ui.label(egui::RichText::new("(0 = auto)").monospace().weak());
-            });
-            ui.add_space(8.0);
+            ui.with_padding(padding, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("COLUMNS").monospace().strong());
+                    let max_columns = graph.nodes.len().max(1);
+                    let constrain = |_: usize, next: usize| next.min(max_columns);
+                    ui.add(
+                        widgets::NumberField::new(&mut state.columns)
+                            .speed(0.25)
+                            .constrain_value(&constrain),
+                    );
+                    ui.label(egui::RichText::new("(0 = auto)").monospace().weak());
+                });
+                ui.add_space(8.0);
 
-            let stats = draw_entity_inspector(ui, &graph, &mut state.selected, state.columns);
+                let stats = draw_entity_inspector(ui, &graph, &mut state.selected, state.columns);
 
-            let metrics = format!(
-                "_{} nodes, {} edges ({} components), {} columns._\n\
+                let metrics = format!(
+                    "_{} nodes, {} edges ({} components), {} columns._\n\
 _Canvas: {:.0}×{:.0}px • Tiles: {:.0}%._\n\
 _Wire: {:.0}px total • {:.0}px avg (max {:.0}px)._\n\
 _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • {} fallback._",
-                stats.nodes,
-                stats.edges,
-                stats.connected_components,
-                stats.columns,
-                stats.canvas_width,
-                stats.canvas_height,
-                stats.tile_coverage * 100.0,
-                stats.total_edge_len,
-                stats.avg_edge_len,
-                stats.max_edge_len,
-                stats.avg_turns,
-                stats.max_turns,
-                stats.avg_span_cols,
-                stats.max_span_cols,
-                stats.left_edges,
-                stats.fallback_tracks,
-            );
-            widgets::markdown(ui, &metrics);
+                    stats.nodes,
+                    stats.edges,
+                    stats.connected_components,
+                    stats.columns,
+                    stats.canvas_width,
+                    stats.canvas_height,
+                    stats.tile_coverage * 100.0,
+                    stats.total_edge_len,
+                    stats.avg_edge_len,
+                    stats.max_edge_len,
+                    stats.avg_turns,
+                    stats.max_turns,
+                    stats.avg_span_cols,
+                    stats.max_span_cols,
+                    stats.left_edges,
+                    stats.fallback_tracks,
+                );
+                widgets::markdown(ui, &metrics);
+            });
         }
     );
 
     view!(move |ui| {
-        let selected = ui
-            .read(inspector)
-            .expect("inspector state missing")
-            .selected;
-        md!(ui, "Selected entity: `{}`", id_short(selected));
+        ui.with_padding(padding, |ui| {
+            let selected = ui
+                .read(inspector)
+                .expect("inspector state missing")
+                .selected;
+            md!(ui, "Selected entity: `{}`", id_short(selected));
+        });
     });
 }

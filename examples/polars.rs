@@ -19,27 +19,32 @@ use GORBIE::widgets::load_auto;
 
 #[notebook]
 fn main() {
-    state!(df = ComputedState::default(), |ui, value| {
-        md!(
-            ui,
-            "# Polars
+    let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
+    state!(df = ComputedState::default(), move |ui, value| {
+        ui.with_padding(padding, |ui| {
+            md!(
+                ui,
+                "# Polars
 In this notebook we're going to use the `polars` crate to create a simple dataframe."
-        );
-        if let Some(df) = load_auto(ui, value, || {
-            CsvReadOptions::default()
-                .try_into_reader_with_file_path(Some("./assets/datasets/iris.csv".into()))
-                .unwrap()
-                .finish()
-                .unwrap()
-        }) {
-            dataframe(ui, df);
-        }
+            );
+            if let Some(df) = load_auto(ui, value, || {
+                CsvReadOptions::default()
+                    .try_into_reader_with_file_path(Some("./assets/datasets/iris.csv".into()))
+                    .unwrap()
+                    .finish()
+                    .unwrap()
+            }) {
+                dataframe(ui, df);
+            }
+        });
     });
 
     view!(move |ui| {
-        let Some(df) = ui.try_ready(df) else {
-            return;
-        };
-        dataframe(ui, &df);
+        ui.with_padding(padding, |ui| {
+            let Some(df) = ui.try_ready(df) else {
+                return;
+            };
+            dataframe(ui, &df);
+        });
     });
 }
