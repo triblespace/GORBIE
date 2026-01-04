@@ -7,7 +7,6 @@
 //! triblespace = { path = "../../triblespace-rs" }
 //! ```
 
-use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
@@ -144,7 +143,7 @@ impl SimLayout {
         let ground_offset = 2.0;
         let wall_thickness = 6.0;
         let height = (rect.height() - ground_offset - 2.0).max(40.0);
-        let half_width = (rect.width() * 0.5 - wall_thickness - 2.0).max(30.0);
+        let half_width = (rect.width() * 0.5).max(30.0);
         let spawn_y = height * 0.72;
         Self {
             half_width,
@@ -256,7 +255,7 @@ impl PileSimulation {
         let half = block.size * 0.5;
         let spawn_span =
             (self.layout.half_width - half - self.layout.wall_thickness * 1.5).max(half);
-        let x = self.rng.range_f32(-spawn_span, spawn_span);
+        let x = self.rng.range_f32(spawn_span * 0.15, spawn_span);
         let y = self.layout.spawn_y + self.rng.range_f32(half * 0.4, half * 1.6);
         let body = RigidBodyBuilder::dynamic()
             .translation(vector![x, y])
@@ -427,13 +426,34 @@ fn expand_card_rect(rect: egui::Rect, padding: egui::Margin) -> egui::Rect {
     )
 }
 
+const SUMMARY_PANEL_PADDING: f32 = 6.0;
+const SUMMARY_SIM_ASPECT_RATIO: f32 = 4.0 / 3.0;
+
+fn summary_overlay_width(inner_width: f32) -> f32 {
+    (inner_width * 0.32)
+        .max(160.0)
+        .min(inner_width * 0.55)
+}
+
+fn summary_panel_height(width: f32) -> f32 {
+    let inner_width = (width - SUMMARY_PANEL_PADDING * 2.0).max(0.0);
+    let overlay_width = summary_overlay_width(inner_width);
+    let sim_width = (inner_width - overlay_width).max(0.0);
+    let sim_height = if SUMMARY_SIM_ASPECT_RATIO > 0.0 {
+        sim_width / SUMMARY_SIM_ASPECT_RATIO
+    } else {
+        sim_width
+    };
+    sim_height + SUMMARY_PANEL_PADDING * 2.0
+}
+
 fn summary_panel_base(
     ui: &mut egui::Ui,
     width: f32,
     bg_color: egui::Color32,
     padding: egui::Margin,
 ) -> egui::Rect {
-    let height = 150.0;
+    let height = summary_panel_height(width);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
     let full_rect = expand_card_rect(rect, padding);
     ui.painter()
@@ -686,6 +706,8 @@ fn build_summary_blocks(
         return Vec::new();
     }
 
+    selected.sort_by_key(|blob| (blob.timestamp_ms.unwrap_or(u64::MAX), blob.hash));
+
     let (min_log, max_log) = size_log_range(&selected);
     let (min_size, max_size) = size_range(sim_rect, levels);
     let age_weight = 0.4 + levels.age * 0.8;
@@ -697,7 +719,7 @@ fn build_summary_blocks(
         _ => 0,
     };
 
-    let mut blocks: Vec<PileBlock> = selected
+    let blocks: Vec<PileBlock> = selected
         .into_iter()
         .map(|blob| {
             let length = blob.length.unwrap_or(1);
@@ -719,24 +741,12 @@ fn build_summary_blocks(
         })
         .collect();
 
-    blocks.sort_by(|a, b| {
-        let size_cmp = b
-            .size
-            .partial_cmp(&a.size)
-            .unwrap_or(Ordering::Equal);
-        if size_cmp == Ordering::Equal {
-            a.seed.cmp(&b.seed)
-        } else {
-            size_cmp
-        }
-    });
-
     blocks
 }
 
 fn summary_sim_rect(panel_rect: egui::Rect) -> egui::Rect {
-    let inner = panel_rect.shrink(6.0);
-    let overlay_width = (inner.width() * 0.32).max(160.0).min(inner.width() * 0.55);
+    let inner = panel_rect.shrink(SUMMARY_PANEL_PADDING);
+    let overlay_width = summary_overlay_width(inner.width());
     egui::Rect::from_min_max(
         egui::pos2(inner.left() + overlay_width, inner.top()),
         inner.right_bottom(),
@@ -748,7 +758,6 @@ fn draw_pile_sim(
     sim: Option<&PileSimulation>,
     sim_rect: egui::Rect,
     levels: SummaryLevels,
-    label_color: egui::Color32,
     pile_color: egui::Color32,
     web_color: egui::Color32,
     sprout_color: egui::Color32,
@@ -761,7 +770,7 @@ fn draw_pile_sim(
     painter.hline(
         egui::Rangef::new(sim_rect.left(), sim_rect.right()),
         ground_y,
-        egui::Stroke::new(1.0, label_color),
+        egui::Stroke::new(1.0, pile_color),
     );
 
     let Some(sim) = sim else {
@@ -792,24 +801,13 @@ fn draw_pile_sim(
             let a = points[edge_a];
             let b = points[edge_b];
             let base = egui::pos2((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
-            let height = block.block.size * 0.45 * sprout_scale;
+            let height = block.block.size * 0.65 * sprout_scale;
             draw_sprout(&painter, base, height, sprout_color);
         }
 
         if block.block.age_level > 0.55 {
             let web_size = (block.block.size * 0.35 * block.block.age_level * web_scale).max(4.0);
-            let (edge_a, edge_b) = top_edge_indices(&points);
-            let left = if points[edge_a].x <= points[edge_b].x {
-                edge_a
-            } else {
-                edge_b
-            };
-            let right = if left == edge_a { edge_b } else { edge_a };
-            let corner = if block.block.seed & 1 == 0 {
-                left
-            } else {
-                right
-            };
+            let corner = if block.block.seed & 1 == 0 { 0 } else { 1 };
             let (axis_a, axis_b) = corner_axes(&points, corner);
             draw_cobweb(
                 &painter,
@@ -830,7 +828,6 @@ impl SummarySimState {
         snapshot: &PileSnapshot,
         levels: SummaryLevels,
         sim_rect: egui::Rect,
-        label_color: egui::Color32,
         pile_color: egui::Color32,
         web_color: egui::Color32,
         sprout_color: egui::Color32,
@@ -860,7 +857,6 @@ impl SummarySimState {
             self.sim.as_ref(),
             sim_rect,
             levels,
-            label_color,
             pile_color,
             web_color,
             sprout_color,
@@ -874,10 +870,9 @@ fn summary_overlay_row(
     ui: &mut egui::Ui,
     label: &str,
     value: &str,
-    label_color: egui::Color32,
     value_color: egui::Color32,
 ) {
-    ui.label(egui::RichText::new(label).monospace().color(label_color));
+    ui.label(egui::RichText::new(label).monospace().color(value_color));
     ui.label(egui::RichText::new(value).monospace().color(value_color));
     ui.end_row();
 }
@@ -910,27 +905,25 @@ fn summary_overlay_text(
                 .min_col_width(70.0)
                 .spacing(egui::vec2(12.0, 0.0))
                 .show(ui, |ui| {
-                    summary_overlay_row(ui, "SIZE", size_value, label_color, pile_color);
+                    summary_overlay_row(ui, "SIZE", size_value, pile_color);
                     summary_overlay_row(
                         ui,
                         "BLOBS",
                         &format!("{blob_count}"),
-                        label_color,
                         pile_color,
                     );
                     summary_overlay_row(
                         ui,
                         "BRANCHES",
                         &format!("{branch_count}"),
-                        label_color,
                         sprout_color,
                     );
-                    summary_overlay_row(ui, "OLDEST", oldest, label_color, web_color);
-                    summary_overlay_row(ui, "NEWEST", newest, label_color, web_color);
+                    summary_overlay_row(ui, "OLDEST", oldest, web_color);
+                    summary_overlay_row(ui, "NEWEST", newest, web_color);
                 });
 
             ui.add_space(1.0);
-            ui.label(egui::RichText::new("PATH").monospace().color(pile_color));
+            ui.label(egui::RichText::new("PATH").monospace().color(label_color));
             ui.add(
                 egui::Label::new(egui::RichText::new(path).monospace().color(label_color))
                     .truncate()
@@ -1321,10 +1314,10 @@ fn main() {
             let tuning = ui.read(summary_tuning).expect("summary tuning missing");
             let now_ms = now_ms();
             let bg_color = egui::Color32::from_rgb(8, 8, 8);
-            let label_color = egui::Color32::from_rgb(200, 200, 200);
-            let pile_color = egui::Color32::from_rgb(255, 140, 0);
+            let label_color = egui::Color32::from_rgb(245, 140, 45);
+            let pile_color = egui::Color32::from_rgb(60, 170, 230);
             let web_color = egui::Color32::from_rgb(235, 235, 235);
-            let sprout_color = egui::Color32::from_rgb(0, 220, 120);
+            let sprout_color = egui::Color32::from_rgb(95, 210, 85);
             let accent_ok = sprout_color;
             let accent_warn = egui::Color32::from_rgb(255, 196, 0);
             let accent_error = egui::Color32::from_rgb(255, 80, 90);
@@ -1461,7 +1454,6 @@ fn main() {
                                 snapshot,
                                 levels,
                                 sim_rect,
-                                label_color,
                                 pile_color,
                                 web_color,
                                 sprout_color,

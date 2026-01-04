@@ -72,6 +72,9 @@ pub struct Notebook {
     card_placeholder_sizes: Vec<egui::Vec2>,
 }
 
+const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
+const NOTEBOOK_MIN_HEIGHT: f32 = 360.0;
+
 impl Default for Notebook {
     fn default() -> Self {
         Self::new(String::new())
@@ -130,7 +133,7 @@ impl Notebook {
         native_options.viewport = native_options
             .viewport
             .with_inner_size(egui::vec2(1200.0, 800.0))
-            .with_min_inner_size(egui::vec2(480.0, 360.0));
+            .with_min_inner_size(egui::vec2(NOTEBOOK_COLUMN_WIDTH, NOTEBOOK_MIN_HEIGHT));
 
         eframe::run_native(
             &window_title,
@@ -163,10 +166,9 @@ impl eframe::App for Notebook {
                     let clip_rect = ui.clip_rect();
                     let scroll_y = viewport.min.y;
 
-                    let column_max_width: f32 = 740.0;
-                    let column_width = column_max_width.min(rect.width());
-                    let remaining_width = (rect.width() - column_width).max(0.0);
-                    let left_margin_width = (remaining_width * 0.03).min(120.0);
+                    let column_width = NOTEBOOK_COLUMN_WIDTH;
+                    let left_margin_width = 0.0;
+                    let card_width = column_width;
 
                     let left_margin_paint = egui::Rect::from_min_max(
                         egui::pos2(rect.min.x, clip_rect.min.y),
@@ -199,7 +201,7 @@ impl eframe::App for Notebook {
                         let fill = ui.visuals().window_fill;
 
                         let column_inner_margin = egui::Margin::symmetric(0, 12);
-                        let code_note_width = column_width;
+                        let code_note_width = card_width;
 
                         egui::Frame::new()
                             .fill(fill)
@@ -290,7 +292,7 @@ impl eframe::App for Notebook {
                                                 } else {
                                                     120.0
                                                 };
-                                            let placeholder_width = ui.available_width();
+                                            let placeholder_width = card_width;
                                             let (rect, resp) = ui.allocate_exact_size(
                                                 egui::vec2(placeholder_width, placeholder_height),
                                                 egui::Sense::click(),
@@ -310,13 +312,8 @@ impl eframe::App for Notebook {
                                             }
 
                                             if *card_detached {
-                                                let fallback_width =
-                                                    if card_placeholder_size.x > 0.0 {
-                                                        card_placeholder_size.x
-                                                    } else {
-                                                        placeholder_width
-                                                    };
-                                                let card_width = fallback_width.max(240.0);
+                                                let detached_card_width =
+                                                    card_width.max(240.0);
                                                 if *card_detached_position == egui::Pos2::ZERO {
                                                     let initial_screen_pos = egui::pos2(
                                                         right_margin.min.x + 12.0,
@@ -336,7 +333,7 @@ impl eframe::App for Notebook {
                                                     DetachedCardDraw {
                                                         index: i,
                                                         area_id: detached_id,
-                                                        width: card_width,
+                                                        width: detached_card_width,
                                                     },
                                                 ));
                                             }
@@ -348,14 +345,17 @@ impl eframe::App for Notebook {
                                                 .inner_margin(egui::Margin::ZERO)
                                                 .show(ui, |ui| {
                                                     ui.reset_style();
-                                                    ui.set_width(ui.available_width());
+                                                    ui.set_width(card_width);
                                                     let mut ctx = cards::CardContext::new(
                                                         ui,
                                                         self.state_store.as_ref(),
                                                     );
                                                     card.draw(&mut ctx);
                                                 });
-                                            *card_placeholder_size = inner.response.rect.size();
+                                            *card_placeholder_size = egui::vec2(
+                                                card_width,
+                                                inner.response.rect.height(),
+                                            );
                                             inner.response.rect
                                         };
                                         ui.painter().hline(
@@ -718,9 +718,7 @@ impl eframe::App for Notebook {
                                                                 .inner_margin(egui::Margin::ZERO)
                                                                 .show(ui, |ui| {
                                                                     ui.reset_style();
-                                                                    ui.set_width(
-                                                                        ui.available_width(),
-                                                                    );
+                                                                    ui.set_width(card_width);
                                                                     let mut ctx =
                                                                         cards::CardContext::new(
                                                                             ui,
