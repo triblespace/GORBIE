@@ -1649,7 +1649,7 @@ fn main() {
                 .iter()
                 .filter_map(|branch| branch.head)
                 .collect();
-            let card_spacing = egui::vec2(2.0, 0.5);
+            let card_spacing = egui::vec2(4.0, 4.0);
             let card_height = ui.text_style_height(&egui::TextStyle::Small) + 6.0;
             let min_card_width = 56.0;
             let card_fill = ui.visuals().widgets.noninteractive.bg_fill;
@@ -1745,13 +1745,24 @@ fn main() {
                 }
             };
 
+            let row_width = available_width;
             for row in items.chunks(columns) {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing = card_spacing;
-                    for blob in row {
-                        render_blob_card(ui, blob);
-                    }
-                });
+                let row_layout = if ui.layout().prefer_right_to_left() {
+                    egui::Layout::right_to_left(egui::Align::Center)
+                } else {
+                    egui::Layout::left_to_right(egui::Align::Center)
+                };
+                ui.allocate_ui_with_layout(
+                    egui::vec2(row_width, card_height),
+                    row_layout,
+                    |ui| {
+                        ui.spacing_mut().item_spacing =
+                            egui::vec2(card_spacing.x, 0.0);
+                        for blob in row {
+                            render_blob_card(ui, blob);
+                        }
+                    },
+                );
             }
         });
 
