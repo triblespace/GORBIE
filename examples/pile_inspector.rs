@@ -1649,7 +1649,7 @@ fn main() {
                 .iter()
                 .filter_map(|branch| branch.head)
                 .collect();
-            let card_spacing = egui::vec2(1.0, 1.0);
+            let card_spacing = egui::vec2(2.0, 0.5);
             let card_height = ui.text_style_height(&egui::TextStyle::Small) + 6.0;
             let min_card_width = 56.0;
             let card_fill = ui.visuals().widgets.noninteractive.bg_fill;
