@@ -1078,7 +1078,7 @@ impl Default for InspectorState {
     fn default() -> Self {
         Self {
             pile_path: "./repo.pile".to_owned(),
-            max_rows: 200,
+            max_rows: 360,
             blob_page: 0,
             histogram_bytes: false,
             snapshot: ComputedState::Undefined,
@@ -1097,7 +1097,7 @@ fn main() {
     state!(
         inspector = InspectorState {
             pile_path: default_path,
-            max_rows: 200,
+            max_rows: 360,
             blob_page: 0,
             histogram_bytes: false,
             snapshot: ComputedState::Undefined,
@@ -1618,30 +1618,36 @@ fn main() {
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(6.0, 2.0);
 
+            let page_display = page + 1;
             ui.horizontal(|ui| {
                 let page_label = if total_pages == 0 {
                     "Page —".to_owned()
                 } else {
-                    let page_display = page + 1;
                     format!("Page {page_display} of {total_pages}")
                 };
                 ui.label(egui::RichText::new(page_label).small());
 
-                ui.add_enabled_ui(page > 0, |ui| {
-                    if ui.add(widgets::Button::new("Prev").small()).clicked() {
-                        page_next = page_next.saturating_sub(1);
-                    }
-                });
-                ui.add_enabled_ui(page + 1 < total_pages, |ui| {
-                    if ui.add(widgets::Button::new("Next").small()).clicked() {
-                        page_next = page_next.saturating_add(1);
-                    }
-                });
-
                 if total_pages > 0 {
-                    ui.label(egui::RichText::new(format!("{display_start}–{end} of {total}")).small());
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{display_start}–{end} of {total}"
+                        ))
+                        .small(),
+                    );
                 }
             });
+
+            if total_pages > 0 {
+                let mut page_select = page_display;
+                ui.scope(|ui| {
+                    ui.spacing_mut().slider_width = ui.available_width();
+                    ui.add(
+                        widgets::Slider::new(&mut page_select, 1..=total_pages)
+                            .show_value(false),
+                    );
+                });
+                page_next = page_select.saturating_sub(1);
+            }
 
             let now_ms = now_ms();
             let branch_heads: HashSet<RawValue> = snapshot
