@@ -54,6 +54,9 @@ struct SummaryTuning {
     avg_blob_level: f32,
     age_level: f32,
     branch_level: f32,
+    zoom: f32,
+    sample_rate: f32,
+    insert_rate: f32,
 }
 
 impl Default for SummaryTuning {
@@ -65,6 +68,9 @@ impl Default for SummaryTuning {
             avg_blob_level: 0.5,
             age_level: 0.4,
             branch_level: 0.3,
+            zoom: 1.0,
+            sample_rate: 0.0,
+            insert_rate: 0.5,
         }
     }
 }
@@ -76,16 +82,22 @@ struct SummaryLevels {
     avg_blob: f32,
     age: f32,
     branch: f32,
+    zoom: f32,
+    sample_rate: f32,
+    insert_rate: f32,
 }
 
 impl SummaryLevels {
-    fn quantized(self) -> [u16; 5] {
+    fn quantized(self) -> [u16; 8] {
         [
             quantize_level_u16(self.size),
             quantize_level_u16(self.blob),
             quantize_level_u16(self.avg_blob),
             quantize_level_u16(self.age),
             quantize_level_u16(self.branch),
+            quantize_level_u16(self.zoom),
+            quantize_level_u16(self.sample_rate),
+            quantize_level_u16(self.insert_rate),
         ]
     }
 }
@@ -95,7 +107,7 @@ struct SummarySimFingerprint {
     data_hash: u64,
     width: u32,
     height: u32,
-    levels: [u16; 5],
+    levels: [u16; 8],
 }
 
 impl SummarySimFingerprint {
@@ -132,22 +144,21 @@ struct PileBlock {
 #[derive(Clone, Copy, Debug)]
 struct SimLayout {
     half_width: f32,
-    height: f32,
     ground_offset: f32,
     wall_thickness: f32,
     spawn_y: f32,
 }
 
 impl SimLayout {
-    fn from_rect(rect: egui::Rect) -> Self {
+    fn from_rect(rect: egui::Rect, zoom: f32) -> Self {
         let ground_offset = 2.0;
         let wall_thickness = 6.0;
         let height = (rect.height() - ground_offset - 2.0).max(40.0);
         let half_width = (rect.width() * 0.5).max(30.0);
-        let spawn_y = height * 0.72;
+        let zoom = zoom.clamp(0.35, 1.0);
+        let spawn_y = height * 0.72 / zoom;
         Self {
             half_width,
-            height,
             ground_offset,
             wall_thickness,
             spawn_y,
@@ -177,6 +188,7 @@ struct PileSimulation {
     gravity: Vector<f32>,
     integration_parameters: IntegrationParameters,
     spawn_accumulator: f32,
+    spawn_interval: f32,
     settled_frames: u32,
     settled: bool,
     rng: Lcg,
@@ -194,33 +206,16 @@ impl std::fmt::Debug for PileSimulation {
 }
 
 impl PileSimulation {
-    fn new(blocks: Vec<PileBlock>, layout: SimLayout, seed: u64) -> Self {
+    fn new(blocks: Vec<PileBlock>, layout: SimLayout, seed: u64, spawn_interval: f32) -> Self {
         let mut bodies = RigidBodySet::new();
         let mut colliders = ColliderSet::new();
 
         let ground_handle =
             bodies.insert(RigidBodyBuilder::fixed().translation(vector![0.0, 0.0]).build());
-        let ground = ColliderBuilder::cuboid(layout.half_width, layout.wall_thickness)
+        let ground = ColliderBuilder::cuboid(layout.half_width * 8.0, layout.wall_thickness)
             .friction(0.9)
             .build();
         colliders.insert_with_parent(ground, ground_handle, &mut bodies);
-
-        let wall_height = layout.height * 0.9;
-        let wall_half = vector![layout.wall_thickness, wall_height * 0.5];
-        let wall_y = wall_half.y;
-        let left_x = -layout.half_width - wall_half.x;
-        let right_x = layout.half_width + wall_half.x;
-        let wall_collider = || {
-            ColliderBuilder::cuboid(wall_half.x, wall_half.y)
-                .friction(0.8)
-                .build()
-        };
-        let left_handle =
-            bodies.insert(RigidBodyBuilder::fixed().translation(vector![left_x, wall_y]).build());
-        colliders.insert_with_parent(wall_collider(), left_handle, &mut bodies);
-        let right_handle =
-            bodies.insert(RigidBodyBuilder::fixed().translation(vector![right_x, wall_y]).build());
-        colliders.insert_with_parent(wall_collider(), right_handle, &mut bodies);
 
         let pending = VecDeque::from(blocks);
         let rng = Lcg::new(seed);
@@ -240,6 +235,7 @@ impl PileSimulation {
             gravity: vector![0.0, -980.0],
             integration_parameters: IntegrationParameters::default(),
             spawn_accumulator: 0.0,
+            spawn_interval: spawn_interval.max(0.005),
             settled_frames: 0,
             settled: false,
             rng,
@@ -253,8 +249,7 @@ impl PileSimulation {
             return;
         };
         let half = block.size * 0.5;
-        let spawn_span =
-            (self.layout.half_width - half - self.layout.wall_thickness * 1.5).max(half);
+        let spawn_span = (self.layout.half_width - half).max(half);
         let x = self.rng.range_f32(spawn_span * 0.15, spawn_span);
         let y = self.layout.spawn_y + self.rng.range_f32(half * 0.4, half * 1.6);
         let body = RigidBodyBuilder::dynamic()
@@ -280,9 +275,8 @@ impl PileSimulation {
 
         let dt = dt.clamp(1.0 / 240.0, 1.0 / 30.0);
         self.spawn_accumulator += dt;
-        let spawn_interval = 0.08;
-        while self.spawn_accumulator >= spawn_interval && !self.pending.is_empty() {
-            self.spawn_accumulator -= spawn_interval;
+        while self.spawn_accumulator >= self.spawn_interval && !self.pending.is_empty() {
+            self.spawn_accumulator -= self.spawn_interval;
             self.spawn_next();
         }
 
@@ -393,6 +387,31 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
+fn format_compact_unit(value: f64, unit: &str) -> String {
+    if value >= 10.0 {
+        format!("{value:.0}{unit}")
+    } else {
+        format!("{value:.1}{unit}")
+    }
+}
+
+fn format_bytes_compact(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
+
+    let b = bytes as f64;
+    if b >= GB {
+        format_compact_unit(b / GB, "G")
+    } else if b >= MB {
+        format_compact_unit(b / MB, "M")
+    } else if b >= KB {
+        format_compact_unit(b / KB, "K")
+    } else {
+        format!("{bytes}B")
+    }
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -414,6 +433,20 @@ fn format_age(now_ms: u64, ts_ms: u64) -> String {
     }
 }
 
+fn format_age_compact(now_ms: u64, ts_ms: u64) -> String {
+    let delta_ms = now_ms.saturating_sub(ts_ms);
+    let delta_s = delta_ms / 1000;
+    if delta_s < 60 {
+        format!("{delta_s}s")
+    } else if delta_s < 60 * 60 {
+        format!("{}m", delta_s / 60)
+    } else if delta_s < 24 * 60 * 60 {
+        format!("{}h", delta_s / (60 * 60))
+    } else {
+        format!("{}d", delta_s / (24 * 60 * 60))
+    }
+}
+
 fn normalize_log2(value: u64, min_exp: f32, max_exp: f32) -> f32 {
     let value = (value.max(1) as f32).log2();
     ((value - min_exp) / (max_exp - min_exp)).clamp(0.0, 1.0)
@@ -427,18 +460,11 @@ fn expand_card_rect(rect: egui::Rect, padding: egui::Margin) -> egui::Rect {
 }
 
 const SUMMARY_PANEL_PADDING: f32 = 6.0;
-const SUMMARY_SIM_ASPECT_RATIO: f32 = 4.0 / 3.0;
-
-fn summary_overlay_width(inner_width: f32) -> f32 {
-    (inner_width * 0.32)
-        .max(160.0)
-        .min(inner_width * 0.55)
-}
+const SUMMARY_SIM_ASPECT_RATIO: f32 = 2.0;
 
 fn summary_panel_height(width: f32) -> f32 {
     let inner_width = (width - SUMMARY_PANEL_PADDING * 2.0).max(0.0);
-    let overlay_width = summary_overlay_width(inner_width);
-    let sim_width = (inner_width - overlay_width).max(0.0);
+    let sim_width = inner_width;
     let sim_height = if SUMMARY_SIM_ASPECT_RATIO > 0.0 {
         sim_width / SUMMARY_SIM_ASPECT_RATIO
     } else {
@@ -616,6 +642,11 @@ fn target_sample_count(blob_count: usize, level: f32) -> usize {
     count.round() as usize
 }
 
+fn spawn_interval_for_rate(rate: f32) -> f32 {
+    let t = rate.clamp(0.0, 1.0);
+    lerp(0.18, 0.02, t)
+}
+
 fn size_log_range(blobs: &[&BlobInfo]) -> (f32, f32) {
     let mut min_log = f32::MAX;
     let mut max_log = f32::MIN;
@@ -689,6 +720,14 @@ fn build_summary_blocks(
         .collect();
 
     let sample_count = target_sample_count(candidates.len(), levels.blob);
+    let sample_rate = levels.sample_rate.clamp(0.0, 1.0);
+    let max_samples = candidates.len();
+    let sample_count = if sample_rate > 0.0 {
+        let extra = max_samples.saturating_sub(sample_count) as f32;
+        (sample_count as f32 + extra * sample_rate).round() as usize
+    } else {
+        sample_count
+    };
     let mut branch_blobs: Vec<&BlobInfo> = candidates
         .iter()
         .copied()
@@ -745,12 +784,7 @@ fn build_summary_blocks(
 }
 
 fn summary_sim_rect(panel_rect: egui::Rect) -> egui::Rect {
-    let inner = panel_rect.shrink(SUMMARY_PANEL_PADDING);
-    let overlay_width = summary_overlay_width(inner.width());
-    egui::Rect::from_min_max(
-        egui::pos2(inner.left() + overlay_width, inner.top()),
-        inner.right_bottom(),
-    )
+    panel_rect.shrink(SUMMARY_PANEL_PADDING)
 }
 
 fn draw_pile_sim(
@@ -762,9 +796,10 @@ fn draw_pile_sim(
     web_color: egui::Color32,
     sprout_color: egui::Color32,
 ) {
+    let zoom = levels.zoom.clamp(0.35, 1.0);
     let layout = sim
         .map(|sim| sim.layout)
-        .unwrap_or_else(|| SimLayout::from_rect(sim_rect));
+        .unwrap_or_else(|| SimLayout::from_rect(sim_rect, zoom));
     let painter = ui.painter().with_clip_rect(sim_rect);
     let ground_y = sim_rect.bottom() - layout.ground_offset;
     painter.hline(
@@ -786,9 +821,10 @@ fn draw_pile_sim(
             continue;
         };
         let pos = body.translation();
-        let center = egui::pos2(center_x + pos.x, ground_y - pos.y);
+        let center = egui::pos2(center_x + pos.x * zoom, ground_y - pos.y * zoom);
         let angle = body.rotation().angle();
-        let points = rotated_rect_points(center, block.block.size, angle);
+        let size = block.block.size * zoom;
+        let points = rotated_rect_points(center, size, angle);
         for idx in 0..4 {
             painter.line_segment(
                 [points[idx], points[(idx + 1) % 4]],
@@ -801,12 +837,12 @@ fn draw_pile_sim(
             let a = points[edge_a];
             let b = points[edge_b];
             let base = egui::pos2((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
-            let height = block.block.size * 0.65 * sprout_scale;
+            let height = size * 0.65 * sprout_scale;
             draw_sprout(&painter, base, height, sprout_color);
         }
 
         if block.block.age_level > 0.55 {
-            let web_size = (block.block.size * 0.35 * block.block.age_level * web_scale).max(4.0);
+            let web_size = (size * 0.35 * block.block.age_level * web_scale).max(4.0 * zoom);
             let corner = if block.block.seed & 1 == 0 { 0 } else { 1 };
             let (axis_a, axis_b) = corner_axes(&points, corner);
             draw_cobweb(
@@ -828,6 +864,7 @@ impl SummarySimState {
         snapshot: &PileSnapshot,
         levels: SummaryLevels,
         sim_rect: egui::Rect,
+        spawn_interval: f32,
         pile_color: egui::Color32,
         web_color: egui::Color32,
         sprout_color: egui::Color32,
@@ -840,8 +877,9 @@ impl SummarySimState {
             } else {
                 Some(PileSimulation::new(
                     blocks,
-                    SimLayout::from_rect(sim_rect),
+                    SimLayout::from_rect(sim_rect, levels.zoom),
                     fingerprint.seed(),
+                    spawn_interval,
                 ))
             };
             self.fingerprint = Some(fingerprint);
@@ -849,6 +887,7 @@ impl SummarySimState {
 
         let mut active = false;
         if let Some(sim) = &mut self.sim {
+            sim.spawn_interval = spawn_interval.max(0.005);
             active = sim.step(1.0 / 60.0);
         }
 
@@ -1029,6 +1068,7 @@ fn load_pile(path: PathBuf) -> Result<PileSnapshot, String> {
 struct InspectorState {
     pile_path: String,
     max_rows: usize,
+    blob_page: usize,
     histogram_bytes: bool,
     snapshot: ComputedState<Result<PileSnapshot, String>>,
     summary_sim: SummarySimState,
@@ -1039,6 +1079,7 @@ impl Default for InspectorState {
         Self {
             pile_path: "./repo.pile".to_owned(),
             max_rows: 200,
+            blob_page: 0,
             histogram_bytes: false,
             snapshot: ComputedState::Undefined,
             summary_sim: SummarySimState::default(),
@@ -1057,6 +1098,7 @@ fn main() {
         inspector = InspectorState {
             pile_path: default_path,
             max_rows: 200,
+            blob_page: 0,
             histogram_bytes: false,
             snapshot: ComputedState::Undefined,
             summary_sim: SummarySimState::default(),
@@ -1071,7 +1113,7 @@ fn main() {
                 ui.horizontal(|ui| {
                     ui.label("Pile path:");
                     ui.add(widgets::TextField::singleline(&mut state.pile_path));
-                    ui.label("Rows:");
+                    ui.label("Items/page:");
                     ui.add(
                         widgets::NumberField::new(&mut state.max_rows)
                             .constrain_value(&|_, next| next.clamp(10, 10_000))
@@ -1106,6 +1148,22 @@ fn main() {
                     "TUNE",
                 ));
             });
+            ui.add_space(6.0);
+            ui.add(
+                widgets::Slider::new(&mut tuning.zoom, 0.35..=1.0)
+                    .text("ZOOM")
+                    .max_decimals(2),
+            );
+            ui.add(
+                widgets::Slider::new(&mut tuning.sample_rate, 0.0..=1.0)
+                    .text("SAMPLE")
+                    .max_decimals(2),
+            );
+            ui.add(
+                widgets::Slider::new(&mut tuning.insert_rate, 0.0..=1.0)
+                    .text("INSERT")
+                    .max_decimals(2),
+            );
             ui.add_space(6.0);
             ui.add_enabled_ui(tuning.enabled, |ui| {
                 ui.add(
@@ -1147,6 +1205,16 @@ fn main() {
         ui.with_padding(padding, |ui| {
             let mut state = ui.read_mut(inspector).expect("inspector state missing");
             md!(ui, "## Blob size distribution");
+
+        ui.horizontal(|ui| {
+            ui.label("METRIC:");
+            ui.add(widgets::ChoiceToggle::binary(
+                &mut state.histogram_bytes,
+                "COUNT",
+                "BYTES",
+            ));
+        });
+        let histogram_bytes = state.histogram_bytes;
 
         let Some(result) = state.snapshot.ready() else {
             md!(ui, "_Load a pile to see the distribution._");
@@ -1232,15 +1300,7 @@ fn main() {
             }
         }
 
-        ui.horizontal(|ui| {
-            ui.label("METRIC:");
-            ui.add(widgets::ChoiceToggle::binary(
-                &mut state.histogram_bytes,
-                "COUNT",
-                "BYTES",
-            ));
-        });
-        let y_axis = if state.histogram_bytes {
+        let y_axis = if histogram_bytes {
             widgets::HistogramYAxis::Bytes
         } else {
             widgets::HistogramYAxis::Count
@@ -1250,7 +1310,7 @@ fn main() {
         let mut histogram_buckets: Vec<widgets::HistogramBucket<'static>> = Vec::new();
         for exp in MIN_BUCKET_EXP..=MAX_BUCKET_EXP {
             let (count, bytes) = buckets.get(&exp).copied().unwrap_or((0, 0));
-            let value = if state.histogram_bytes { bytes } else { count };
+            let value = if histogram_bytes { bytes } else { count };
             max_value = max_value.max(value);
 
             let mut bucket = widgets::HistogramBucket::new(
@@ -1276,7 +1336,7 @@ fn main() {
                     let end = bucket_end(exp);
                     format!("{}–{}", format_bytes(start), format_bytes(end))
                 };
-                let metric = if state.histogram_bytes {
+                let metric = if histogram_bytes {
                     format_bytes(bytes)
                 } else {
                     format!("{count}")
@@ -1440,6 +1500,9 @@ fn main() {
                                 } else {
                                     live_branch_level
                                 },
+                                zoom: tuning.zoom,
+                                sample_rate: tuning.sample_rate,
+                                insert_rate: tuning.insert_rate,
                             };
 
                             let panel_rect = summary_panel_base(
@@ -1449,11 +1512,13 @@ fn main() {
                                 summary_padding,
                             );
                             let sim_rect = summary_sim_rect(panel_rect);
+                            let spawn_interval = spawn_interval_for_rate(levels.insert_rate);
                             let active = summary_sim.update_and_draw(
                                 ui,
                                 snapshot,
                                 levels,
                                 sim_rect,
+                                spawn_interval,
                                 pile_color,
                                 web_color,
                                 sprout_color,
@@ -1523,7 +1588,7 @@ fn main() {
 
     view!(move |ui| {
         ui.with_padding(padding, |ui| {
-            let state = ui.read(inspector).expect("inspector state missing");
+            let mut state = ui.read_mut(inspector).expect("inspector state missing");
             md!(ui, "## Blobs");
 
         let Some(result) = state.snapshot.ready() else {
@@ -1540,33 +1605,161 @@ fn main() {
             return;
         }
 
-        let max_rows = state.max_rows.max(1);
-        md!(ui, "_Showing up to {max_rows} blobs (most recent first)._");
+        let page_size = state.max_rows.max(1);
+        let mut page = state.blob_page;
+        let total = snapshot.blobs.len();
+        let total_pages = total.saturating_add(page_size - 1) / page_size;
+        page = page.min(total_pages.saturating_sub(1));
+        let mut page_next = page;
+        let start = page * page_size;
+        let end = (start + page_size).min(total);
+        let display_start = start + 1;
 
-        let now_ms = now_ms();
+        ui.scope(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(6.0, 2.0);
 
-            egui::Grid::new("pile-blobs")
-                .num_columns(3)
-                .striped(false)
-                .show(ui, |ui| {
-                    ui.strong("BLOB");
-                    ui.strong("BYTES");
-                    ui.strong("TIME");
-                    ui.end_row();
+            ui.horizontal(|ui| {
+                let page_label = if total_pages == 0 {
+                    "Page —".to_owned()
+                } else {
+                    let page_display = page + 1;
+                    format!("Page {page_display} of {total_pages}")
+                };
+                ui.label(egui::RichText::new(page_label).small());
 
-                    for blob in snapshot.blobs.iter().take(max_rows) {
-                        ui.monospace(hex_prefix(blob.hash, 6));
-                        match blob.length {
-                            Some(len) => ui.monospace(format_bytes(len)),
-                            None => ui.label("invalid"),
-                        };
-                        match blob.timestamp_ms {
-                            Some(ts) => ui.label(format_age(now_ms, ts)),
-                            None => ui.label("—"),
-                        };
-                        ui.end_row();
+                ui.add_enabled_ui(page > 0, |ui| {
+                    if ui.add(widgets::Button::new("Prev").small()).clicked() {
+                        page_next = page_next.saturating_sub(1);
                     }
                 });
+                ui.add_enabled_ui(page + 1 < total_pages, |ui| {
+                    if ui.add(widgets::Button::new("Next").small()).clicked() {
+                        page_next = page_next.saturating_add(1);
+                    }
+                });
+
+                if total_pages > 0 {
+                    ui.label(egui::RichText::new(format!("{display_start}–{end} of {total}")).small());
+                }
+            });
+
+            let now_ms = now_ms();
+            let branch_heads: HashSet<RawValue> = snapshot
+                .branches
+                .iter()
+                .filter_map(|branch| branch.head)
+                .collect();
+            let card_spacing = egui::vec2(1.0, 1.0);
+            let card_height = ui.text_style_height(&egui::TextStyle::Small) + 6.0;
+            let min_card_width = 56.0;
+            let card_fill = ui.visuals().widgets.noninteractive.bg_fill;
+            let outline_stroke = egui::Stroke::new(
+                1.0,
+                ui.visuals().widgets.noninteractive.bg_stroke.color,
+            );
+            let card_rounding = egui::CornerRadius::same(4);
+            let branch_color = egui::Color32::from_rgb(95, 210, 85);
+            let items: Vec<&BlobInfo> = snapshot
+                .blobs
+                .iter()
+                .skip(start)
+                .take(page_size)
+                .collect();
+            let available_width = ui.available_width();
+            let columns = ((available_width + card_spacing.x) / (min_card_width + card_spacing.x))
+                .floor()
+                .max(1.0) as usize;
+            let columns_f = columns as f32;
+            let card_width =
+                ((available_width - card_spacing.x * (columns_f - 1.0)) / columns_f)
+                    .floor()
+                    .max(1.0);
+            let card_size = egui::vec2(card_width, card_height);
+
+            ui.add_space(2.0);
+            ui.spacing_mut().item_spacing = card_spacing;
+
+            let render_blob_card = |ui: &mut egui::Ui, blob: &BlobInfo| {
+                let is_head = branch_heads.contains(&blob.hash);
+                let (rect, response) = ui.allocate_exact_size(card_size, egui::Sense::click());
+                ui.painter()
+                    .rect_filled(rect, card_rounding, card_fill);
+
+                if is_head {
+                    let band_inset = outline_stroke.width;
+                    let band_rect = rect.shrink(band_inset);
+                    let inset_u8 =
+                        band_inset.round().clamp(0.0, u8::MAX as f32) as u8;
+                    let band_rounding = card_rounding - inset_u8;
+                    let line_height = f32::from(band_rounding.nw)
+                        .min(band_rect.height())
+                        .max(1.0);
+                    let line_rect = egui::Rect::from_min_max(
+                        band_rect.min,
+                        egui::pos2(band_rect.max.x, band_rect.min.y + line_height),
+                    );
+                    ui.painter()
+                        .with_clip_rect(line_rect)
+                        .rect_filled(band_rect, band_rounding, branch_color);
+                }
+
+                ui.painter().rect_stroke(
+                    rect,
+                    card_rounding,
+                    outline_stroke,
+                    egui::StrokeKind::Inside,
+                );
+
+                let content_rect = rect.shrink2(egui::vec2(4.0, 1.0));
+                let mut card_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(content_rect)
+                        .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                );
+                card_ui.spacing_mut().item_spacing = egui::vec2(2.0, 0.0);
+
+                let size_text = blob
+                    .length
+                    .map(format_bytes_compact)
+                    .unwrap_or_else(|| "invalid".to_owned());
+                let age_text = blob
+                    .timestamp_ms
+                    .map(|timestamp| format_age_compact(now_ms, timestamp))
+                    .unwrap_or_else(|| "--".to_owned());
+                let line = format!("{size_text} {age_text}");
+                card_ui.add(
+                    egui::Label::new(egui::RichText::new(line).monospace().small())
+                        .truncate()
+                        .wrap_mode(egui::TextWrapMode::Truncate),
+                );
+
+                let hash_text = hex_prefix(blob.hash, 32);
+                let response = response.on_hover_ui(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("hash: {hash_text}"))
+                            .monospace(),
+                    );
+                });
+                if response.clicked() {
+                    ui.ctx().copy_text(hash_text);
+                }
+            };
+
+            for row in items.chunks(columns) {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing = card_spacing;
+                    for blob in row {
+                        render_blob_card(ui, blob);
+                    }
+                });
+            }
+        });
+
+        if total_pages > 0 {
+            state.blob_page = page_next.min(total_pages.saturating_sub(1));
+        } else {
+            state.blob_page = 0;
+        }
         });
     });
 }
