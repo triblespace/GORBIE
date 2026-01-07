@@ -3,21 +3,38 @@
 //! [dependencies]
 //! GORBIE = { path = ".." }
 //! egui = "0.32"
+//! hifitime = "4.2.3"
 //! rapier2d = "0.18"
 //! triblespace = { path = "../../triblespace-rs" }
 //! ```
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use hifitime::Epoch;
 use rapier2d::prelude::*;
+use triblespace::core::blob::schemas::longstring::LongString;
+use triblespace::core::blob::schemas::simplearchive::SimpleArchive;
 use triblespace::core::id::Id;
+use triblespace::core::metadata;
 use triblespace::core::repo::pile::Pile;
-use triblespace::core::repo::{BlobStore, BlobStoreList, BlobStoreMeta, BranchStore};
+use triblespace::core::repo::{
+    head as branch_head, message as commit_message, parent as commit_parent,
+    short_message as commit_short_message, signed_by as commit_signed_by,
+    timestamp as commit_timestamp, BlobStore, BlobStoreGet, BlobStoreList, BlobStoreMeta,
+    BranchStore,
+};
+use triblespace::core::trible::TribleSet;
 use triblespace::core::value::RawValue;
+use triblespace::core::value::Value;
+use triblespace::core::value::schemas::ed25519 as ed;
+use triblespace::core::value::schemas::hash::{Blake3, Handle};
+use triblespace::core::value::schemas::time::NsTAIInterval;
+use triblespace::macros::{find, pattern};
+use triblespace::prelude::View;
 use GORBIE::dataflow::ComputedState;
 use GORBIE::md;
 use GORBIE::notebook;
@@ -35,7 +52,24 @@ struct BlobInfo {
 #[derive(Clone, Debug)]
 struct BranchInfo {
     id: Id,
+    name: Option<String>,
     head: Option<RawValue>,
+}
+
+#[derive(Clone, Debug)]
+struct CommitInfo {
+    parents: Vec<RawValue>,
+    summary: String,
+    message: Option<String>,
+    author: Option<RawValue>,
+    timestamp_ms: Option<u64>,
+}
+
+#[derive(Clone, Debug)]
+struct CommitGraph {
+    order: Vec<RawValue>,
+    commits: HashMap<RawValue, CommitInfo>,
+    truncated: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -44,6 +78,7 @@ struct PileSnapshot {
     file_len: u64,
     blobs: Vec<BlobInfo>,
     branches: Vec<BranchInfo>,
+    commit_graph: CommitGraph,
 }
 
 #[derive(Clone, Debug)]
@@ -1016,11 +1051,15 @@ fn summary_status_panel(
     );
 }
 
-fn load_pile(path: PathBuf) -> Result<PileSnapshot, String> {
-    let mut pile: Pile = Pile::open(&path).map_err(|err| err.to_string())?;
+fn open_pile(path: &PathBuf) -> Result<Pile, String> {
+    let mut pile: Pile = Pile::open(path).map_err(|err| err.to_string())?;
     pile.restore().map_err(|err| err.to_string())?;
+    Ok(pile)
+}
 
-    let file_len = std::fs::metadata(&path)
+fn snapshot_pile(pile: &mut Pile, path: &PathBuf) -> Result<PileSnapshot, String> {
+    pile.refresh().map_err(|err| err.to_string())?;
+    let file_len = std::fs::metadata(path)
         .map_err(|err| err.to_string())?
         .len();
 
@@ -1047,26 +1086,515 @@ fn load_pile(path: PathBuf) -> Result<PileSnapshot, String> {
     let branch_iter = pile.branches().map_err(|err| err.to_string())?;
     for id in branch_iter {
         let id = id.map_err(|err| err.to_string())?;
-        let head = pile
-            .head(id)
-            .map_err(|err| err.to_string())?
-            .map(|handle| handle.raw);
-        branches.push(BranchInfo { id, head });
+        let branch_meta = pile.head(id).map_err(|err| err.to_string())?;
+        let mut name = None;
+        let mut head = None;
+        if let Some(branch_meta) = branch_meta {
+            if let Ok(metadata_set) = reader.get::<TribleSet, SimpleArchive>(branch_meta) {
+                name = find!(
+                    (shortname: String),
+                    pattern!(&metadata_set, [{ metadata::shortname: ?shortname }])
+                )
+                .into_iter()
+                .map(|(shortname,)| shortname)
+                .next();
+                head = find!(
+                    (commit_head: Value<Handle<Blake3, SimpleArchive>>),
+                    pattern!(&metadata_set, [{ branch_head: ?commit_head }])
+                )
+                .into_iter()
+                .map(|(commit_head,)| commit_head.raw)
+                .next();
+            }
+        }
+        branches.push(BranchInfo { id, name, head });
     }
 
     blobs.sort_by(|a, b| b.timestamp_ms.cmp(&a.timestamp_ms));
 
+    let commit_heads: Vec<RawValue> = branches.iter().filter_map(|branch| branch.head).collect();
+    let commit_graph = build_commit_graph(&reader, &commit_heads);
+
     Ok(PileSnapshot {
-        path,
+        path: path.clone(),
         file_len,
         blobs,
         branches,
+        commit_graph,
     })
 }
 
-#[derive(Debug)]
+const DAG_MAX_COMMITS: usize = 240;
+
+fn build_commit_graph(reader: &impl BlobStoreGet<Blake3>, heads: &[RawValue]) -> CommitGraph {
+    let mut commits = HashMap::new();
+    let mut order = Vec::new();
+    let mut queue = VecDeque::new();
+    let mut queued = HashSet::new();
+    let mut truncated = false;
+
+    for head in heads {
+        if queued.insert(*head) {
+            queue.push_back(*head);
+        }
+    }
+
+    while let Some(commit) = queue.pop_front() {
+        if commits.contains_key(&commit) {
+            continue;
+        }
+        if commits.len() >= DAG_MAX_COMMITS {
+            truncated = true;
+            break;
+        }
+        let info = commit_info(reader, commit);
+        let parents = info.parents.clone();
+        commits.insert(commit, info);
+        order.push(commit);
+        for parent in parents {
+            if queued.insert(parent) {
+                queue.push_back(parent);
+            }
+        }
+    }
+
+    CommitGraph {
+        order,
+        commits,
+        truncated,
+    }
+}
+
+fn commit_summary(short_message: Option<&str>, long_message: Option<&str>) -> String {
+    let summary = short_message
+        .and_then(|line| {
+            let line = line.trim();
+            if line.is_empty() {
+                None
+            } else {
+                Some(line)
+            }
+        })
+        .or_else(|| {
+            long_message.and_then(|msg| {
+                msg.lines()
+                    .map(str::trim)
+                    .find(|line| !line.is_empty())
+            })
+        })
+        .unwrap_or("commit");
+    summary.to_owned()
+}
+
+fn commit_timestamp_ms(interval: Value<NsTAIInterval>) -> Option<u64> {
+    let (_, upper): (Epoch, Epoch) = interval.from_value();
+    let ms = upper.to_unix_milliseconds();
+    if ms.is_finite() {
+        Some(ms.max(0.0).round() as u64)
+    } else {
+        None
+    }
+}
+
+fn commit_info(reader: &impl BlobStoreGet<Blake3>, commit: RawValue) -> CommitInfo {
+    let handle = Value::<Handle<Blake3, SimpleArchive>>::new(commit);
+    let Ok(metadata_set) = reader.get::<TribleSet, SimpleArchive>(handle) else {
+        return CommitInfo {
+            parents: Vec::new(),
+            summary: "commit".to_owned(),
+            message: None,
+            author: None,
+            timestamp_ms: None,
+        };
+    };
+
+    let parents: Vec<RawValue> = find!(
+        (parent_handle: Value<Handle<Blake3, SimpleArchive>>),
+        pattern!(&metadata_set, [{ commit_parent: ?parent_handle }])
+    )
+    .into_iter()
+    .map(|(parent_handle,)| parent_handle.raw)
+    .collect();
+
+    let short_message = find!(
+        (short_message: String),
+        pattern!(&metadata_set, [{ commit_short_message: ?short_message }])
+    )
+    .into_iter()
+    .map(|(short_message,)| short_message)
+    .next();
+
+    let long_message = find!(
+        (message_handle: Value<Handle<Blake3, LongString>>),
+        pattern!(&metadata_set, [{ commit_message: ?message_handle }])
+    )
+    .into_iter()
+    .map(|(message_handle,)| message_handle)
+    .next()
+    .and_then(|message_handle| reader.get::<View<str>, LongString>(message_handle).ok())
+    .map(|view| view.to_string());
+
+    let summary = commit_summary(short_message.as_deref(), long_message.as_deref());
+    let message = long_message.or(short_message);
+
+    let author = find!(
+        (pubkey: Value<ed::ED25519PublicKey>),
+        pattern!(&metadata_set, [{ commit_signed_by: ?pubkey }])
+    )
+    .into_iter()
+    .map(|(pubkey,)| pubkey.raw)
+    .next();
+
+    let timestamp_ms = find!(
+        (ts: Value<NsTAIInterval>),
+        pattern!(&metadata_set, [{ commit_timestamp: ?ts }])
+    )
+    .into_iter()
+    .map(|(ts,)| ts)
+    .next()
+    .and_then(commit_timestamp_ms);
+
+    CommitInfo {
+        parents,
+        summary,
+        message,
+        author,
+        timestamp_ms,
+    }
+}
+
+#[derive(Clone, Debug)]
+struct CommitLayout {
+    positions: HashMap<RawValue, (usize, usize)>,
+    lane_count: usize,
+}
+
+fn layout_commit_graph(graph: &CommitGraph, heads: &[RawValue]) -> CommitLayout {
+    let mut lane_by_commit = HashMap::new();
+    let mut next_lane = 0usize;
+
+    for head in heads {
+        if lane_by_commit.insert(*head, next_lane).is_none() {
+            next_lane += 1;
+        }
+    }
+
+    let mut positions = HashMap::new();
+    for (row, commit) in graph.order.iter().enumerate() {
+        let lane = *lane_by_commit.entry(*commit).or_insert_with(|| {
+            let lane = next_lane;
+            next_lane += 1;
+            lane
+        });
+        positions.insert(*commit, (lane, row));
+        if let Some(info) = graph.commits.get(commit) {
+            for (idx, parent) in info.parents.iter().enumerate() {
+                lane_by_commit.entry(*parent).or_insert_with(|| {
+                    if idx == 0 {
+                        lane
+                    } else {
+                        let lane = next_lane;
+                        next_lane += 1;
+                        lane
+                    }
+                });
+            }
+        }
+    }
+
+    CommitLayout {
+        positions,
+        lane_count: next_lane.max(1),
+    }
+}
+
+fn commit_lane_color(index: usize) -> egui::Color32 {
+    const COLORS: [egui::Color32; 5] = [
+        egui::Color32::from_rgb(95, 210, 85),
+        egui::Color32::from_rgb(80, 160, 245),
+        egui::Color32::from_rgb(245, 165, 65),
+        egui::Color32::from_rgb(80, 200, 200),
+        egui::Color32::from_rgb(235, 90, 90),
+    ];
+    COLORS[index % COLORS.len()]
+}
+
+fn text_width(ui: &egui::Ui, text: &str, style: &egui::TextStyle) -> f32 {
+    let font_id = style.resolve(ui.style());
+    ui.fonts(|fonts| {
+        fonts
+            .layout_no_wrap(text.to_owned(), font_id, ui.visuals().text_color())
+            .size()
+            .x
+    })
+}
+
+fn truncate_to_width(
+    ui: &egui::Ui,
+    text: &str,
+    max_width: f32,
+    style: &egui::TextStyle,
+) -> String {
+    if text.is_empty() || max_width <= 0.0 {
+        return String::new();
+    }
+    if text_width(ui, text, style) <= max_width {
+        return text.to_owned();
+    }
+
+    let mut trimmed = text.to_owned();
+    while !trimmed.is_empty() {
+        trimmed.pop();
+        let candidate = format!("{trimmed}...");
+        if text_width(ui, &candidate, style) <= max_width {
+            return candidate;
+        }
+    }
+
+    if text_width(ui, "...", style) <= max_width {
+        "...".to_owned()
+    } else {
+        String::new()
+    }
+}
+
+fn commit_detail_line(now_ms: u64, info: &CommitInfo) -> String {
+    let mut parts = Vec::new();
+    if let Some(author) = info.author {
+        parts.push(format!("by {}", hex_prefix(author, 6)));
+    }
+    if let Some(timestamp_ms) = info.timestamp_ms {
+        parts.push(format_age_compact(now_ms, timestamp_ms));
+    }
+    parts.join("  ")
+}
+
+fn draw_commit_dag(ui: &mut egui::Ui, snapshot: &PileSnapshot) {
+    let mut branch_heads: Vec<(String, RawValue)> = snapshot
+        .branches
+        .iter()
+        .filter_map(|branch| {
+            branch.head.map(|head| {
+                let label = branch
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| hex_prefix(branch.id, 6));
+                (label, head)
+            })
+        })
+        .collect();
+
+    if branch_heads.is_empty() {
+        md!(ui, "_No branch heads found._");
+        return;
+    }
+
+    branch_heads.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut head_labels: HashMap<RawValue, Vec<String>> = HashMap::new();
+    let mut head_order = Vec::new();
+    let mut seen_heads = HashSet::new();
+    for (label, head) in branch_heads {
+        head_labels.entry(head).or_default().push(label);
+        if seen_heads.insert(head) {
+            head_order.push(head);
+        }
+    }
+
+    let graph = &snapshot.commit_graph;
+    if graph.order.is_empty() {
+        md!(ui, "_No commits found._");
+        return;
+    }
+
+    let layout = layout_commit_graph(graph, &head_order);
+    let line_height = ui.text_style_height(&egui::TextStyle::Small);
+    let card_padding = egui::vec2(6.0, 3.0);
+    let card_height = (line_height * 2.0 + card_padding.y * 2.0).max(20.0);
+    let row_height = (card_height + 6.0).max(18.0);
+    let lane_width = 18.0;
+    let node_radius = 4.0;
+    let label_gap = 8.0;
+    let card_width = 240.0;
+
+    let label_width = head_order
+        .iter()
+        .filter_map(|head| head_labels.get(head))
+        .map(|labels| labels.join(", "))
+        .map(|label| text_width(ui, &label, &egui::TextStyle::Small))
+        .fold(0.0, f32::max);
+
+    let rows = graph.order.len();
+    let lanes_width = layout.lane_count as f32 * lane_width;
+    let left_padding = node_radius + 6.0;
+    let top_padding = (card_height * 0.5 + 4.0).max(node_radius + 4.0);
+    let width =
+        left_padding + lanes_width + label_width + label_gap + card_width + 12.0;
+    let height = top_padding + (rows as f32 * row_height) + 4.0;
+
+    let head_set: HashSet<RawValue> = head_labels.keys().copied().collect();
+
+    egui::ScrollArea::horizontal()
+        .auto_shrink([false; 2])
+        .show(ui, |ui| {
+            let available_width = ui.available_width();
+            let (rect, _) = ui.allocate_exact_size(
+                egui::vec2(width.max(available_width), height),
+                egui::Sense::hover(),
+            );
+            let painter = ui.painter_at(rect);
+            let origin = rect.min + egui::vec2(left_padding, top_padding);
+            let card_origin_x = origin.x + lanes_width + label_width + label_gap;
+
+            let lane_colors: Vec<egui::Color32> =
+                (0..layout.lane_count).map(commit_lane_color).collect();
+            let base_stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+            let base_fill = ui.visuals().widgets.noninteractive.bg_fill;
+            let font_id = egui::TextStyle::Small.resolve(ui.style());
+            let now_ms = now_ms();
+
+            for (commit, info) in &graph.commits {
+                let Some(&(lane, row)) = layout.positions.get(commit) else {
+                    continue;
+                };
+                let start = origin
+                    + egui::vec2(lane as f32 * lane_width, row as f32 * row_height);
+                let stroke = egui::Stroke::new(1.0, lane_colors[lane % lane_colors.len()]);
+
+                for parent in &info.parents {
+                    let Some(&(parent_lane, parent_row)) = layout.positions.get(parent) else {
+                        continue;
+                    };
+                    let end = origin
+                        + egui::vec2(
+                            parent_lane as f32 * lane_width,
+                            parent_row as f32 * row_height,
+                        );
+                    let mid = egui::pos2(start.x, end.y);
+                    painter.line_segment([start, mid], stroke);
+                    painter.line_segment([mid, end], stroke);
+                }
+            }
+
+            for commit in &graph.order {
+                let Some(&(lane, row)) = layout.positions.get(commit) else {
+                    continue;
+                };
+                let pos =
+                    origin + egui::vec2(lane as f32 * lane_width, row as f32 * row_height);
+                let is_head = head_set.contains(commit);
+                let color = lane_colors[lane % lane_colors.len()];
+                let stroke = if is_head {
+                    egui::Stroke::new(1.5, color)
+                } else {
+                    egui::Stroke::new(1.0, color)
+                };
+                let fill = if is_head { color } else { base_fill };
+
+                painter.circle_filled(pos, node_radius, fill);
+                painter.circle_stroke(pos, node_radius, stroke);
+
+                let Some(info) = graph.commits.get(commit) else {
+                    continue;
+                };
+                let card_rect = egui::Rect::from_min_size(
+                    egui::pos2(card_origin_x, pos.y - card_height * 0.5),
+                    egui::vec2(card_width, card_height),
+                );
+                painter.rect_filled(card_rect, 6.0, base_fill);
+                painter.rect_stroke(card_rect, 6.0, base_stroke, egui::StrokeKind::Inside);
+
+                let summary = truncate_to_width(
+                    ui,
+                    &info.summary,
+                    card_width - card_padding.x * 2.0,
+                    &egui::TextStyle::Small,
+                );
+                let detail_line = commit_detail_line(now_ms, info);
+                let detail = truncate_to_width(
+                    ui,
+                    &detail_line,
+                    card_width - card_padding.x * 2.0,
+                    &egui::TextStyle::Small,
+                );
+                let text_pos = card_rect.min + card_padding;
+                painter.text(
+                    text_pos,
+                    egui::Align2::LEFT_TOP,
+                    summary,
+                    font_id.clone(),
+                    ui.visuals().text_color(),
+                );
+                if !detail.is_empty() {
+                    painter.text(
+                        text_pos + egui::vec2(0.0, line_height + 1.0),
+                        egui::Align2::LEFT_TOP,
+                        detail,
+                        font_id.clone(),
+                        ui.visuals().weak_text_color(),
+                    );
+                }
+
+                let response = ui.interact(
+                    card_rect,
+                    ui.id().with((commit, "card")),
+                    egui::Sense::hover(),
+                );
+                if response.hovered() {
+                    let hash = hex_prefix(commit, 32);
+                    let mut tooltip = format!("hash: {hash}");
+                    if let Some(message) = info.message.as_deref() {
+                        tooltip.push_str(&format!("\nmessage: {message}"));
+                    }
+                    if let Some(author) = info.author {
+                        tooltip.push_str(&format!(
+                            "\nauthor: {}",
+                            hex_prefix(author, 12)
+                        ));
+                    }
+                    if let Some(timestamp_ms) = info.timestamp_ms {
+                        tooltip.push_str(&format!(
+                            "\nwhen: {}",
+                            format_age(now_ms, timestamp_ms)
+                        ));
+                    }
+                    response.on_hover_text(tooltip);
+                }
+            }
+
+            for head in &head_order {
+                let Some(&(lane, row)) = layout.positions.get(head) else {
+                    continue;
+                };
+                let Some(labels) = head_labels.get(head) else {
+                    continue;
+                };
+                let label = labels.join(", ");
+                let pos =
+                    origin + egui::vec2(lane as f32 * lane_width, row as f32 * row_height);
+                let label_pos = pos + egui::vec2(node_radius + 6.0, 0.0);
+                let color = lane_colors[lane % lane_colors.len()];
+                painter.text(label_pos, egui::Align2::LEFT_CENTER, label, font_id.clone(), color);
+            }
+
+            if graph.truncated {
+                let label = format!("Showing first {} commits.", graph.order.len());
+                let pos = rect.max - egui::vec2(0.0, 6.0);
+                painter.text(
+                    pos,
+                    egui::Align2::RIGHT_BOTTOM,
+                    label,
+                    font_id,
+                    base_stroke.color,
+                );
+            }
+        });
+}
+
 struct InspectorState {
     pile_path: String,
+    pile: Option<Pile>,
+    pile_open_path: Option<PathBuf>,
     max_rows: usize,
     blob_page: usize,
     histogram_bytes: bool,
@@ -1074,10 +1602,35 @@ struct InspectorState {
     summary_sim: SummarySimState,
 }
 
+impl std::fmt::Debug for InspectorState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InspectorState")
+            .field("pile_path", &self.pile_path)
+            .field("pile_open", &self.pile.is_some())
+            .field("pile_open_path", &self.pile_open_path)
+            .field("max_rows", &self.max_rows)
+            .field("blob_page", &self.blob_page)
+            .field("histogram_bytes", &self.histogram_bytes)
+            .field("snapshot", &self.snapshot)
+            .field("summary_sim", &self.summary_sim)
+            .finish()
+    }
+}
+
+impl Drop for InspectorState {
+    fn drop(&mut self) {
+        if let Some(pile) = self.pile.take() {
+            let _ = pile.close();
+        }
+    }
+}
+
 impl Default for InspectorState {
     fn default() -> Self {
         Self {
             pile_path: "./repo.pile".to_owned(),
+            pile: None,
+            pile_open_path: None,
             max_rows: 360,
             blob_page: 0,
             histogram_bytes: false,
@@ -1097,6 +1650,8 @@ fn main() {
     state!(
         inspector = InspectorState {
             pile_path: default_path,
+            pile: None,
+            pile_open_path: None,
             max_rows: 360,
             blob_page: 0,
             histogram_bytes: false,
@@ -1120,19 +1675,32 @@ fn main() {
                             .speed(10.0),
                     );
 
-                    let pile_path = PathBuf::from(state.pile_path.trim());
-                    let snapshot = widgets::load_button(
-                        ui,
-                        &mut state.snapshot,
-                        "Open pile",
-                        "Refresh pile",
-                        move || load_pile(pile_path.clone()),
-                    );
-
-                    if let Some(Err(err)) = snapshot {
-                        ui.label(err.as_str());
+                    let open_clicked = ui.add(widgets::Button::new("Open pile")).clicked();
+                    if open_clicked {
+                        let open_path = PathBuf::from(state.pile_path.trim());
+                        match open_pile(&open_path) {
+                            Ok(mut new_pile) => {
+                                let snapshot = snapshot_pile(&mut new_pile, &open_path);
+                                if let Some(old_pile) = state.pile.take() {
+                                    let _ = old_pile.close();
+                                }
+                                state.pile = Some(new_pile);
+                                state.pile_open_path = Some(open_path);
+                                state.snapshot = ComputedState::Ready(snapshot, 0);
+                            }
+                            Err(err) => {
+                                state.snapshot = ComputedState::Ready(Err(err), 0);
+                            }
+                        }
                     }
                 });
+
+                if let (Some(pile), Some(path)) =
+                    (state.pile.as_mut(), state.pile_open_path.as_ref())
+                {
+                    state.snapshot = ComputedState::Ready(snapshot_pile(pile, path), 0);
+                    ui.ctx().request_repaint();
+                }
             });
         }
     );
@@ -1550,39 +2118,23 @@ fn main() {
     view!(move |ui| {
         ui.with_padding(padding, |ui| {
             let state = ui.read(inspector).expect("inspector state missing");
-            md!(ui, "## Branches");
+            md!(ui, "## Commit graph");
 
-        let Some(result) = state.snapshot.ready() else {
-            md!(ui, "_Load a pile to see branches._");
-            return;
-        };
-        let Ok(snapshot) = result else {
-            md!(ui, "_Load a valid pile to see branches._");
-            return;
-        };
+            let Some(result) = state.snapshot.ready() else {
+                md!(ui, "_Load a pile to see the commit graph._");
+                return;
+            };
+            let Ok(snapshot) = result else {
+                md!(ui, "_Load a valid pile to see the commit graph._");
+                return;
+            };
 
-        if snapshot.branches.is_empty() {
-            md!(ui, "_No branches found._");
-            return;
-        }
+            if snapshot.branches.is_empty() {
+                md!(ui, "_No branches found._");
+                return;
+            }
 
-            egui::Grid::new("pile-branches")
-                .num_columns(2)
-                .striped(false)
-                .show(ui, |ui| {
-                    ui.strong("BRANCH");
-                    ui.strong("HEAD");
-                    ui.end_row();
-
-                    for branch in &snapshot.branches {
-                        ui.monospace(hex_prefix(branch.id, 6));
-                        match &branch.head {
-                            Some(raw) => ui.monospace(hex_prefix(raw, 6)),
-                            None => ui.label("—"),
-                        };
-                        ui.end_row();
-                    }
-                });
+            draw_commit_dag(ui, snapshot);
         });
     });
 

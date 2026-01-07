@@ -196,6 +196,7 @@ impl eframe::App for Notebook {
 
                     ui.scope_builder(egui::UiBuilder::new().max_rect(column_rect), |ui| {
                         ui.set_min_size(column_rect.size());
+                        ui.set_max_width(column_rect.width());
 
                         let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
                         let fill = ui.visuals().window_fill;

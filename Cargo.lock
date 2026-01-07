@@ -7,15 +7,19 @@ name = "GORBIE"
 version = "0.2.1"
 dependencies = [
  "ctrlc",
+ "ed25519-dalek",
  "eframe",
  "egui",
  "egui_commonmark",
  "egui_extras",
  "gorbie-macros",
+ "hifitime",
  "image",
  "log",
+ "num-rational",
  "parking_lot",
  "polars",
+ "rand 0.8.5",
  "rapier2d",
  "triblespace",
 ]
@@ -2264,9 +2268,9 @@ checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
 name = "hifitime"
-version = "4.1.3"
+version = "4.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7252eb7d1bb00f11b26c5373ffa97ce45d9cd9e485a4beb7f547661a747c4e0"
+checksum = "ae664976c51b75b30deb25aa778bff665169ca129104fb5f427e7154fc611ad5"
 dependencies = [
  "js-sys",
  "lexical-core",

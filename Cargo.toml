@@ -16,6 +16,7 @@ log = "0.4.26"
 ctrlc = {version="3.4", features=["termination"]}
 egui_commonmark = { path = "vendor/egui_commonmark", features = ["macros", "better_syntax_highlighting", "svg", "fetch"] }
 image = { version = "0.25", features = ["png", "jpeg"] }
+hifitime = "4.2.3"
 polars = "0.50.0"
 rapier2d = "0.18"
 
@@ -25,3 +26,8 @@ accesskit = []
 
 [workspace]
 members = ["gorbie-macros"]
+
+[dev-dependencies]
+ed25519-dalek = "2.1.1"
+num-rational = "0.4.2"
+rand = "0.8.5"
