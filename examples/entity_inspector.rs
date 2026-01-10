@@ -235,8 +235,8 @@ fn build_demo_space() -> (TribleSet, MemoryRepo, Id) {
         &demo::label.value_from("unrelated"),
     ));
 
-    kb += GenId::describe(&mut storage);
-    kb += ShortString::describe(&mut storage);
+    kb += GenId::describe(&mut storage).expect("genid metadata");
+    kb += ShortString::describe(&mut storage).expect("shortstring metadata");
 
     (kb, storage, e_sentence)
 }

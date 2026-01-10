@@ -20,7 +20,7 @@ use triblespace::core::blob::schemas::longstring::LongString;
 use triblespace::core::blob::schemas::simplearchive::SimpleArchive;
 use triblespace::core::id::Id;
 use triblespace::core::metadata;
-use triblespace::core::repo::pile::Pile;
+use triblespace::core::repo::pile::{Pile, PileReader};
 use triblespace::core::repo::{
     head as branch_head, message as commit_message, parent as commit_parent,
     short_message as commit_short_message, signed_by as commit_signed_by,
@@ -41,6 +41,11 @@ use GORBIE::notebook;
 use GORBIE::state;
 use GORBIE::view;
 use GORBIE::widgets;
+
+const HISTOGRAM_MIN_BUCKET_EXP: u32 = 6; // 64B (pile record alignment).
+const HISTOGRAM_MAX_BUCKET_EXP: u32 = 36; // 64 GiB and above go into the last bucket.
+const HISTOGRAM_BUCKET_COUNT: usize =
+    (HISTOGRAM_MAX_BUCKET_EXP - HISTOGRAM_MIN_BUCKET_EXP + 1) as usize;
 
 #[derive(Clone, Debug)]
 struct BlobInfo {
@@ -73,10 +78,23 @@ struct CommitGraph {
 }
 
 #[derive(Clone, Debug)]
+struct BlobStats {
+    oldest_ts: Option<u64>,
+    newest_ts: Option<u64>,
+    valid_blobs: u64,
+    total_bytes: u64,
+    buckets: Vec<(u64, u64)>,
+    saw_underflow: bool,
+    saw_overflow: bool,
+}
+
+#[derive(Clone, Debug)]
 struct PileSnapshot {
     path: PathBuf,
     file_len: u64,
-    blobs: Vec<BlobInfo>,
+    reader: PileReader<Blake3>,
+    blob_order: Vec<RawValue>,
+    blob_stats: BlobStats,
     branches: Vec<BranchInfo>,
     commit_graph: CommitGraph,
 }
@@ -405,6 +423,20 @@ fn hex_prefix(bytes: impl AsRef<[u8]>, prefix_len: usize) -> String {
     out
 }
 
+fn blob_info(reader: &PileReader<Blake3>, hash: RawValue) -> BlobInfo {
+    let handle = Value::<Handle<Blake3, SimpleArchive>>::new(hash);
+    let meta = reader.metadata(handle).ok().flatten();
+    let (timestamp_ms, length) = match meta {
+        Some(meta) => (Some(meta.timestamp), Some(meta.length)),
+        None => (None, None),
+    };
+    BlobInfo {
+        hash,
+        timestamp_ms,
+        length,
+    }
+}
+
 fn format_bytes(bytes: u64) -> String {
     const KB: f64 = 1024.0;
     const MB: f64 = 1024.0 * 1024.0;
@@ -642,12 +674,17 @@ fn snapshot_hash(snapshot: &PileSnapshot) -> u64 {
     let mut hasher = DefaultHasher::new();
     snapshot.path.hash(&mut hasher);
     snapshot.file_len.hash(&mut hasher);
-    snapshot.blobs.len().hash(&mut hasher);
+    snapshot.blob_order.len().hash(&mut hasher);
     snapshot.branches.len().hash(&mut hasher);
-    if let Some(blob) = snapshot.blobs.first() {
-        blob.hash.hash(&mut hasher);
-        blob.timestamp_ms.hash(&mut hasher);
-        blob.length.hash(&mut hasher);
+    snapshot.blob_stats.valid_blobs.hash(&mut hasher);
+    snapshot.blob_stats.total_bytes.hash(&mut hasher);
+    snapshot.blob_stats.oldest_ts.hash(&mut hasher);
+    snapshot.blob_stats.newest_ts.hash(&mut hasher);
+    if let Some(blob) = snapshot.blob_order.first() {
+        blob.hash(&mut hasher);
+    }
+    if let Some(blob) = snapshot.blob_order.last() {
+        blob.hash(&mut hasher);
     }
     if let Some(branch) = snapshot.branches.first() {
         branch.id.hash(&mut hasher);
@@ -739,14 +776,17 @@ fn build_summary_blocks(
     levels: SummaryLevels,
     sim_rect: egui::Rect,
 ) -> Vec<PileBlock> {
-    let candidates: Vec<&BlobInfo> = snapshot
-        .blobs
+    let candidates: Vec<BlobInfo> = snapshot
+        .blob_order
         .iter()
+        .map(|&hash| blob_info(&snapshot.reader, hash))
         .filter(|blob| blob.length.is_some())
         .collect();
     if candidates.is_empty() {
         return Vec::new();
     }
+
+    let candidate_refs: Vec<&BlobInfo> = candidates.iter().collect();
 
     let branch_heads: HashSet<RawValue> = snapshot
         .branches
@@ -754,16 +794,16 @@ fn build_summary_blocks(
         .filter_map(|branch| branch.head)
         .collect();
 
-    let sample_count = target_sample_count(candidates.len(), levels.blob);
+    let sample_count = target_sample_count(candidate_refs.len(), levels.blob);
     let sample_rate = levels.sample_rate.clamp(0.0, 1.0);
-    let max_samples = candidates.len();
+    let max_samples = candidate_refs.len();
     let sample_count = if sample_rate > 0.0 {
         let extra = max_samples.saturating_sub(sample_count) as f32;
         (sample_count as f32 + extra * sample_rate).round() as usize
     } else {
         sample_count
     };
-    let mut branch_blobs: Vec<&BlobInfo> = candidates
+    let mut branch_blobs: Vec<&BlobInfo> = candidate_refs
         .iter()
         .copied()
         .filter(|blob| branch_heads.contains(&blob.hash))
@@ -774,7 +814,7 @@ fn build_summary_blocks(
     }
 
     let remaining = sample_count.saturating_sub(branch_blobs.len());
-    let mut selected = select_sample(&candidates, remaining, &branch_heads);
+    let mut selected = select_sample(&candidate_refs, remaining, &branch_heads);
     selected.extend(branch_blobs);
     if selected.is_empty() {
         return Vec::new();
@@ -786,8 +826,8 @@ fn build_summary_blocks(
     let (min_size, max_size) = size_range(sim_rect, levels);
     let age_weight = 0.4 + levels.age * 0.8;
 
-    let oldest_ts = snapshot.blobs.iter().filter_map(|blob| blob.timestamp_ms).min();
-    let newest_ts = snapshot.blobs.iter().filter_map(|blob| blob.timestamp_ms).max();
+    let oldest_ts = snapshot.blob_stats.oldest_ts;
+    let newest_ts = snapshot.blob_stats.newest_ts;
     let age_span = match (oldest_ts, newest_ts) {
         (Some(oldest), Some(newest)) => newest.saturating_sub(oldest),
         _ => 0,
@@ -1058,14 +1098,21 @@ fn open_pile(path: &PathBuf) -> Result<Pile, String> {
 }
 
 fn snapshot_pile(pile: &mut Pile, path: &PathBuf) -> Result<PileSnapshot, String> {
-    pile.refresh().map_err(|err| err.to_string())?;
     let file_len = std::fs::metadata(path)
         .map_err(|err| err.to_string())?
         .len();
 
     let reader = pile.reader().map_err(|err| err.to_string())?;
 
-    let mut blobs = Vec::new();
+    let mut blob_entries = Vec::new();
+    let mut oldest_ts: Option<u64> = None;
+    let mut newest_ts: Option<u64> = None;
+    let mut valid_blobs = 0u64;
+    let mut total_bytes = 0u64;
+    let mut buckets = vec![(0u64, 0u64); HISTOGRAM_BUCKET_COUNT];
+    let mut saw_underflow = false;
+    let mut saw_overflow = false;
+
     for handle in reader.blobs().map(|res| res.map_err(|err| err.to_string())) {
         let handle = handle?;
         let meta = reader
@@ -1075,12 +1122,45 @@ fn snapshot_pile(pile: &mut Pile, path: &PathBuf) -> Result<PileSnapshot, String
             Some(meta) => (Some(meta.timestamp), Some(meta.length)),
             None => (None, None),
         };
-        blobs.push(BlobInfo {
-            hash: handle.raw,
-            timestamp_ms,
-            length,
-        });
+        if let Some(timestamp_ms) = timestamp_ms {
+            oldest_ts = Some(oldest_ts.map_or(timestamp_ms, |oldest| oldest.min(timestamp_ms)));
+            newest_ts = Some(newest_ts.map_or(timestamp_ms, |newest| newest.max(timestamp_ms)));
+        }
+        if let Some(length) = length {
+            valid_blobs += 1;
+            total_bytes = total_bytes.saturating_add(length);
+
+            let raw_exp = length.max(1).ilog2();
+            let exp = raw_exp.clamp(HISTOGRAM_MIN_BUCKET_EXP, HISTOGRAM_MAX_BUCKET_EXP);
+            saw_underflow |= raw_exp < HISTOGRAM_MIN_BUCKET_EXP;
+            saw_overflow |= raw_exp > HISTOGRAM_MAX_BUCKET_EXP;
+            let idx = (exp - HISTOGRAM_MIN_BUCKET_EXP) as usize;
+            if let Some(bucket) = buckets.get_mut(idx) {
+                bucket.0 += 1;
+                bucket.1 = bucket.1.saturating_add(length);
+            }
+        }
+
+        blob_entries.push((timestamp_ms, handle.raw));
     }
+
+    blob_entries.sort_by(|(ts_a, hash_a), (ts_b, hash_b)| {
+        ts_b.cmp(ts_a).then_with(|| hash_a.cmp(hash_b))
+    });
+    let blob_order = blob_entries
+        .into_iter()
+        .map(|(_, hash)| hash)
+        .collect();
+
+    let blob_stats = BlobStats {
+        oldest_ts,
+        newest_ts,
+        valid_blobs,
+        total_bytes,
+        buckets,
+        saw_underflow,
+        saw_overflow,
+    };
 
     let mut branches = Vec::new();
     let branch_iter = pile.branches().map_err(|err| err.to_string())?;
@@ -1110,15 +1190,15 @@ fn snapshot_pile(pile: &mut Pile, path: &PathBuf) -> Result<PileSnapshot, String
         branches.push(BranchInfo { id, name, head });
     }
 
-    blobs.sort_by(|a, b| b.timestamp_ms.cmp(&a.timestamp_ms));
-
     let commit_heads: Vec<RawValue> = branches.iter().filter_map(|branch| branch.head).collect();
     let commit_graph = build_commit_graph(&reader, &commit_heads);
 
     Ok(PileSnapshot {
         path: path.clone(),
         file_len,
-        blobs,
+        reader,
+        blob_order,
+        blob_stats,
         branches,
         commit_graph,
     })
@@ -1793,32 +1873,8 @@ fn main() {
             return;
         };
 
-        const MIN_BUCKET_EXP: u32 = 6; // 64B (pile record alignment).
-        const MAX_BUCKET_EXP: u32 = 36; // 64 GiB and above go into the last bucket.
-
-        let mut buckets = std::collections::BTreeMap::<u32, (u64, u64)>::new(); // exp -> (count, bytes)
-        let mut valid_blobs = 0u64;
-        let mut total_bytes = 0u64;
-        let mut saw_underflow = false;
-        let mut saw_overflow = false;
-
-        for blob in &snapshot.blobs {
-            let Some(len) = blob.length else {
-                continue;
-            };
-            valid_blobs += 1;
-            total_bytes = total_bytes.saturating_add(len);
-
-            let raw_exp = len.max(1).ilog2();
-            let exp = raw_exp.clamp(MIN_BUCKET_EXP, MAX_BUCKET_EXP);
-            saw_underflow |= raw_exp < MIN_BUCKET_EXP;
-            saw_overflow |= raw_exp > MAX_BUCKET_EXP;
-            let entry = buckets.entry(exp).or_insert((0, 0));
-            entry.0 += 1;
-            entry.1 = entry.1.saturating_add(len);
-        }
-
-        if buckets.is_empty() {
+        let stats = &snapshot.blob_stats;
+        if stats.valid_blobs == 0 {
             md!(ui, "_No valid blob sizes found._");
             return;
         }
@@ -1876,8 +1932,9 @@ fn main() {
 
         let mut max_value = 0u64;
         let mut histogram_buckets: Vec<widgets::HistogramBucket<'static>> = Vec::new();
-        for exp in MIN_BUCKET_EXP..=MAX_BUCKET_EXP {
-            let (count, bytes) = buckets.get(&exp).copied().unwrap_or((0, 0));
+        for exp in HISTOGRAM_MIN_BUCKET_EXP..=HISTOGRAM_MAX_BUCKET_EXP {
+            let idx = (exp - HISTOGRAM_MIN_BUCKET_EXP) as usize;
+            let (count, bytes) = stats.buckets.get(idx).copied().unwrap_or((0, 0));
             let value = if histogram_bytes { bytes } else { count };
             max_value = max_value.max(value);
 
@@ -1885,18 +1942,18 @@ fn main() {
                 value,
                 bucket_label(
                     exp,
-                    MIN_BUCKET_EXP,
-                    MAX_BUCKET_EXP,
-                    saw_underflow,
-                    saw_overflow,
+                    HISTOGRAM_MIN_BUCKET_EXP,
+                    HISTOGRAM_MAX_BUCKET_EXP,
+                    stats.saw_underflow,
+                    stats.saw_overflow,
                 ),
             );
 
             if value > 0 {
-                let range = if saw_overflow && exp == MAX_BUCKET_EXP {
+                let range = if stats.saw_overflow && exp == HISTOGRAM_MAX_BUCKET_EXP {
                     let start = bucket_start(exp);
                     format!("≥ {}", format_bytes(start))
-                } else if saw_underflow && exp == MIN_BUCKET_EXP {
+                } else if stats.saw_underflow && exp == HISTOGRAM_MIN_BUCKET_EXP {
                     let end = bucket_end(exp);
                     format!("≤ {}", format_bytes(end))
                 } else {
@@ -1929,8 +1986,8 @@ fn main() {
             md!(
                 ui,
                 "_{} blobs, {} total._",
-                valid_blobs,
-                format_bytes(total_bytes)
+                stats.valid_blobs,
+                format_bytes(stats.total_bytes)
             );
         });
     });
@@ -2009,12 +2066,10 @@ fn main() {
                             );
                         }
                         ComputedState::Ready(Ok(snapshot), _) => {
-                            let blob_count = snapshot.blobs.len();
+                            let blob_count = snapshot.blob_order.len();
                             let branch_count = snapshot.branches.len();
-                            let oldest_ts =
-                                snapshot.blobs.iter().filter_map(|b| b.timestamp_ms).min();
-                            let newest_ts =
-                                snapshot.blobs.iter().filter_map(|b| b.timestamp_ms).max();
+                            let oldest_ts = snapshot.blob_stats.oldest_ts;
+                            let newest_ts = snapshot.blob_stats.newest_ts;
 
                             let oldest = oldest_ts
                                 .map(|ts| format_age(now_ms, ts))
@@ -2152,14 +2207,14 @@ fn main() {
             return;
         };
 
-        if snapshot.blobs.is_empty() {
+        if snapshot.blob_order.is_empty() {
             md!(ui, "_No blobs found._");
             return;
         }
 
         let page_size = state.max_rows.max(1);
         let mut page = state.blob_page;
-        let total = snapshot.blobs.len();
+        let total = snapshot.blob_order.len();
         let total_pages = total.saturating_add(page_size - 1) / page_size;
         page = page.min(total_pages.saturating_sub(1));
         let mut page_next = page;
@@ -2217,11 +2272,12 @@ fn main() {
             );
             let card_rounding = egui::CornerRadius::same(4);
             let branch_color = egui::Color32::from_rgb(95, 210, 85);
-            let items: Vec<&BlobInfo> = snapshot
-                .blobs
+            let items: Vec<BlobInfo> = snapshot
+                .blob_order
                 .iter()
                 .skip(start)
                 .take(page_size)
+                .map(|&hash| blob_info(&snapshot.reader, hash))
                 .collect();
             let available_width = ui.available_width();
             let columns = ((available_width + card_spacing.x) / (min_card_width + card_spacing.x))

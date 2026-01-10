@@ -982,7 +982,11 @@ impl Widget for TextField<'_> {
         };
 
         let margin: Margin = ui.spacing().button_padding.into();
-        let align = Align2([ui.layout().horizontal_align(), ui.layout().vertical_align()]);
+        let align = if multiline {
+            Align2::LEFT_TOP
+        } else {
+            Align2([ui.layout().horizontal_align(), ui.layout().vertical_align()])
+        };
 
         let output = lcd_text_edit(
             ui,
