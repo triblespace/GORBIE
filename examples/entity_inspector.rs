@@ -625,9 +625,11 @@ struct GraphStats {
 #[derive(Clone, Debug)]
 struct RoutedEdge {
     points: Vec<egui::Pos2>,
+    component: usize,
     length: f32,
     turns: usize,
     span_cols: usize,
+    start_underline: Option<(egui::Pos2, egui::Pos2)>,
     go_left: bool,
     used_fallback_track: bool,
 }
@@ -716,14 +718,65 @@ fn nearest_corner(target: Rect, from: egui::Pos2) -> egui::Pos2 {
     best
 }
 
-fn row_anchor(layout: &GraphLayout, tile: Rect, row: usize, on_left: bool) -> egui::Pos2 {
-    let y = tile.top()
+fn row_line_y(layout: &GraphLayout, tile: Rect, row: usize) -> f32 {
+    let row_top = tile.top()
         + layout.tile_padding
         + layout.header_height
-        + row as f32 * layout.text_row_height
-        + layout.text_row_height * 0.5;
-    let x = if on_left { tile.left() } else { tile.right() };
+        + row as f32 * layout.text_row_height;
+    let y = row_top + layout.text_row_height - 2.0 - 1.0;
+    y.max(row_top + 2.0)
+}
+
+fn row_anchor(layout: &GraphLayout, tile: Rect, row: usize, on_left: bool) -> egui::Pos2 {
+    let y = row_line_y(layout, tile, row);
+    let edge_inset = 0.0;
+    let x = if on_left {
+        tile.left() + edge_inset
+    } else {
+        tile.right() - edge_inset
+    };
     pos2(x, y)
+}
+
+fn row_underline_segment(
+    layout: &GraphLayout,
+    tile: Rect,
+    row: usize,
+    go_left: bool,
+) -> Option<(egui::Pos2, egui::Pos2)> {
+    let inner = tile.shrink(layout.tile_padding);
+    if !inner.is_positive() {
+        return None;
+    }
+
+    let y = row_line_y(layout, tile, row);
+    let key_w = (inner.width() * 0.42).clamp(56.0, 120.0);
+    let divider_x = (inner.left() + key_w).min(inner.right());
+    let inset = 4.0;
+    let min_len = 6.0;
+
+    let edge_inset = 0.0;
+    let (start_x, end_x) = if go_left {
+        let start_x = tile.left() + edge_inset;
+        let mut end_x = divider_x - inset;
+        if end_x < start_x + min_len {
+            end_x = (start_x + min_len).min(inner.right());
+        }
+        (start_x, end_x)
+    } else {
+        let end_x = tile.right() - edge_inset;
+        let mut start_x = divider_x + inset;
+        if start_x > end_x - min_len {
+            start_x = (end_x - min_len).max(inner.left());
+        }
+        (start_x, end_x)
+    };
+
+    if end_x - start_x <= 0.5 {
+        return None;
+    }
+
+    Some((pos2(start_x, y), pos2(end_x, y)))
 }
 
 fn allocate_gutter_lane_offset(
@@ -750,7 +803,7 @@ fn allocate_gutter_lane_offset(
 }
 
 fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
-    let lane_spacing = 4.0;
+    let lane_spacing = 6.0;
     let max_lane_offset = (layout.column_gap * 0.5 - 4.0).max(0.0);
     let mut gutter_lanes = HashMap::<i32, i32>::new();
 
@@ -890,9 +943,11 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
 
         routed.push(RoutedEdge {
             points,
+            component,
             length,
             turns,
             span_cols: max_col.saturating_sub(min_col),
+            start_underline: row_underline_segment(layout, source_rect, edge.from_row, go_left),
             go_left,
             used_fallback_track,
         });
@@ -901,18 +956,87 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
     routed
 }
 
-fn paint_arrow_head(painter: &egui::Painter, tip: egui::Pos2, dir: egui::Vec2, stroke: Stroke) {
-    let len = dir.length();
-    if len <= 0.0 {
+fn paint_subway_edge(painter: &egui::Painter, points: &[egui::Pos2], line: Stroke) {
+    if points.len() < 2 {
         return;
     }
-    let dir = dir / len;
-    let size = 6.0;
-    let back = tip - dir * size;
-    let perp = vec2(-dir.y, dir.x);
-    let a = back + perp * (size * 0.5);
-    let b = back - perp * (size * 0.5);
-    painter.add(egui::Shape::closed_line(vec![tip, a, b], stroke));
+    painter.add(egui::Shape::line(points.to_vec(), line));
+}
+
+fn round_polyline(
+    points: &[egui::Pos2],
+    radius: f32,
+    segments: usize,
+) -> Vec<egui::Pos2> {
+    if points.len() < 3 || radius <= 0.0 || segments == 0 {
+        return points.to_vec();
+    }
+
+    let mut out = Vec::with_capacity(points.len() + segments * 2);
+    out.push(points[0]);
+
+    for i in 1..points.len() - 1 {
+        let prev = points[i - 1];
+        let curr = points[i];
+        let next = points[i + 1];
+
+        let v_in = curr - prev;
+        let v_out = next - curr;
+        let len_in = v_in.length();
+        let len_out = v_out.length();
+        if len_in <= 0.01 || len_out <= 0.01 {
+            out.push(curr);
+            continue;
+        }
+
+        let dir_in = v_in / len_in;
+        let dir_out = v_out / len_out;
+        if dir_in.dot(dir_out).abs() > 0.999 {
+            out.push(curr);
+            continue;
+        }
+
+        let corner_radius = radius.min(len_in * 0.5).min(len_out * 0.5);
+        if corner_radius <= 0.01 {
+            out.push(curr);
+            continue;
+        }
+
+        let p1 = curr - dir_in * corner_radius;
+        let p2 = curr + dir_out * corner_radius;
+        if i == 1 {
+            if out
+                .last()
+                .is_none_or(|last| last.distance_sq(p1) > 0.01)
+            {
+                out.push(p1);
+            }
+        } else if let Some(last) = out.last_mut() {
+            *last = p1;
+        } else {
+            out.push(p1);
+        }
+
+        let center = curr + (dir_out - dir_in) * corner_radius;
+        let a1 = (p1 - center).angle();
+        let mut a2 = (p2 - center).angle();
+        let cross = dir_in.x * dir_out.y - dir_in.y * dir_out.x;
+        if cross > 0.0 {
+            if a2 <= a1 {
+                a2 += std::f32::consts::TAU;
+            }
+        } else if a2 >= a1 {
+            a2 -= std::f32::consts::TAU;
+        }
+        let step = (a2 - a1) / segments as f32;
+        for s in 1..=segments {
+            let angle = a1 + step * s as f32;
+            out.push(center + egui::Vec2::angled(angle) * corner_radius);
+        }
+    }
+
+    out.push(*points.last().unwrap());
+    out
 }
 
 fn paint_entity_table(
@@ -1043,8 +1167,17 @@ fn draw_entity_inspector(
     let origin_vec = origin.to_vec2();
 
     let painter = ui.painter().with_clip_rect(outer_rect);
-    let ink = ui.visuals().widgets.noninteractive.fg_stroke.color;
-    let edge_stroke = Stroke::new(1.0, ink);
+    let line_width: f32 = 2.5;
+    let line_palette = [
+        egui::Color32::from_rgb(95, 210, 85),
+        egui::Color32::from_rgb(80, 160, 245),
+        egui::Color32::from_rgb(245, 165, 65),
+        egui::Color32::from_rgb(80, 200, 200),
+        egui::Color32::from_rgb(235, 90, 90),
+    ];
+    let end_dot_radius = line_width * 2.5;
+    let mut end_dots = Vec::new();
+    let mut start_underlines = Vec::new();
 
     let routed_edges = route_edges(&layout, graph);
     for routed in &routed_edges {
@@ -1054,12 +1187,16 @@ fn draw_entity_inspector(
             .copied()
             .map(|p| p + origin_vec)
             .collect::<Vec<_>>();
-        painter.add(egui::Shape::line(points.clone(), edge_stroke));
-
-        if points.len() >= 2 {
-            let tip = *points.last().unwrap();
-            let prev = points[points.len() - 2];
-            paint_arrow_head(&painter, tip, tip - prev, edge_stroke);
+        let rounded =
+            round_polyline(&points, (layout.text_row_height * 0.25).clamp(3.0, 8.0), 4);
+        let line_color = line_palette[routed.component % line_palette.len()];
+        let line_stroke = Stroke::new(line_width, line_color);
+        paint_subway_edge(&painter, &rounded, line_stroke);
+        if let Some((a, b)) = routed.start_underline {
+            start_underlines.push((a + origin_vec, b + origin_vec, line_color));
+        }
+        if let Some(end) = rounded.last().copied() {
+            end_dots.push((end, line_color));
         }
     }
 
@@ -1071,6 +1208,18 @@ fn draw_entity_inspector(
         let rect = local.translate(origin_vec);
         let is_selected = selected_index == Some(idx);
         let _ = paint_entity_table(ui, rect, node, is_selected, selected_id, &layout);
+    }
+
+    if !start_underlines.is_empty() || !end_dots.is_empty() {
+        let dot_painter = ui.painter().with_clip_rect(outer_rect);
+        for (a, b, color) in start_underlines {
+            dot_painter.line_segment([a, b], Stroke::new(line_width, color));
+        }
+        if end_dot_radius > 0.0 {
+            for (center, color) in end_dots {
+                dot_painter.circle_filled(center, end_dot_radius, color);
+            }
+        }
     }
 
     let edges = routed_edges.len();
