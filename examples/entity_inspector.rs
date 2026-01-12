@@ -745,6 +745,24 @@ fn closest_corner(target: Rect, from: egui::Pos2) -> egui::Pos2 {
     best
 }
 
+fn closest_corner_on_side(target: Rect, from: egui::Pos2, left: bool) -> egui::Pos2 {
+    let top = if left {
+        target.left_top()
+    } else {
+        target.right_top()
+    };
+    let bottom = if left {
+        target.left_bottom()
+    } else {
+        target.right_bottom()
+    };
+    if from.distance_sq(top) <= from.distance_sq(bottom) {
+        top
+    } else {
+        bottom
+    }
+}
+
 fn choose_track_y_between_columns(
     component: &ComponentLayout,
     start_y: f32,
@@ -934,15 +952,26 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
             (to_col, from_col)
         };
 
-        let target_id = graph.nodes[edge.to_entity].id;
-        let go_left = if from_col == to_col {
-            let raw: [u8; 16] = *target_id.as_ref();
-            raw[0] & 1 == 0
+        let last_col = layout.column_count.saturating_sub(1);
+        let same_col = from_col == to_col;
+        let go_left = if same_col {
+            if from_col == 0 {
+                true
+            } else if from_col == last_col {
+                false
+            } else {
+                let raw: [u8; 16] = *edge.attr_id.as_ref();
+                raw[0] & 1 == 0
+            }
         } else {
             to_col < from_col
         };
         let start = row_anchor(layout, source_rect, edge.from_row, go_left);
-        let end = closest_corner(target_rect, start);
+        let end = if same_col {
+            closest_corner_on_side(target_rect, start, go_left)
+        } else {
+            closest_corner(target_rect, start)
+        };
 
         let start_boundary = if go_left {
             from_col as i32 - 1
@@ -1367,18 +1396,45 @@ fn draw_entity_inspector(
         });
 
     let mut end_dots = Vec::new();
+    let mut end_dots_hover = Vec::new();
     let mut start_underlines = Vec::new();
-    for (idx, render) in edge_renders.iter().enumerate() {
-        if hovered_edge.is_some() && hovered_edge != Some(idx) {
-            continue;
+    let mut start_underlines_hover = Vec::new();
+    let fade_bg = ui.visuals().window_fill;
+    if let Some(hovered) = hovered_edge {
+        for (idx, render) in edge_renders.iter().enumerate() {
+            if idx == hovered {
+                continue;
+            }
+            let line_color = GORBIE::themes::blend(render.line_color, fade_bg, 0.5);
+            let line_stroke = Stroke::new(line_width, line_color);
+            paint_subway_edge(&painter, &render.points, line_stroke);
+            if let Some((a, b)) = render.start_underline {
+                start_underlines.push((a, b, line_color));
+            }
+            if let Some(end) = render.points.last().copied() {
+                end_dots.push((end, line_color));
+            }
         }
-        let line_stroke = Stroke::new(line_width, render.line_color);
-        paint_subway_edge(&painter, &render.points, line_stroke);
-        if let Some((a, b)) = render.start_underline {
-            start_underlines.push((a, b, render.line_color));
+        if let Some(render) = edge_renders.get(hovered) {
+            let line_stroke = Stroke::new(line_width, render.line_color);
+            paint_subway_edge(&painter, &render.points, line_stroke);
+            if let Some((a, b)) = render.start_underline {
+                start_underlines_hover.push((a, b, render.line_color));
+            }
+            if let Some(end) = render.points.last().copied() {
+                end_dots_hover.push((end, render.line_color));
+            }
         }
-        if let Some(end) = render.points.last().copied() {
-            end_dots.push((end, render.line_color));
+    } else {
+        for render in &edge_renders {
+            let line_stroke = Stroke::new(line_width, render.line_color);
+            paint_subway_edge(&painter, &render.points, line_stroke);
+            if let Some((a, b)) = render.start_underline {
+                start_underlines.push((a, b, render.line_color));
+            }
+            if let Some(end) = render.points.last().copied() {
+                end_dots.push((end, render.line_color));
+            }
         }
     }
 
@@ -1392,13 +1448,23 @@ fn draw_entity_inspector(
         let _ = paint_entity_table(ui, rect, node, is_selected, selected_id, &layout);
     }
 
-    if !start_underlines.is_empty() || !end_dots.is_empty() {
+    if !start_underlines.is_empty()
+        || !end_dots.is_empty()
+        || !start_underlines_hover.is_empty()
+        || !end_dots_hover.is_empty()
+    {
         let dot_painter = ui.painter().with_clip_rect(outer_rect);
         for (a, b, color) in start_underlines {
             dot_painter.line_segment([a, b], Stroke::new(line_width, color));
         }
+        for (a, b, color) in start_underlines_hover {
+            dot_painter.line_segment([a, b], Stroke::new(line_width, color));
+        }
         if end_dot_radius > 0.0 {
             for (center, color) in end_dots {
+                dot_painter.circle_filled(center, end_dot_radius, color);
+            }
+            for (center, color) in end_dots_hover {
                 dot_painter.circle_filled(center, end_dot_radius, color);
             }
         }
