@@ -13,21 +13,24 @@ use eframe::egui;
 use egui::{pos2, vec2, Align2, Rect, Response, Sense, Stroke, TextStyle, Ui};
 use triblespace::core::blob::schemas::wasmcode::WasmCode;
 use triblespace::core::blob::BlobCache;
+use triblespace::core::examples::literature;
+use triblespace::core::id::ExclusiveId;
 use triblespace::core::id::Id;
 use triblespace::core::metadata::ConstMetadata;
 use triblespace::core::query::ContainsConstraint;
 use triblespace::core::query::TriblePattern;
 use triblespace::core::repo::memoryrepo::MemoryRepo;
 use triblespace::core::repo::BlobStore;
-use triblespace::core::trible::Trible;
+use triblespace::core::repo::BlobStorePut;
 use triblespace::core::value::schemas::hash::Blake3;
 use triblespace::core::value::schemas::hash::Handle;
 use triblespace::core::value::schemas::UnknownValue;
 use triblespace::core::value::Value;
 use triblespace::core::value_formatter::WasmFormatterLimits;
 use triblespace::core::value_formatter::WasmValueFormatter;
-use triblespace::prelude::valueschemas::{GenId, ShortString};
-use triblespace::prelude::{and, find, pattern, TribleSet};
+use triblespace::prelude::blobschemas::LongString;
+use triblespace::prelude::valueschemas::{GenId, R256, ShortString};
+use triblespace::prelude::{and, entity, find, pattern, TribleSet};
 
 use GORBIE::prelude::*;
 
@@ -38,9 +41,6 @@ mod demo {
     attributes! {
         "B603E10B4BBF45B7A1BA0B7D9FA2D001" as pub name: valueschemas::ShortString;
         "B603E10B4BBF45B7A1BA0B7D9FA2D002" as pub isa: valueschemas::GenId;
-        "B603E10B4BBF45B7A1BA0B7D9FA2D003" as pub subject: valueschemas::GenId;
-        "B603E10B4BBF45B7A1BA0B7D9FA2D004" as pub object: valueschemas::GenId;
-        "B603E10B4BBF45B7A1BA0B7D9FA2D005" as pub label: valueschemas::ShortString;
     }
 }
 
@@ -114,133 +114,150 @@ struct EntityGraph {
 }
 
 fn build_demo_space() -> (TribleSet, MemoryRepo, Id) {
-    use triblespace::macros::id_hex;
-
-    let e_sentence = id_hex!("11111111111111111111111111111111");
-    let e_transition = id_hex!("22222222222222222222222222222222");
-    let e_scene = id_hex!("33333333333333333333333333333333");
-    let e_patient = id_hex!("44444444444444444444444444444444");
-    let e_agent = id_hex!("55555555555555555555555555555555");
-    let e_command = id_hex!("66666666666666666666666666666666");
-    let e_subject = id_hex!("77777777777777777777777777777777");
-    let e_island_left = id_hex!("88888888888888888888888888888888");
-    let e_island_right = id_hex!("99999999999999999999999999999999");
-
     let mut kb = TribleSet::new();
     let mut storage = MemoryRepo::default();
 
     let name = demo::name.id();
-    let label = demo::label.id();
     let isa = demo::isa.id();
-    let subject = demo::subject.id();
-    let object = demo::object.id();
+    let lit_title = literature::title.id();
+    let lit_author = literature::author.id();
+    let lit_firstname = literature::firstname.id();
+    let lit_lastname = literature::lastname.id();
+    let lit_quote = literature::quote.id();
+    let lit_page_count = literature::page_count.id();
 
     let schema_genid = GenId::id();
     let schema_shortstring = ShortString::id();
-    let meta_shortname = triblespace::core::metadata::shortname.id();
-    let meta_value_schema = triblespace::core::metadata::value_schema.id();
-
+    let schema_handle = Handle::<Blake3, LongString>::id();
+    let schema_r256 = R256::id();
     for (attr, shortname, schema) in [
         (name, "name", schema_shortstring),
         (isa, "isa", schema_genid),
-        (subject, "subject", schema_genid),
-        (object, "object", schema_genid),
-        (label, "label", schema_shortstring),
+        (lit_title, "title", schema_shortstring),
+        (lit_author, "author", schema_genid),
+        (lit_firstname, "firstname", schema_shortstring),
+        (lit_lastname, "lastname", schema_shortstring),
+        (lit_quote, "quote", schema_handle),
+        (lit_page_count, "page_count", schema_r256),
     ] {
-        kb.insert(&Trible::force(
-            &attr,
-            &meta_shortname,
-            &triblespace::core::metadata::shortname.value_from(shortname),
-        ));
-        kb.insert(&Trible::force(
-            &attr,
-            &meta_value_schema,
-            &triblespace::core::metadata::value_schema.value_from(schema),
-        ));
+        kb += entity! { ExclusiveId::force_ref(&attr) @
+            triblespace::core::metadata::shortname: shortname,
+            triblespace::core::metadata::value_schema: schema,
+        };
     }
-
-    for (entity, entity_name) in [
-        (e_sentence, "Sentence"),
-        (e_transition, "StateTransition"),
-        (e_scene, "Scene"),
-        (e_patient, "Patient"),
-        (e_agent, "Agent"),
-        (e_command, "Command"),
-        (e_subject, "Subject"),
-        (e_island_left, "IslandLeft"),
-        (e_island_right, "IslandRight"),
-    ] {
-        kb.insert(&Trible::force(
-            &entity,
-            &name,
-            &demo::name.value_from(entity_name),
-        ));
-    }
-
-    kb.insert(&Trible::force(
-        &e_sentence,
-        &isa,
-        &demo::isa.value_from(e_transition),
-    ));
-    kb.insert(&Trible::force(
-        &e_sentence,
-        &label,
-        &demo::label.value_from("soma/isExpressedBy"),
-    ));
-
-    kb.insert(&Trible::force(
-        &e_transition,
-        &isa,
-        &demo::isa.value_from(e_scene),
-    ));
-    kb.insert(&Trible::force(
-        &e_transition,
-        &subject,
-        &demo::subject.value_from(e_patient),
-    ));
-    kb.insert(&Trible::force(
-        &e_transition,
-        &object,
-        &demo::object.value_from(e_agent),
-    ));
-
-    kb.insert(&Trible::force(
-        &e_scene,
-        &isa,
-        &demo::isa.value_from(e_command),
-    ));
-    kb.insert(&Trible::force(
-        &e_scene,
-        &label,
-        &demo::label.value_from("cg/sceneState"),
-    ));
-
-    kb.insert(&Trible::force(
-        &e_command,
-        &subject,
-        &demo::subject.value_from(e_subject),
-    ));
-    kb.insert(&Trible::force(
-        &e_command,
-        &label,
-        &demo::label.value_from("cg/isa"),
-    ));
-
-    kb.insert(&Trible::force(
-        &e_island_left,
-        &isa,
-        &demo::isa.value_from(e_island_right),
-    ));
-    kb.insert(&Trible::force(
-        &e_island_left,
-        &label,
-        &demo::label.value_from("unrelated"),
-    ));
 
     kb += GenId::describe(&mut storage).expect("genid metadata");
+    kb += Handle::<Blake3, LongString>::describe(&mut storage).expect("handle metadata");
+    kb += R256::describe(&mut storage).expect("r256 metadata");
     kb += ShortString::describe(&mut storage).expect("shortstring metadata");
 
-    (kb, storage, e_sentence)
+    fn demo_id(seed: u16) -> Id {
+        let mut raw = [0u8; 16];
+        raw[14..16].copy_from_slice(&seed.to_be_bytes());
+        Id::new(raw).expect("demo ids are non-zero")
+    }
+
+    let e_author_kind = demo_id(0xC001);
+    let e_book_kind = demo_id(0xC002);
+    kb += entity! { ExclusiveId::force_ref(&e_author_kind) @ demo::name: "Author" };
+    kb += entity! { ExclusiveId::force_ref(&e_book_kind) @ demo::name: "Book" };
+
+    let authors = [
+        ("Frank", "Herbert"),
+        ("Isaac", "Asimov"),
+        ("Mary", "Shelley"),
+        ("Jane", "Austen"),
+        ("Herman", "Melville"),
+        ("Homer", ""),
+        ("William", "Shakespeare"),
+        ("Jules", "Verne"),
+        ("George", "Orwell"),
+        ("Virginia", "Woolf"),
+        ("Fyodor", "Dostoevsky"),
+        ("Leo", "Tolstoy"),
+        ("Miguel", "Cervantes"),
+        ("Franz", "Kafka"),
+        ("Mark", "Twain"),
+        ("Oscar", "Wilde"),
+    ];
+
+    let mut author_ids = Vec::with_capacity(authors.len());
+    for (idx, (first, last)) in authors.iter().enumerate() {
+        let id = demo_id(0xA000 + idx as u16);
+        author_ids.push(id);
+        let full_name = if last.is_empty() {
+            (*first).to_string()
+        } else {
+            format!("{first} {last}")
+        };
+        let mut author = entity! { ExclusiveId::force_ref(&id) @
+            demo::name: full_name,
+            demo::isa: e_author_kind,
+            literature::firstname: *first,
+        };
+        if !last.is_empty() {
+            author += entity! { ExclusiveId::force_ref(&id) @
+                literature::lastname: *last,
+            };
+        }
+        kb += author;
+    }
+
+    let books = [
+        ("Dune", 0, "Deep in the human unconscious is a need for a logical universe.", 412),
+        ("Dune Messiah", 0, "He shall know your ways as if born to them.", 256),
+        ("Foundation", 1, "Violence is the last refuge of the incompetent.", 255),
+        ("I, Robot", 1, "A robot may not injure a human being.", 224),
+        ("Frankenstein", 2, "Beware; for I am fearless, and therefore powerful.", 280),
+        ("The Last Man", 2, "My imagination was the only reality.", 360),
+        ("Pride and Prejudice", 3, "It is a truth universally acknowledged.", 279),
+        ("Sense and Sensibility", 3, "What do you know of my heart?", 240),
+        ("Moby Dick", 4, "Call me Ishmael.", 635),
+        ("Billy Budd", 4, "The sea had jeered at it all.", 192),
+        ("Odyssey", 5, "Tell me, O Muse, of the man of many ways.", 500),
+        ("Iliad", 5, "Sing, goddess, the anger of Achilles.", 480),
+        ("Hamlet", 6, "To be, or not to be, that is the question.", 200),
+        ("The Tempest", 6, "We are such stuff as dreams are made on.", 200),
+        ("Twenty Thousand Leagues", 7, "The sea is everything.", 300),
+        ("Journey to the Center", 7, "Science, my boy, is made up of mistakes.", 300),
+        ("1984", 8, "Big Brother is watching you.", 328),
+        ("Animal Farm", 8, "All animals are equal, but some are more equal.", 112),
+        ("Mrs Dalloway", 9, "Mrs. Dalloway said she would buy the flowers herself.", 296),
+        ("To the Lighthouse", 9, "Nothing was simply one thing.", 209),
+        ("Crime and Punishment", 10, "The darker the night, the brighter the stars.", 671),
+        ("The Idiot", 10, "Beauty will save the world.", 656),
+        ("War and Peace", 11, "Well, Prince, so Genoa and Lucca are now just family estates.", 1225),
+        ("Anna Karenina", 11, "All happy families are alike.", 864),
+        ("Don Quixote", 12, "The truth may be stretched, but cannot be broken.", 863),
+        ("Metamorphosis", 13, "When Gregor Samsa awoke, he found himself changed.", 201),
+        ("The Trial", 13, "Someone must have slandered Josef K.", 255),
+        ("Tom Sawyer", 14, "Tom appeared on the sidewalk with a bucket of whitewash.", 274),
+        ("Huckleberry Finn", 14, "You do not know about me without you have read a book.", 366),
+        ("Dorian Gray", 15, "The only way to get rid of a temptation is to yield to it.", 254),
+        ("Earnest", 15, "The truth is rarely pure and never simple.", 180),
+    ];
+
+    for (idx, (title, author_idx, quote, pages)) in books.iter().enumerate() {
+        let id = demo_id(0xB000 + idx as u16);
+        let author_id = author_ids
+            .get(*author_idx)
+            .copied()
+            .expect("author index");
+        let quote_handle = storage
+            .put::<LongString, _>(*quote)
+            .expect("quote handle");
+
+        kb += entity! { ExclusiveId::force_ref(&id) @
+            demo::name: *title,
+            demo::isa: e_book_kind,
+            literature::title: *title,
+            literature::author: author_id,
+            literature::quote: quote_handle,
+            literature::page_count: *pages as i128,
+        };
+    }
+
+    (kb, storage, demo_id(0xB000))
 }
 
 #[derive(Clone, Debug)]
@@ -638,6 +655,31 @@ struct RoutedEdge {
     used_fallback_track: bool,
 }
 
+#[derive(Clone, Debug)]
+struct EdgeRender {
+    points: Vec<egui::Pos2>,
+    line_color: egui::Color32,
+    start_underline: Option<(egui::Pos2, egui::Pos2)>,
+}
+
+#[derive(Clone, Debug)]
+struct EdgeDraft {
+    edge: EntityEdge,
+    source_rect: Rect,
+    go_left: bool,
+    start: egui::Pos2,
+    end: egui::Pos2,
+    min_col: usize,
+    max_col: usize,
+    start_boundary: i32,
+    end_boundary: i32,
+    start_gutter_center_x: f32,
+    end_gutter_center_x: f32,
+    component: usize,
+}
+
+type BundleKey = (Id, usize);
+
 fn attribute_palette_index(attr: Id, palette_len: usize) -> usize {
     if palette_len == 0 {
         return 0;
@@ -684,6 +726,25 @@ fn intersect_intervals(a: &[(f32, f32)], b: &[(f32, f32)]) -> Vec<(f32, f32)> {
     out
 }
 
+fn closest_corner(target: Rect, from: egui::Pos2) -> egui::Pos2 {
+    let corners = [
+        target.left_top(),
+        target.right_top(),
+        target.left_bottom(),
+        target.right_bottom(),
+    ];
+    let mut best = corners[0];
+    let mut best_d2 = from.distance_sq(best);
+    for &corner in &corners[1..] {
+        let d2 = from.distance_sq(corner);
+        if d2 < best_d2 {
+            best_d2 = d2;
+            best = corner;
+        }
+    }
+    best
+}
+
 fn choose_track_y_between_columns(
     component: &ComponentLayout,
     start_y: f32,
@@ -707,29 +768,27 @@ fn choose_track_y_between_columns(
     }
 
     if corridors.is_empty() {
-        (choose_track_y(first, start_y, end_y), true)
-    } else {
-        (choose_track_y(&corridors, start_y, end_y), false)
+        return (choose_track_y(first, start_y, end_y), true);
     }
-}
 
-fn nearest_corner(target: Rect, from: egui::Pos2) -> egui::Pos2 {
-    let corners = [
-        target.left_top(),
-        target.right_top(),
-        target.left_bottom(),
-        target.right_bottom(),
-    ];
-    let mut best = corners[0];
-    let mut best_d2 = from.distance_sq(best);
-    for &corner in &corners[1..] {
-        let d2 = from.distance_sq(corner);
-        if d2 < best_d2 {
-            best_d2 = d2;
-            best = corner;
+    let going_down = end_y >= start_y;
+    if going_down {
+        for (top, bottom) in &corridors {
+            if *bottom >= start_y {
+                let y = start_y.max(*top).min(*bottom);
+                return (y, false);
+            }
+        }
+    } else {
+        for (top, bottom) in corridors.iter().rev() {
+            if *top <= start_y {
+                let y = start_y.min(*bottom).max(*top);
+                return (y, false);
+            }
         }
     }
-    best
+
+    (choose_track_y(&corridors, start_y, end_y), true)
 }
 
 fn row_line_y(layout: &GraphLayout, tile: Rect, row: usize) -> f32 {
@@ -793,35 +852,49 @@ fn row_underline_segment(
     Some((pos2(start_x, y), pos2(end_x, y)))
 }
 
-fn allocate_gutter_lane_offset(
-    lane_counters: &mut HashMap<i32, i32>,
-    boundary: i32,
-    lane_spacing: f32,
-    max_offset: f32,
-) -> f32 {
-    let lane = lane_counters.entry(boundary).or_insert(0);
-    let lane = std::mem::replace(lane, *lane + 1);
+fn build_attribute_bundle_offsets(
+    layout: &GraphLayout,
+    drafts: &[EdgeDraft],
+) -> HashMap<(i32, BundleKey), f32> {
+    let max_offset = (layout.column_gap * 0.5 - 4.0).max(0.0);
+    let mut keys_by_boundary = HashMap::<i32, Vec<BundleKey>>::new();
 
-    let signed = if lane == 0 {
-        0
-    } else {
-        let n = (lane + 1) / 2;
-        if lane % 2 == 1 {
-            n
-        } else {
-            -n
+    for draft in drafts {
+        let key = (draft.edge.attr_id, draft.edge.to_entity);
+        let start_keys = keys_by_boundary.entry(draft.start_boundary).or_default();
+        if !start_keys.contains(&key) {
+            start_keys.push(key);
         }
-    };
+        let end_keys = keys_by_boundary.entry(draft.end_boundary).or_default();
+        if !end_keys.contains(&key) {
+            end_keys.push(key);
+        }
+    }
 
-    (signed as f32 * lane_spacing).clamp(-max_offset, max_offset)
+    let mut offsets = HashMap::new();
+    for (boundary, keys) in keys_by_boundary {
+        let count = keys.len();
+        if count == 0 {
+            continue;
+        }
+
+        if max_offset <= 0.01 || count == 1 {
+            offsets.insert((boundary, keys[0]), 0.0);
+            continue;
+        }
+
+        let step = (max_offset * 2.0) / (count - 1) as f32;
+        for (idx, key) in keys.iter().enumerate() {
+            let offset = -max_offset + step * idx as f32;
+            offsets.insert((boundary, *key), offset);
+        }
+    }
+
+    offsets
 }
 
 fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
-    let lane_spacing = 6.0;
-    let max_lane_offset = (layout.column_gap * 0.5 - 4.0).max(0.0);
-    let mut gutter_lanes = HashMap::<i32, i32>::new();
-
-    let mut routed = Vec::with_capacity(graph.edges.len());
+    let mut drafts = Vec::with_capacity(graph.edges.len());
 
     for edge in graph.edges.iter().cloned() {
         let component = layout
@@ -835,19 +908,12 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
         if layout.node_component.get(edge.to_entity).copied() != Some(component) {
             continue;
         }
-        let Some(component_layout) = layout.components.get(component) else {
-            continue;
-        };
 
         let source_rect = layout.tile_rects[edge.from_entity];
         let target_rect = layout.tile_rects[edge.to_entity];
         if !source_rect.is_positive() || !target_rect.is_positive() {
             continue;
         }
-
-        let go_left = target_rect.center().x < source_rect.center().x;
-        let start = row_anchor(layout, source_rect, edge.from_row, go_left);
-        let end = nearest_corner(target_rect, start);
 
         let from_col = layout
             .node_column
@@ -868,68 +934,103 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
             (to_col, from_col)
         };
 
+        let target_id = graph.nodes[edge.to_entity].id;
+        let go_left = if from_col == to_col {
+            let raw: [u8; 16] = *target_id.as_ref();
+            raw[0] & 1 == 0
+        } else {
+            to_col < from_col
+        };
+        let start = row_anchor(layout, source_rect, edge.from_row, go_left);
+        let end = closest_corner(target_rect, start);
+
         let start_boundary = if go_left {
             from_col as i32 - 1
         } else {
             from_col as i32
         };
-        let start_lane = allocate_gutter_lane_offset(
-            &mut gutter_lanes,
-            start_boundary,
-            lane_spacing,
-            max_lane_offset,
-        );
-
-        let start_gutter_x = if go_left {
+        let start_gutter_center_x = if go_left {
             source_rect.left() - layout.column_gap * 0.5
         } else {
             source_rect.right() + layout.column_gap * 0.5
-        } + start_lane;
+        };
 
         let end_on_left = (end.x - target_rect.left()).abs() < f32::EPSILON;
-        let end_on_right = (end.x - target_rect.right()).abs() < f32::EPSILON;
         let end_boundary = if end_on_left {
             to_col as i32 - 1
         } else {
             to_col as i32
         };
-        let end_lane = if end_boundary == start_boundary {
-            start_lane
+        let end_gutter_center_x = if end_on_left {
+            target_rect.left() - layout.column_gap * 0.5
         } else {
-            allocate_gutter_lane_offset(
-                &mut gutter_lanes,
-                end_boundary,
-                lane_spacing,
-                max_lane_offset,
-            )
+            target_rect.right() + layout.column_gap * 0.5
         };
 
-        let end_gutter_x = if end_on_left {
-            target_rect.left() - layout.column_gap * 0.5
-        } else if end_on_right {
-            target_rect.right() + layout.column_gap * 0.5
-        } else {
-            target_rect.left() - layout.column_gap * 0.5
-        } + end_lane;
+        drafts.push(EdgeDraft {
+            edge,
+            source_rect,
+            go_left,
+            start,
+            end,
+            min_col,
+            max_col,
+            start_boundary,
+            end_boundary,
+            start_gutter_center_x,
+            end_gutter_center_x,
+            component,
+        });
+    }
 
-        let (track_y, used_fallback_track) =
-            choose_track_y_between_columns(component_layout, start.y, end.y, min_col, max_col);
+    let bundle_offsets = build_attribute_bundle_offsets(layout, &drafts);
+    let mut routed = Vec::with_capacity(drafts.len());
 
-        let mut points = if (start_gutter_x - end_gutter_x).abs() <= 0.01 {
+    for draft in drafts {
+        let Some(component_layout) = layout.components.get(draft.component) else {
+            continue;
+        };
+        let bundle_key = (draft.edge.attr_id, draft.edge.to_entity);
+        let start_offset = bundle_offsets
+            .get(&(draft.start_boundary, bundle_key))
+            .copied()
+            .unwrap_or(0.0);
+        let end_offset = bundle_offsets
+            .get(&(draft.end_boundary, bundle_key))
+            .copied()
+            .unwrap_or(start_offset);
+        let start_center_x = draft.start_gutter_center_x;
+        let end_center_x = draft.end_gutter_center_x;
+        let start_bundle_x = start_center_x + start_offset;
+        let end_bundle_x = end_center_x + end_offset;
+
+        let (track_y, used_fallback_track) = choose_track_y_between_columns(
+            component_layout,
+            draft.start.y,
+            draft.end.y,
+            draft.min_col,
+            draft.max_col,
+        );
+
+        let same_gutter = (start_center_x - end_center_x).abs() <= 0.01;
+        let mut points = if same_gutter {
+            let gutter_x = start_bundle_x;
             vec![
-                start,
-                pos2(start_gutter_x, start.y),
-                pos2(start_gutter_x, end.y),
-                end,
+                draft.start,
+                pos2(gutter_x, draft.start.y),
+                pos2(gutter_x, draft.end.y),
+                draft.end,
             ]
         } else {
             vec![
-                start,
-                pos2(start_gutter_x, start.y),
-                pos2(start_gutter_x, track_y),
-                pos2(end_gutter_x, track_y),
-                pos2(end_gutter_x, end.y),
-                end,
+                draft.start,
+                pos2(start_center_x, draft.start.y),
+                pos2(start_center_x, track_y),
+                pos2(start_bundle_x, track_y),
+                pos2(end_bundle_x, track_y),
+                pos2(end_center_x, track_y),
+                pos2(end_center_x, draft.end.y),
+                draft.end,
             ]
         };
         points.dedup_by(|a, b| a.distance_sq(*b) < 0.01);
@@ -959,10 +1060,15 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
             points,
             length,
             turns,
-            span_cols: max_col.saturating_sub(min_col),
-            start_underline: row_underline_segment(layout, source_rect, edge.from_row, go_left),
-            attr_id: edge.attr_id,
-            go_left,
+            span_cols: draft.max_col.saturating_sub(draft.min_col),
+            start_underline: row_underline_segment(
+                layout,
+                draft.source_rect,
+                draft.edge.from_row,
+                draft.go_left,
+            ),
+            attr_id: draft.edge.attr_id,
+            go_left: draft.go_left,
             used_fallback_track,
         });
     }
@@ -975,6 +1081,30 @@ fn paint_subway_edge(painter: &egui::Painter, points: &[egui::Pos2], line: Strok
         return;
     }
     painter.add(egui::Shape::line(points.to_vec(), line));
+}
+
+fn distance_sq_to_segment(point: egui::Pos2, a: egui::Pos2, b: egui::Pos2) -> f32 {
+    let ab = b - a;
+    let denom = ab.length_sq();
+    if denom <= f32::EPSILON {
+        return point.distance_sq(a);
+    }
+    let t = ((point - a).dot(ab) / denom).clamp(0.0, 1.0);
+    point.distance_sq(a + ab * t)
+}
+
+fn distance_sq_to_polyline(point: egui::Pos2, points: &[egui::Pos2]) -> f32 {
+    if points.len() < 2 {
+        return f32::INFINITY;
+    }
+    let mut best = f32::INFINITY;
+    for seg in points.windows(2) {
+        let d2 = distance_sq_to_segment(point, seg[0], seg[1]);
+        if d2 < best {
+            best = d2;
+        }
+    }
+    best
 }
 
 fn round_polyline(
@@ -1193,28 +1323,62 @@ fn draw_entity_inspector(
         GORBIE::themes::ral(3014),
     ];
     let end_dot_radius = line_width * 2.5;
-    let mut end_dots = Vec::new();
-    let mut start_underlines = Vec::new();
+    let hover_threshold = end_dot_radius.max(line_width * 3.0);
 
     let routed_edges = route_edges(&layout, graph);
+    let mut edge_renders = Vec::with_capacity(routed_edges.len());
     for routed in &routed_edges {
-        let points = routed
+        let raw = routed
             .points
             .iter()
             .copied()
             .map(|p| p + origin_vec)
             .collect::<Vec<_>>();
-        let rounded =
-            round_polyline(&points, (layout.text_row_height * 0.25).clamp(3.0, 8.0), 4);
+        let points =
+            round_polyline(&raw, (layout.text_row_height * 0.25).clamp(3.0, 8.0), 4);
         let palette_index = attribute_palette_index(routed.attr_id, line_palette.len());
         let line_color = line_palette[palette_index];
-        let line_stroke = Stroke::new(line_width, line_color);
-        paint_subway_edge(&painter, &rounded, line_stroke);
-        if let Some((a, b)) = routed.start_underline {
-            start_underlines.push((a + origin_vec, b + origin_vec, line_color));
+        edge_renders.push(EdgeRender {
+            points,
+            line_color,
+            start_underline: routed
+                .start_underline
+                .map(|(a, b)| (a + origin_vec, b + origin_vec)),
+        });
+    }
+
+    let hovered_edge = ui
+        .input(|input| input.pointer.hover_pos())
+        .filter(|pos| outer_rect.contains(*pos))
+        .and_then(|pos| {
+            let mut best = hover_threshold * hover_threshold;
+            let mut hovered = None;
+            for (idx, render) in edge_renders.iter().enumerate() {
+                let mut dist = distance_sq_to_polyline(pos, &render.points);
+                if let Some((a, b)) = render.start_underline {
+                    dist = dist.min(distance_sq_to_segment(pos, a, b));
+                }
+                if dist <= best {
+                    best = dist;
+                    hovered = Some(idx);
+                }
+            }
+            hovered
+        });
+
+    let mut end_dots = Vec::new();
+    let mut start_underlines = Vec::new();
+    for (idx, render) in edge_renders.iter().enumerate() {
+        if hovered_edge.is_some() && hovered_edge != Some(idx) {
+            continue;
         }
-        if let Some(end) = rounded.last().copied() {
-            end_dots.push((end, line_color));
+        let line_stroke = Stroke::new(line_width, render.line_color);
+        paint_subway_edge(&painter, &render.points, line_stroke);
+        if let Some((a, b)) = render.start_underline {
+            start_underlines.push((a, b, render.line_color));
+        }
+        if let Some(end) = render.points.last().copied() {
+            end_dots.push((end, render.line_color));
         }
     }
 
