@@ -84,6 +84,7 @@ fn paint_hatching(painter: &egui::Painter, rect: Rect, color: egui::Color32) {
 
 #[derive(Clone, Debug)]
 struct EntityRow {
+    attr_id: Id,
     attr: String,
     value: String,
     target: Option<Id>,
@@ -102,6 +103,7 @@ struct EntityEdge {
     from_entity: usize,
     from_row: usize,
     to_entity: usize,
+    attr_id: Id,
 }
 
 #[derive(Clone, Debug)]
@@ -352,6 +354,7 @@ where
         };
 
         raw_rows[entity_index].push(EntityRow {
+            attr_id: attr,
             attr: attr_text,
             value: value_text,
             target,
@@ -400,6 +403,7 @@ where
                 from_entity,
                 from_row,
                 to_entity,
+                attr_id: row.attr_id,
             });
         }
     }
@@ -625,13 +629,23 @@ struct GraphStats {
 #[derive(Clone, Debug)]
 struct RoutedEdge {
     points: Vec<egui::Pos2>,
-    component: usize,
     length: f32,
     turns: usize,
     span_cols: usize,
     start_underline: Option<(egui::Pos2, egui::Pos2)>,
+    attr_id: Id,
     go_left: bool,
     used_fallback_track: bool,
+}
+
+fn attribute_palette_index(attr: Id, palette_len: usize) -> usize {
+    if palette_len == 0 {
+        return 0;
+    }
+    let raw: [u8; 16] = *attr.as_ref();
+    let val = u128::from_le_bytes(raw);
+    let hash = (val ^ (val >> 64)) as u64;
+    (hash as usize) % palette_len
 }
 
 fn choose_track_y(gap_tracks: &[(f32, f32)], start_y: f32, end_y: f32) -> f32 {
@@ -943,11 +957,11 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
 
         routed.push(RoutedEdge {
             points,
-            component,
             length,
             turns,
             span_cols: max_col.saturating_sub(min_col),
             start_underline: row_underline_segment(layout, source_rect, edge.from_row, go_left),
+            attr_id: edge.attr_id,
             go_left,
             used_fallback_track,
         });
@@ -1168,12 +1182,15 @@ fn draw_entity_inspector(
 
     let painter = ui.painter().with_clip_rect(outer_rect);
     let line_width: f32 = 2.5;
+    // Line palette (RAL classic).
     let line_palette = [
-        egui::Color32::from_rgb(95, 210, 85),
-        egui::Color32::from_rgb(80, 160, 245),
-        egui::Color32::from_rgb(245, 165, 65),
-        egui::Color32::from_rgb(80, 200, 200),
-        egui::Color32::from_rgb(235, 90, 90),
+        GORBIE::themes::ral(1003),
+        GORBIE::themes::ral(2010),
+        GORBIE::themes::ral(3001),
+        GORBIE::themes::ral(4008),
+        GORBIE::themes::ral(5005),
+        GORBIE::themes::ral(6032),
+        GORBIE::themes::ral(3014),
     ];
     let end_dot_radius = line_width * 2.5;
     let mut end_dots = Vec::new();
@@ -1189,7 +1206,8 @@ fn draw_entity_inspector(
             .collect::<Vec<_>>();
         let rounded =
             round_polyline(&points, (layout.text_row_height * 0.25).clamp(3.0, 8.0), 4);
-        let line_color = line_palette[routed.component % line_palette.len()];
+        let palette_index = attribute_palette_index(routed.attr_id, line_palette.len());
+        let line_color = line_palette[palette_index];
         let line_stroke = Stroke::new(line_width, line_color);
         paint_subway_edge(&painter, &rounded, line_stroke);
         if let Some((a, b)) = routed.start_underline {

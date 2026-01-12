@@ -523,6 +523,16 @@ fn main() {
                         ui.end_row();
                     });
             });
+
+            ui.add_space(12.0);
+            ui.label(egui::RichText::new("SUBWAY LINES").monospace().strong());
+            ui.add_space(6.0);
+            let subway_palette = [1003, 2010, 3001, 4008, 5005, 6032, 3014];
+            ui.horizontal_wrapped(|ui| {
+                for code in subway_palette {
+                    ral_cell(ui, code);
+                }
+            });
         });
     });
 
