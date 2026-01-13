@@ -669,7 +669,6 @@ struct RoutedEdge {
 #[derive(Clone, Debug)]
 struct EdgeRender {
     points: Vec<egui::Pos2>,
-    raw_points: Vec<egui::Pos2>,
     line_color: egui::Color32,
     start_underline: Option<(egui::Pos2, egui::Pos2)>,
 }
@@ -1098,7 +1097,10 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
         let last_col = layout.column_count.saturating_sub(1);
         let same_col = from_col == to_col;
         let go_left = if same_col {
-            if from_col == 0 {
+            if last_col == 0 {
+                let raw: [u8; 16] = *edge.attr_id.as_ref();
+                raw[0] & 1 == 0
+            } else if from_col == 0 {
                 true
             } else if from_col == last_col {
                 false
@@ -1572,7 +1574,6 @@ fn draw_entity_inspector(
         let line_color = line_palette[palette_index];
         edge_renders.push(EdgeRender {
             points,
-            raw_points: raw,
             line_color,
             start_underline: routed
                 .start_underline
@@ -1580,7 +1581,6 @@ fn draw_entity_inspector(
         });
     }
 
-    let show_debug_points = ui.input(|input| input.modifiers.shift);
     let hovered_edge = ui
         .input(|input| input.pointer.hover_pos())
         .filter(|pos| outer_rect.contains(*pos))
@@ -1628,21 +1628,6 @@ fn draw_entity_inspector(
             }
             if let Some(end) = render.points.last().copied() {
                 end_dots_hover.push((end, render.line_color));
-            }
-            if show_debug_points {
-                let debug_color = egui::Color32::YELLOW;
-                let debug_radius = (line_width * 0.6).max(1.5);
-                let debug_font = TextStyle::Small.resolve(ui.style());
-                for (idx, point) in render.raw_points.iter().enumerate() {
-                    painter.circle_filled(*point, debug_radius, debug_color);
-                    painter.text(
-                        *point + vec2(3.0, -2.0),
-                        egui::Align2::LEFT_BOTTOM,
-                        idx.to_string(),
-                        debug_font.clone(),
-                        debug_color,
-                    );
-                }
             }
         }
     } else {
