@@ -50,19 +50,8 @@ impl<T> ComputedState<T> {
     where
         T: Send + 'static,
     {
-        self.spawn_if(|_| true, action)
-    }
-
-    pub fn spawn_if(
-        &mut self,
-        should_spawn: impl FnOnce(&T) -> bool,
-        action: impl FnOnce() -> T + Send + 'static,
-    ) -> &mut T
-    where
-        T: Send + 'static,
-    {
         self.poll();
-        if !self.is_running() && should_spawn(&self.value) {
+        if !self.is_running() {
             self.in_flight = Some(std::thread::spawn(action));
         }
         &mut self.value

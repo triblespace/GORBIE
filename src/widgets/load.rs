@@ -29,7 +29,11 @@ pub fn load_auto<'a, T: Send + 'static>(
     should_spawn: impl FnOnce(&T) -> bool,
     action: impl FnOnce() -> T + Send + 'static,
 ) -> &'a mut T {
-    value.spawn_if(should_spawn, action);
+    value.poll();
+    if should_spawn(value.value()) {
+        value.spawn(action);
+        ui.ctx().request_repaint();
+    }
     if value.is_running() {
         ui.add(egui::widgets::Spinner::new());
         ui.ctx().request_repaint();
