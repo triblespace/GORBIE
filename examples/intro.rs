@@ -5,8 +5,6 @@
 //! egui = "0.32"
 //! ```
 
-use std::ops::DerefMut;
-
 use GORBIE::prelude::*;
 
 #[notebook]
@@ -65,30 +63,19 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         });
     });
 
-    state!(slider = (0.5).into(), move |ui, value: &mut NotifiedState<_>| {
+    state!(slider = 0.5, move |ui, value: &mut f32| {
         ui.with_padding(padding, |ui| {
-            if ui
-                .add(widgets::Slider::new(value.deref_mut(), 0.0..=1.0).text("input"))
-                .changed()
-            {
-                value.notify();
-            }
+            ui.add(widgets::Slider::new(value, 0.0..=1.0).text("input"));
         });
     });
 
-    react!(progress = [slider], move |ctx| {
-        //Derives are executed on a new thread, so we can sleep or perform heavy computations here.
-        // Sleep a bit so we can clearly see the "computing" hatch pattern.
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        let slider = ctx.ready(slider).unwrap_or_default();
-        slider * 0.5
-    });
-
-    view!(move |ui| {
+    state!(_progress = ComputedState::<f32>::default(), move |ui, value| {
         ui.with_padding(padding, |ui| {
-            let Some(progress) = ui.try_ready(progress) else {
-                return;
-            };
+            let slider = ui.read(slider).map(|value| *value).unwrap_or_default();
+            let progress = *widgets::load_button(ui, value, "Compute", move || {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                slider * 0.5
+            });
             md!(ui, "Progress: {:.2}%", progress * 100.0);
             ui.add(
                 widgets::ProgressBar::new(progress)

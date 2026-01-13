@@ -3,7 +3,6 @@ use proc_macro2::Span;
 use proc_macro_crate::{crate_name, FoundCrate};
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
-use syn::punctuated::Punctuated;
 use syn::{parse_macro_input, Expr, Ident, ItemFn, LitStr, Result, Token};
 
 struct NotebookAttr {
@@ -30,19 +29,6 @@ impl Parse for NotebookAttr {
         }
 
         Ok(Self { name: Some(name) })
-    }
-}
-
-struct Dependencies {
-    exprs: Punctuated<Expr, Token![,]>,
-}
-
-impl Parse for Dependencies {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let content;
-        syn::bracketed!(content in input);
-        let exprs = content.parse_terminated(Expr::parse, Token![,])?;
-        Ok(Self { exprs })
     }
 }
 
@@ -135,57 +121,6 @@ impl Parse for StateInput {
     }
 }
 
-struct ReactiveInput {
-    notebook: Option<Expr>,
-    name: Ident,
-    dependencies: Dependencies,
-    code: Expr,
-}
-
-impl Parse for ReactiveInput {
-    fn parse(input: ParseStream) -> Result<Self> {
-        if input.peek(Ident) && input.peek2(Token![=]) {
-            let name: Ident = input.parse()?;
-            input.parse::<Token![=]>()?;
-            let dependencies: Dependencies = input.parse()?;
-            input.parse::<Token![,]>()?;
-            let code: Expr = input.parse()?;
-            if input.peek(Token![,]) {
-                input.parse::<Token![,]>()?;
-            }
-            if !input.is_empty() {
-                return Err(input.error("unexpected tokens"));
-            }
-            return Ok(Self {
-                notebook: None,
-                name,
-                dependencies,
-                code,
-            });
-        }
-
-        let notebook: Expr = input.parse()?;
-        input.parse::<Token![,]>()?;
-        let name: Ident = input.parse()?;
-        input.parse::<Token![=]>()?;
-        let dependencies: Dependencies = input.parse()?;
-        input.parse::<Token![,]>()?;
-        let code: Expr = input.parse()?;
-        if input.peek(Token![,]) {
-            input.parse::<Token![,]>()?;
-        }
-        if !input.is_empty() {
-            return Err(input.error("unexpected tokens"));
-        }
-        Ok(Self {
-            notebook: Some(notebook),
-            name,
-            dependencies,
-            code,
-        })
-    }
-}
-
 #[proc_macro]
 pub fn view(input: TokenStream) -> TokenStream {
     let code_text = LitStr::new(&macro_source_text("view!", &input), Span::call_site());
@@ -217,33 +152,6 @@ pub fn state(input: TokenStream) -> TokenStream {
         let #name = #gorbie::cards::stateful_card(
             #notebook,
             #init_expr,
-            #code,
-            Some(#code_text),
-        );
-    ))
-}
-
-#[proc_macro]
-pub fn react(input: TokenStream) -> TokenStream {
-    let code_text = LitStr::new(&macro_source_text("react!", &input), Span::call_site());
-    let input = parse_macro_input!(input as ReactiveInput);
-    let gorbie = gorbie_path();
-    let ReactiveInput {
-        notebook,
-        name,
-        dependencies,
-        code,
-    } = input;
-    let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| quote!(#expr));
-    let dep_keys = dependencies
-        .exprs
-        .iter()
-        .map(|expr| quote!(#gorbie::state::DependencyKey::new(#expr)));
-
-    TokenStream::from(quote!(
-        let #name = #gorbie::cards::reactive_card(
-            #notebook,
-            vec![#(#dep_keys),*],
             #code,
             Some(#code_text),
         );

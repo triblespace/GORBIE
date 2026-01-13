@@ -234,7 +234,7 @@ struct ChatState {
     model: String,
     prompt: String,
     conversation_id: Id,
-    snapshot: ComputedState<Result<ChatSnapshot, String>>,
+    snapshot: ComputedState<Option<Result<ChatSnapshot, String>>>,
     notice: Option<String>,
 }
 
@@ -272,7 +272,7 @@ impl Default for ChatState {
             model: "gpt-4o-mini".to_owned(),
             prompt: String::new(),
             conversation_id: *ufoid(),
-            snapshot: ComputedState::Undefined,
+            snapshot: ComputedState::default(),
             notice: None,
         }
     }
@@ -296,6 +296,7 @@ fn main() {
                 md!(ui, "# Playground chat\n\nQueue requests into a triblespace pile and view responses.");
 
                 ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
+                state.snapshot.poll();
 
                 let mut open_clicked = false;
                 ui.horizontal(|ui| {
@@ -352,10 +353,10 @@ fn main() {
                             }
                             state.pile = Some(pile);
                             state.pile_open_path = Some(open_path);
-                            state.snapshot = ComputedState::Ready(snapshot, 0);
+                            state.snapshot.set(Some(snapshot));
                         }
                         Err(err) => {
-                            state.snapshot = ComputedState::Ready(Err(err), 0);
+                            state.snapshot.set(Some(Err(err)));
                         }
                     }
                 }
@@ -367,7 +368,7 @@ fn main() {
                         Some(state.conversation_id),
                     );
                     state.pile = Some(pile);
-                    state.snapshot = ComputedState::Ready(snapshot, 0);
+                    state.snapshot.set(Some(snapshot));
                     ui.ctx().request_repaint();
                 }
 
@@ -433,7 +434,7 @@ fn main() {
                 ui.separator();
                 ui.add_space(6.0);
 
-                let snapshot = state.snapshot.ready();
+                let snapshot = state.snapshot.value().as_ref();
                 if let Some(Ok(snapshot)) = snapshot {
                     egui::ScrollArea::vertical()
                         .auto_shrink([false; 2])

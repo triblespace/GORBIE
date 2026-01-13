@@ -10,8 +10,6 @@ use parking_lot::RwLock;
 pub type ArcReadGuard<T> = parking_lot::lock_api::ArcRwLockReadGuard<RawRwLock, T>;
 pub type ArcWriteGuard<T> = parking_lot::lock_api::ArcRwLockWriteGuard<RawRwLock, T>;
 
-use crate::dataflow::Dependency;
-
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct StateId<T> {
     key: StateKey,
@@ -27,11 +25,6 @@ impl<T> Clone for StateId<T> {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ErasedStateId {
-    key: StateKey,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 struct StateKey(u64);
 
 impl<T> StateId<T> {
@@ -42,41 +35,7 @@ impl<T> StateId<T> {
         }
     }
 
-    fn from_erased(erased: ErasedStateId) -> Self {
-        Self {
-            key: erased.key,
-            _marker: PhantomData,
-        }
-    }
-
-    pub fn erase(self) -> ErasedStateId {
-        ErasedStateId { key: self.key }
-    }
-}
-
-#[derive(Copy, Clone)]
-pub struct DependencyKey {
-    id: ErasedStateId,
-    generation: fn(&StateStore, ErasedStateId) -> Option<usize>,
-}
-
-impl DependencyKey {
-    pub fn new<T: Dependency + 'static>(id: StateId<T>) -> Self {
-        Self {
-            id: id.erase(),
-            generation: generation_for::<T>,
-        }
-    }
-
-    pub(crate) fn generation(&self, store: &StateStore) -> Option<usize> {
-        (self.generation)(store, self.id)
-    }
-}
-
-fn generation_for<T: Dependency + 'static>(store: &StateStore, id: ErasedStateId) -> Option<usize> {
-    store
-        .try_read(StateId::<T>::from_erased(id))
-        .and_then(|state| state.generation())
+    // Intentionally no public accessors; keep the key internal to the store.
 }
 
 pub struct StateStore {
@@ -127,14 +86,6 @@ impl StateStore {
         state.try_write_arc()
     }
 
-    pub fn ready<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
-        self.read(id).and_then(|state| state.ready())
-    }
-
-    pub fn try_ready<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
-        self.try_read(id).and_then(|state| state.ready())
-    }
-
     fn state<T: 'static>(&self, id: StateId<T>) -> Option<Arc<RwLock<T>>> {
         let entry = self.entry(id.key)?;
         let state = entry
@@ -152,23 +103,5 @@ impl StateStore {
 
     fn entry(&self, key: StateKey) -> Option<Arc<StateEntry>> {
         self.entries.read().get(&key).cloned()
-    }
-}
-
-pub struct StateReader<'a> {
-    store: &'a StateStore,
-}
-
-impl<'a> StateReader<'a> {
-    pub(crate) fn new(store: &'a StateStore) -> Self {
-        Self { store }
-    }
-
-    pub fn ready<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
-        self.store.ready(id)
-    }
-
-    pub fn try_ready<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
-        self.store.try_ready(id)
     }
 }

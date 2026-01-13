@@ -1678,7 +1678,7 @@ struct InspectorState {
     max_rows: usize,
     blob_page: usize,
     histogram_bytes: bool,
-    snapshot: ComputedState<Result<PileSnapshot, String>>,
+    snapshot: ComputedState<Option<Result<PileSnapshot, String>>>,
     summary_sim: SummarySimState,
 }
 
@@ -1714,7 +1714,7 @@ impl Default for InspectorState {
             max_rows: 360,
             blob_page: 0,
             histogram_bytes: false,
-            snapshot: ComputedState::Undefined,
+            snapshot: ComputedState::default(),
             summary_sim: SummarySimState::default(),
         }
     }
@@ -1735,7 +1735,7 @@ fn main() {
             max_rows: 360,
             blob_page: 0,
             histogram_bytes: false,
-            snapshot: ComputedState::Undefined,
+            snapshot: ComputedState::default(),
             summary_sim: SummarySimState::default(),
         },
         move |ui, state| {
@@ -1766,10 +1766,10 @@ fn main() {
                                 }
                                 state.pile = Some(new_pile);
                                 state.pile_open_path = Some(open_path);
-                                state.snapshot = ComputedState::Ready(snapshot, 0);
+                                state.snapshot.set(Some(snapshot));
                             }
                             Err(err) => {
-                                state.snapshot = ComputedState::Ready(Err(err), 0);
+                                state.snapshot.set(Some(Err(err)));
                             }
                         }
                     }
@@ -1778,7 +1778,7 @@ fn main() {
                 if let (Some(pile), Some(path)) =
                     (state.pile.as_mut(), state.pile_open_path.as_ref())
                 {
-                    state.snapshot = ComputedState::Ready(snapshot_pile(pile, path), 0);
+                    state.snapshot.set(Some(snapshot_pile(pile, path)));
                     ui.ctx().request_repaint();
                 }
             });
@@ -1864,7 +1864,9 @@ fn main() {
         });
         let histogram_bytes = state.histogram_bytes;
 
-        let Some(result) = state.snapshot.ready() else {
+        state.snapshot.poll();
+        let snapshot_value = state.snapshot.value().as_ref();
+        let Some(result) = snapshot_value else {
             md!(ui, "_Load a pile to see the distribution._");
             return;
         };
@@ -2012,11 +2014,17 @@ fn main() {
                 summary_sim,
                 ..
             } = &mut *state;
-            let status_color = match &*snapshot {
-                ComputedState::Undefined => label_color,
-                ComputedState::Init(_) | ComputedState::Stale(_, _, _) => accent_warn,
-                ComputedState::Ready(Ok(_), _) => accent_ok,
-                ComputedState::Ready(Err(_), _) => accent_error,
+            snapshot.poll();
+            let snapshot_value = snapshot.value();
+            let status_color = if snapshot.is_running() {
+                accent_warn
+            } else if let Some(result) = snapshot_value.as_ref() {
+                match result {
+                    Ok(_) => accent_ok,
+                    Err(_) => accent_error,
+                }
+            } else {
+                label_color
             };
 
             egui::Frame::NONE
@@ -2024,48 +2032,43 @@ fn main() {
                 .show(ui, |ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 
-                    match snapshot {
-                        ComputedState::Undefined => {
-                            summary_status_panel(
-                                ui,
-                                ui.available_width(),
-                                "No pile loaded yet.",
-                                status_color,
-                                bg_color,
-                                summary_padding,
-                            );
-                        }
-                        ComputedState::Init(_) => {
-                            summary_status_panel(
-                                ui,
-                                ui.available_width(),
-                                "Loading pile data.",
-                                status_color,
-                                bg_color,
-                                summary_padding,
-                            );
-                        }
-                        ComputedState::Stale(_, _, _) => {
-                            summary_status_panel(
-                                ui,
-                                ui.available_width(),
-                                "Refreshing pile data.",
-                                status_color,
-                                bg_color,
-                                summary_padding,
-                            );
-                        }
-                        ComputedState::Ready(Err(err), _) => {
-                            summary_status_panel(
-                                ui,
-                                ui.available_width(),
-                                &format!("{err}"),
-                                status_color,
-                                bg_color,
-                                summary_padding,
-                            );
-                        }
-                        ComputedState::Ready(Ok(snapshot), _) => {
+                    if snapshot.is_running() {
+                        let status = if snapshot_value.is_some() {
+                            "Refreshing pile data."
+                        } else {
+                            "Loading pile data."
+                        };
+                        summary_status_panel(
+                            ui,
+                            ui.available_width(),
+                            status,
+                            status_color,
+                            bg_color,
+                            summary_padding,
+                        );
+                    } else {
+                        match snapshot_value.as_ref() {
+                            None => {
+                                summary_status_panel(
+                                    ui,
+                                    ui.available_width(),
+                                    "No pile loaded yet.",
+                                    status_color,
+                                    bg_color,
+                                    summary_padding,
+                                );
+                            }
+                            Some(Err(err)) => {
+                                summary_status_panel(
+                                    ui,
+                                    ui.available_width(),
+                                    &format!("{err}"),
+                                    status_color,
+                                    bg_color,
+                                    summary_padding,
+                                );
+                            }
+                            Some(Ok(snapshot)) => {
                             let blob_count = snapshot.blob_order.len();
                             let branch_count = snapshot.branches.len();
                             let oldest_ts = snapshot.blob_stats.oldest_ts;
@@ -2096,7 +2099,8 @@ fn main() {
                             } else {
                                 0
                             };
-                            let live_avg_blob_level = normalize_log2(avg_blob_size + 1, 6.0, 24.0);
+                            let live_avg_blob_level =
+                                normalize_log2(avg_blob_size + 1, 6.0, 24.0);
                             let levels = SummaryLevels {
                                 size: if tuning.enabled {
                                     tuning.size_level
@@ -2164,6 +2168,7 @@ fn main() {
                                 sprout_color,
                             );
                             extend_panel_background(ui, panel_rect, bg_color, summary_padding);
+                            }
                         }
                     }
                 });
@@ -2172,10 +2177,12 @@ fn main() {
 
     view!(move |ui| {
         ui.with_padding(padding, |ui| {
-            let state = ui.read(inspector).expect("inspector state missing");
+            let mut state = ui.read_mut(inspector).expect("inspector state missing");
             md!(ui, "## Commit graph");
 
-            let Some(result) = state.snapshot.ready() else {
+            state.snapshot.poll();
+            let snapshot_value = state.snapshot.value().as_ref();
+            let Some(result) = snapshot_value else {
                 md!(ui, "_Load a pile to see the commit graph._");
                 return;
             };
@@ -2198,7 +2205,9 @@ fn main() {
             let mut state = ui.read_mut(inspector).expect("inspector state missing");
             md!(ui, "## Blobs");
 
-        let Some(result) = state.snapshot.ready() else {
+        state.snapshot.poll();
+        let snapshot_value = state.snapshot.value().as_ref();
+        let Some(result) = snapshot_value else {
             md!(ui, "_Load a pile to see blobs._");
             return;
         };

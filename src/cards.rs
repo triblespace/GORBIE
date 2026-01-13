@@ -1,14 +1,11 @@
-pub mod reactive_card;
 pub mod stateful_card;
 pub mod stateless_card;
 
 use std::ops::{Deref, DerefMut};
 
-pub use reactive_card::*;
 pub use stateful_card::*;
 pub use stateless_card::*;
 
-use crate::dataflow::Dependency;
 use crate::state::{ArcReadGuard, ArcWriteGuard, StateId, StateStore};
 
 pub const DEFAULT_CARD_PADDING: egui::Margin = egui::Margin::symmetric(16, 12);
@@ -41,14 +38,6 @@ impl<'a> CardContext<'a> {
 
     pub fn try_read_mut<T: 'static>(&self, id: StateId<T>) -> Option<ArcWriteGuard<T>> {
         self.store.try_read_mut(id)
-    }
-
-    pub fn ready<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
-        self.store.ready(id)
-    }
-
-    pub fn try_ready<T: Dependency + 'static>(&self, id: StateId<T>) -> Option<T::Value> {
-        self.store.try_ready(id)
     }
 
     pub fn with_padding<R>(

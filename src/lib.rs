@@ -1,15 +1,17 @@
 //! ## Working with mutable/non-cloneable things.
 //! Sometimes when working with existing code, libraries or even std things like
-//! files, can introduce an impedance mismatch with the reactive data-flow model.
+//! files, can introduce an impedance mismatch with a dataflow-style model.
 //! Often it is enough to wrap the object in question into another layer of `Arc`s
 //! and `RWLock`s in addition to what Gorby already does with its shared state
-//! store. This is also why we compare explicit generations instead of return
-//! values, to broaden the range of types that can be used with `react!`.
+//! store.
+//!
+//! For heavier work, `ComputedState` can run background tasks and hold the latest
+//! value. Use `Option<T>` when a value may be absent while a computation runs.
 //!
 //! But sometimes that isn't enough, e.g. when you want to display some application
-//! global state. This is why `state!` and `view!` are carefully designed to not
-//! rely on the dataflow mechanisms introduced by `react`. Instead they can be
-//! used, like any other mutable rust type, via the typed `StateId` handle.
+//! global state. This is why `state!` and `view!` are carefully designed to stay
+//! independent from any dataflow runtime. Instead they can be used, like any other
+//! mutable rust type, via the typed `StateId` handle.
 //!
 
 #![allow(non_snake_case)]
@@ -21,7 +23,7 @@ pub mod state;
 pub mod themes;
 pub mod widgets;
 
-pub use gorbie_macros::{notebook, react, state, view};
+pub use gorbie_macros::{notebook, state, view};
 
 use crate::state::StateStore;
 use crate::themes::industrial_dark;
@@ -56,7 +58,7 @@ struct CodeNoteDraw {
 
 /// A notebook is a collection of cards.
 /// Each card is a piece of content that can be displayed in the notebook.
-/// Cards can be stateless, stateful, or reactively derived from other cards.
+/// Cards can be stateless or stateful.
 pub struct Notebook {
     title: String,
     header_title: egui::WidgetText,

@@ -9,42 +9,34 @@
 //! ```
 
 use polars::prelude::*;
-use GORBIE::dataflow::ComputedState;
 use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::state;
-use GORBIE::view;
 use GORBIE::widgets::dataframe;
 use GORBIE::widgets::load_auto;
+use GORBIE::dataflow::ComputedState;
 
 #[notebook]
 fn main() {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    state!(df = ComputedState::default(), move |ui, value| {
+    state!(_df = ComputedState::<Option<DataFrame>>::default(), move |ui, value| {
         ui.with_padding(padding, |ui| {
             md!(
                 ui,
                 "# Polars
 In this notebook we're going to use the `polars` crate to create a simple dataframe."
             );
-            if let Some(df) = load_auto(ui, value, || {
-                CsvReadOptions::default()
+            let df = load_auto(ui, value, Option::is_none, || {
+                let df = CsvReadOptions::default()
                     .try_into_reader_with_file_path(Some("./assets/datasets/iris.csv".into()))
                     .unwrap()
                     .finish()
-                    .unwrap()
-            }) {
+                    .unwrap();
+                Some(df)
+            });
+            if let Some(df) = df.as_ref() {
                 dataframe(ui, df);
             }
-        });
-    });
-
-    view!(move |ui| {
-        ui.with_padding(padding, |ui| {
-            let Some(df) = ui.try_ready(df) else {
-                return;
-            };
-            dataframe(ui, &df);
         });
     });
 }
