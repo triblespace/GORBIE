@@ -492,7 +492,12 @@ fn connected_components(adjacency: &[Vec<usize>]) -> Vec<Vec<usize>> {
     components
 }
 
-fn compute_graph_layout(ui: &Ui, graph: &EntityGraph, forced_columns: usize) -> GraphLayout {
+fn compute_graph_layout(
+    ui: &Ui,
+    graph: &EntityGraph,
+    forced_columns: usize,
+    order: &[usize],
+) -> GraphLayout {
     let column_gap = 48.0;
     let outer_x_pad = column_gap;
     let min_tile_width = 160.0;
@@ -551,7 +556,7 @@ fn compute_graph_layout(ui: &Ui, graph: &EntityGraph, forced_columns: usize) -> 
 
     // Baseline placement: pack lexicographically by entity id, with a simple "masonry" heuristic
     // (always place the next tile in the currently-shortest column).
-    for node_idx in 0..node_count {
+    for &node_idx in order {
         let (col, y) = column_bottoms
             .iter()
             .copied()
@@ -643,6 +648,12 @@ struct GraphStats {
     fallback_tracks: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EntityOrder {
+    Id,
+    CuthillMckee,
+}
+
 #[derive(Clone, Debug)]
 struct RoutedEdge {
     points: Vec<egui::Pos2>,
@@ -658,6 +669,7 @@ struct RoutedEdge {
 #[derive(Clone, Debug)]
 struct EdgeRender {
     points: Vec<egui::Pos2>,
+    raw_points: Vec<egui::Pos2>,
     line_color: egui::Color32,
     start_underline: Option<(egui::Pos2, egui::Pos2)>,
 }
@@ -690,6 +702,50 @@ fn attribute_palette_index(attr: Id, palette_len: usize) -> usize {
     (hash as usize) % palette_len
 }
 
+fn entity_order(graph: &EntityGraph, order: EntityOrder) -> Vec<usize> {
+    match order {
+        EntityOrder::Id => (0..graph.nodes.len()).collect(),
+        EntityOrder::CuthillMckee => cuthill_mckee_order(graph),
+    }
+}
+
+fn cuthill_mckee_order(graph: &EntityGraph) -> Vec<usize> {
+    let mut adjacency = build_adjacency(graph);
+    for neighbors in &mut adjacency {
+        neighbors.sort_unstable();
+        neighbors.dedup();
+    }
+
+    let degrees: Vec<usize> = adjacency.iter().map(|neighbors| neighbors.len()).collect();
+    let mut seeds: Vec<usize> = (0..graph.nodes.len()).collect();
+    seeds.sort_by_key(|&idx| (degrees[idx], graph.nodes[idx].id));
+
+    let mut visited = vec![false; graph.nodes.len()];
+    let mut order = Vec::with_capacity(graph.nodes.len());
+    let mut queue = VecDeque::new();
+
+    for start in seeds {
+        if visited[start] {
+            continue;
+        }
+        visited[start] = true;
+        queue.push_back(start);
+        while let Some(node) = queue.pop_front() {
+            order.push(node);
+            let mut neighbors = adjacency[node].clone();
+            neighbors.sort_by_key(|&idx| (degrees[idx], graph.nodes[idx].id));
+            for next in neighbors {
+                if !visited[next] {
+                    visited[next] = true;
+                    queue.push_back(next);
+                }
+            }
+        }
+    }
+
+    order
+}
+
 fn choose_track_y(gap_tracks: &[(f32, f32)], start_y: f32, end_y: f32) -> f32 {
     let mut best = (gap_tracks[0].0 + gap_tracks[0].1) * 0.5;
     let mut best_cost = f32::INFINITY;
@@ -702,6 +758,90 @@ fn choose_track_y(gap_tracks: &[(f32, f32)], start_y: f32, end_y: f32) -> f32 {
         }
     }
     best
+}
+
+fn choose_track_y_monotonic(
+    corridors: &[(f32, f32)],
+    current_y: f32,
+    end_y: f32,
+) -> (f32, bool) {
+    if corridors.is_empty() {
+        return (current_y, true);
+    }
+
+    let going_down = end_y >= current_y;
+    let mut best = None;
+    let mut best_delta = f32::INFINITY;
+
+    if going_down {
+        for (top, bottom) in corridors {
+            if *bottom < current_y || *top > end_y {
+                continue;
+            }
+            let y = current_y.max(*top).min(*bottom);
+            let delta = y - current_y;
+            if delta < best_delta {
+                best_delta = delta;
+                best = Some(y);
+                if delta <= f32::EPSILON {
+                    break;
+                }
+            }
+        }
+    } else {
+        for (top, bottom) in corridors {
+            if *top > current_y || *bottom < end_y {
+                continue;
+            }
+            let y = current_y.min(*bottom).max(*top);
+            let delta = current_y - y;
+            if delta < best_delta {
+                best_delta = delta;
+                best = Some(y);
+                if delta <= f32::EPSILON {
+                    break;
+                }
+            }
+        }
+    }
+
+    if let Some(y) = best {
+        return (y, false);
+    }
+
+    best = None;
+    best_delta = f32::INFINITY;
+    if going_down {
+        for (top, bottom) in corridors {
+            if *bottom < current_y {
+                continue;
+            }
+            let y = current_y.max(*top).min(*bottom);
+            let delta = (y - current_y).abs();
+            if delta < best_delta {
+                best_delta = delta;
+                best = Some(y);
+            }
+        }
+    } else {
+        for (top, bottom) in corridors {
+            if *top > current_y {
+                continue;
+            }
+            let y = current_y.min(*bottom).max(*top);
+            let delta = (current_y - y).abs();
+            if delta < best_delta {
+                best_delta = delta;
+                best = Some(y);
+            }
+        }
+    }
+
+    if let Some(y) = best {
+        return (y, true);
+    }
+
+    (choose_track_y(corridors, current_y, end_y), true)
 }
 
 fn intersect_intervals(a: &[(f32, f32)], b: &[(f32, f32)]) -> Vec<(f32, f32)> {
@@ -724,25 +864,6 @@ fn intersect_intervals(a: &[(f32, f32)], b: &[(f32, f32)]) -> Vec<(f32, f32)> {
     }
 
     out
-}
-
-fn closest_corner(target: Rect, from: egui::Pos2) -> egui::Pos2 {
-    let corners = [
-        target.left_top(),
-        target.right_top(),
-        target.left_bottom(),
-        target.right_bottom(),
-    ];
-    let mut best = corners[0];
-    let mut best_d2 = from.distance_sq(best);
-    for &corner in &corners[1..] {
-        let d2 = from.distance_sq(corner);
-        if d2 < best_d2 {
-            best_d2 = d2;
-            best = corner;
-        }
-    }
-    best
 }
 
 fn closest_corner_on_side(target: Rect, from: egui::Pos2, left: bool) -> egui::Pos2 {
@@ -792,16 +913,38 @@ fn choose_track_y_between_columns(
     let going_down = end_y >= start_y;
     if going_down {
         for (top, bottom) in &corridors {
+            if *bottom < start_y {
+                continue;
+            }
+            if *top > end_y {
+                break;
+            }
+            let y = start_y.max(*top).min(end_y);
+            return (y, false);
+        }
+    } else {
+        for (top, bottom) in corridors.iter().rev() {
+            if *top > start_y {
+                continue;
+            }
+            if *bottom < end_y {
+                break;
+            }
+            let y = start_y.min(*bottom).max(end_y);
+            return (y, false);
+        }
+    }
+
+    if going_down {
+        for (top, bottom) in &corridors {
             if *bottom >= start_y {
-                let y = start_y.max(*top).min(*bottom);
-                return (y, false);
+                return (start_y.max(*top), true);
             }
         }
     } else {
         for (top, bottom) in corridors.iter().rev() {
             if *top <= start_y {
-                let y = start_y.min(*bottom).max(*top);
-                return (y, false);
+                return (start_y.min(*bottom), true);
             }
         }
     }
@@ -967,11 +1110,8 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
             to_col < from_col
         };
         let start = row_anchor(layout, source_rect, edge.from_row, go_left);
-        let end = if same_col {
-            closest_corner_on_side(target_rect, start, go_left)
-        } else {
-            closest_corner(target_rect, start)
-        };
+        let end_on_left = if same_col { go_left } else { !go_left };
+        let end = closest_corner_on_side(target_rect, start, end_on_left);
 
         let start_boundary = if go_left {
             from_col as i32 - 1
@@ -984,7 +1124,6 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
             source_rect.right() + layout.column_gap * 0.5
         };
 
-        let end_on_left = (end.x - target_rect.left()).abs() < f32::EPSILON;
         let end_boundary = if end_on_left {
             to_col as i32 - 1
         } else {
@@ -1030,18 +1169,21 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
             .unwrap_or(start_offset);
         let start_center_x = draft.start_gutter_center_x;
         let end_center_x = draft.end_gutter_center_x;
-        let start_bundle_x = start_center_x + start_offset;
-        let end_bundle_x = end_center_x + end_offset;
+        let mut start_bundle_x = start_center_x + start_offset;
+        let mut end_bundle_x = end_center_x + end_offset;
 
-        let (track_y, used_fallback_track) = choose_track_y_between_columns(
-            component_layout,
-            draft.start.y,
-            draft.end.y,
-            draft.min_col,
-            draft.max_col,
-        );
-
-        let same_gutter = (start_center_x - end_center_x).abs() <= 0.01;
+        let same_gutter = draft.start_boundary == draft.end_boundary;
+        let span_cols = draft.max_col.saturating_sub(draft.min_col);
+        if !same_gutter {
+            if start_center_x <= end_center_x {
+                start_bundle_x = start_bundle_x.clamp(start_center_x, end_center_x);
+                end_bundle_x = end_bundle_x.clamp(start_bundle_x, end_center_x);
+            } else {
+                start_bundle_x = start_bundle_x.clamp(end_center_x, start_center_x);
+                end_bundle_x = end_bundle_x.clamp(end_center_x, start_bundle_x);
+            }
+        }
+        let mut used_fallback_track = false;
         let mut points = if same_gutter {
             let gutter_x = start_bundle_x;
             vec![
@@ -1050,7 +1192,66 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
                 pos2(gutter_x, draft.end.y),
                 draft.end,
             ]
+        } else if span_cols > 1 {
+            let mut points = vec![draft.start, pos2(start_bundle_x, draft.start.y)];
+            let step = if draft.end_boundary > draft.start_boundary {
+                1
+            } else {
+                -1
+            };
+            let step_x = draft.source_rect.width() + layout.column_gap;
+            let mut boundary = draft.start_boundary;
+            let mut current_y = draft.start.y;
+            let mut current_x = start_bundle_x;
+            let end_y = draft.end.y;
+
+            while boundary != draft.end_boundary {
+                let next_boundary = boundary + step;
+                let column_idx = if step > 0 {
+                    next_boundary as usize
+                } else {
+                    boundary as usize
+                };
+                let next_center_x =
+                    start_center_x + (next_boundary - draft.start_boundary) as f32 * step_x;
+                let (track_y, fallback) = component_layout
+                    .column_free
+                    .get(column_idx)
+                    .map(|corridors| choose_track_y_monotonic(corridors, current_y, end_y))
+                    .unwrap_or((current_y, true));
+                used_fallback_track |= fallback;
+
+                let next_offset = bundle_offsets
+                    .get(&(next_boundary, bundle_key))
+                    .copied()
+                    .unwrap_or(0.0);
+                let mut next_x = next_center_x + next_offset;
+                if step > 0 && next_x < current_x {
+                    next_x = current_x;
+                } else if step < 0 && next_x > current_x {
+                    next_x = current_x;
+                }
+
+                points.push(pos2(current_x, track_y));
+                points.push(pos2(next_x, track_y));
+
+                boundary = next_boundary;
+                current_y = track_y;
+                current_x = next_x;
+            }
+
+            points.push(pos2(current_x, end_y));
+            points.push(draft.end);
+            points
         } else {
+            let (track_y, used_fallback) = choose_track_y_between_columns(
+                component_layout,
+                draft.start.y,
+                draft.end.y,
+                draft.min_col,
+                draft.max_col,
+            );
+            used_fallback_track = used_fallback;
             vec![
                 draft.start,
                 pos2(start_center_x, draft.start.y),
@@ -1323,9 +1524,11 @@ fn draw_entity_inspector(
     graph: &EntityGraph,
     selected_id: &mut Id,
     forced_columns: usize,
+    order: EntityOrder,
 ) -> GraphStats {
     let selected_index = graph.id_to_index.get(selected_id).copied();
-    let layout = compute_graph_layout(ui, graph, forced_columns);
+    let order = entity_order(graph, order);
+    let layout = compute_graph_layout(ui, graph, forced_columns, &order);
     let connected_components = connected_components(&build_adjacency(graph)).len();
 
     let desired_width = ui.available_width();
@@ -1369,6 +1572,7 @@ fn draw_entity_inspector(
         let line_color = line_palette[palette_index];
         edge_renders.push(EdgeRender {
             points,
+            raw_points: raw,
             line_color,
             start_underline: routed
                 .start_underline
@@ -1376,6 +1580,7 @@ fn draw_entity_inspector(
         });
     }
 
+    let show_debug_points = ui.input(|input| input.modifiers.shift);
     let hovered_edge = ui
         .input(|input| input.pointer.hover_pos())
         .filter(|pos| outer_rect.contains(*pos))
@@ -1423,6 +1628,21 @@ fn draw_entity_inspector(
             }
             if let Some(end) = render.points.last().copied() {
                 end_dots_hover.push((end, render.line_color));
+            }
+            if show_debug_points {
+                let debug_color = egui::Color32::YELLOW;
+                let debug_radius = (line_width * 0.6).max(1.5);
+                let debug_font = TextStyle::Small.resolve(ui.style());
+                for (idx, point) in render.raw_points.iter().enumerate() {
+                    painter.circle_filled(*point, debug_radius, debug_color);
+                    painter.text(
+                        *point + vec2(3.0, -2.0),
+                        egui::Align2::LEFT_BOTTOM,
+                        idx.to_string(),
+                        debug_font.clone(),
+                        debug_color,
+                    );
+                }
             }
         }
     } else {
@@ -1543,6 +1763,7 @@ fn draw_entity_inspector(
 struct InspectorState {
     selected: Id,
     columns: usize,
+    order: EntityOrder,
 }
 
 impl Default for InspectorState {
@@ -1551,6 +1772,7 @@ impl Default for InspectorState {
         Self {
             selected: id_hex!("11111111111111111111111111111111"),
             columns: 0,
+            order: EntityOrder::Id,
         }
     }
 }
@@ -1579,6 +1801,7 @@ fn main() {
         inspector = InspectorState {
             selected: default_selected,
             columns: 0,
+            order: EntityOrder::Id,
         },
         move |ui, state| {
             ui.with_padding(padding, |ui| {
@@ -1593,9 +1816,24 @@ fn main() {
                     );
                     ui.label(egui::RichText::new("(0 = auto)").monospace().weak());
                 });
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("ORDER").monospace().strong());
+                    ui.add(
+                        widgets::ChoiceToggle::new(&mut state.order)
+                            .choice(EntityOrder::Id, "ID")
+                            .choice(EntityOrder::CuthillMckee, "CM")
+                            .small(),
+                    );
+                });
                 ui.add_space(8.0);
 
-                let stats = draw_entity_inspector(ui, &graph, &mut state.selected, state.columns);
+                let stats = draw_entity_inspector(
+                    ui,
+                    &graph,
+                    &mut state.selected,
+                    state.columns,
+                    state.order,
+                );
 
                 let metrics = format!(
                     "_{} nodes, {} edges ({} components), {} columns._\n\
