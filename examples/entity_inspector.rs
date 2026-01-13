@@ -646,12 +646,16 @@ struct GraphStats {
     max_span_cols: usize,
     left_edges: usize,
     fallback_tracks: usize,
+    linear_total: f32,
+    linear_avg: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EntityOrder {
     Id,
     CuthillMckee,
+    Barycentric,
+    BarycentricSwap,
 }
 
 #[derive(Clone, Debug)]
@@ -701,10 +705,12 @@ fn attribute_palette_index(attr: Id, palette_len: usize) -> usize {
     (hash as usize) % palette_len
 }
 
-fn entity_order(graph: &EntityGraph, order: EntityOrder) -> Vec<usize> {
+fn entity_order(graph: &EntityGraph, order: EntityOrder, barycentric_passes: usize) -> Vec<usize> {
     match order {
         EntityOrder::Id => (0..graph.nodes.len()).collect(),
         EntityOrder::CuthillMckee => cuthill_mckee_order(graph),
+        EntityOrder::Barycentric => barycentric_order(graph, barycentric_passes),
+        EntityOrder::BarycentricSwap => barycentric_swap_order(graph, barycentric_passes),
     }
 }
 
@@ -743,6 +749,138 @@ fn cuthill_mckee_order(graph: &EntityGraph) -> Vec<usize> {
     }
 
     order
+}
+
+fn barycentric_order(graph: &EntityGraph, passes: usize) -> Vec<usize> {
+    let adjacency = build_adjacency(graph);
+    let mut order: Vec<usize> = (0..graph.nodes.len()).collect();
+    let mut best = order.clone();
+    let mut best_cost = order_linear_cost(graph, &best);
+
+    let passes = passes.max(1);
+    for pass in 0..passes {
+        let reverse_ties = pass % 2 == 1;
+        order = barycentric_pass(graph, &adjacency, order, reverse_ties);
+        let cost = order_linear_cost(graph, &order);
+        if cost < best_cost {
+            best_cost = cost;
+            best.clone_from(&order);
+        }
+    }
+
+    best
+}
+
+fn barycentric_pass(
+    graph: &EntityGraph,
+    adjacency: &[Vec<usize>],
+    mut order: Vec<usize>,
+    reverse_ties: bool,
+) -> Vec<usize> {
+    let mut positions = vec![0usize; graph.nodes.len()];
+    let mut positions_f32 = vec![0.0f32; graph.nodes.len()];
+    let mut scores = vec![0.0f32; graph.nodes.len()];
+
+    for _ in 0..8 {
+        for (pos, &idx) in order.iter().enumerate() {
+            positions[idx] = pos;
+            positions_f32[idx] = pos as f32;
+        }
+
+        for (idx, neighbors) in adjacency.iter().enumerate() {
+            if neighbors.is_empty() {
+                scores[idx] = positions_f32[idx];
+                continue;
+            }
+            let sum = neighbors
+                .iter()
+                .map(|&neighbor| positions_f32[neighbor])
+                .sum::<f32>();
+            scores[idx] = sum / neighbors.len() as f32;
+        }
+
+        let mut next = order.clone();
+        next.sort_by(|a, b| {
+            scores[*a]
+                .total_cmp(&scores[*b])
+                .then_with(|| {
+                    let left = positions[*a];
+                    let right = positions[*b];
+                    if reverse_ties {
+                        right.cmp(&left)
+                    } else {
+                        left.cmp(&right)
+                    }
+                })
+                .then_with(|| graph.nodes[*a].id.cmp(&graph.nodes[*b].id))
+        });
+        if next == order {
+            break;
+        }
+        order = next;
+    }
+
+    order
+}
+
+fn order_linear_cost(graph: &EntityGraph, order: &[usize]) -> i64 {
+    let mut positions = vec![0usize; graph.nodes.len()];
+    for (pos, &idx) in order.iter().enumerate() {
+        positions[idx] = pos;
+    }
+
+    let mut total = 0i64;
+    for edge in &graph.edges {
+        let from = positions[edge.from_entity] as i64;
+        let to = positions[edge.to_entity] as i64;
+        total += (from - to).abs();
+    }
+
+    total
+}
+
+fn barycentric_swap_order(graph: &EntityGraph, passes: usize) -> Vec<usize> {
+    let mut order = barycentric_order(graph, passes);
+    let adjacency = build_adjacency(graph);
+    local_swap_refine(&mut order, &adjacency);
+    order
+}
+
+fn local_swap_refine(order: &mut [usize], adjacency: &[Vec<usize>]) {
+    let mut positions = vec![0usize; order.len()];
+    for (pos, &idx) in order.iter().enumerate() {
+        positions[idx] = pos;
+    }
+
+    for _ in 0..8 {
+        let mut changed = false;
+        for pos in 0..order.len().saturating_sub(1) {
+            let left = order[pos];
+            let right = order[pos + 1];
+            let mut delta = 0i32;
+
+            for &neighbor in &adjacency[left] {
+                let old = (positions[left] as i32 - positions[neighbor] as i32).abs();
+                let new = (positions[right] as i32 - positions[neighbor] as i32).abs();
+                delta += new - old;
+            }
+            for &neighbor in &adjacency[right] {
+                let old = (positions[right] as i32 - positions[neighbor] as i32).abs();
+                let new = (positions[left] as i32 - positions[neighbor] as i32).abs();
+                delta += new - old;
+            }
+
+            if delta < 0 {
+                order.swap(pos, pos + 1);
+                positions.swap(left, right);
+                changed = true;
+            }
+        }
+
+        if !changed {
+            break;
+        }
+    }
 }
 
 fn choose_track_y(gap_tracks: &[(f32, f32)], start_y: f32, end_y: f32) -> f32 {
@@ -1521,23 +1659,134 @@ fn paint_entity_table(
     response
 }
 
-fn draw_entity_inspector(
+fn compute_inspector(
+    ui: &Ui,
+    graph: &EntityGraph,
+    forced_columns: usize,
+    order: EntityOrder,
+    barycentric_passes: usize,
+) -> (GraphLayout, Vec<RoutedEdge>, GraphStats) {
+    let order = entity_order(graph, order, barycentric_passes);
+    let mut positions = vec![0usize; graph.nodes.len()];
+    for (pos, &idx) in order.iter().enumerate() {
+        positions[idx] = pos;
+    }
+    let mut linear_total = 0.0f32;
+    for edge in &graph.edges {
+        let from = positions[edge.from_entity] as i32;
+        let to = positions[edge.to_entity] as i32;
+        linear_total += (from - to).abs() as f32;
+    }
+    let linear_avg = if graph.edges.is_empty() {
+        0.0
+    } else {
+        linear_total / graph.edges.len() as f32
+    };
+    let layout = compute_graph_layout(ui, graph, forced_columns, &order);
+    let routed_edges = route_edges(&layout, graph);
+    let stats = compute_graph_stats(
+        graph,
+        &layout,
+        &routed_edges,
+        linear_total,
+        linear_avg,
+    );
+    (layout, routed_edges, stats)
+}
+
+fn compute_graph_stats(
+    graph: &EntityGraph,
+    layout: &GraphLayout,
+    routed_edges: &[RoutedEdge],
+    linear_total: f32,
+    linear_avg: f32,
+) -> GraphStats {
+    let connected_components = connected_components(&build_adjacency(graph)).len();
+    let edges = routed_edges.len();
+    let tile_area = layout
+        .tile_rects
+        .iter()
+        .filter_map(|rect| rect.is_positive().then(|| rect.area()))
+        .sum::<f32>();
+    let canvas_area = layout.canvas_size.x * layout.canvas_size.y;
+    let tile_coverage = if canvas_area <= 0.0 {
+        0.0
+    } else {
+        tile_area / canvas_area
+    };
+
+    let mut total_edge_len = 0.0f32;
+    let mut max_edge_len = 0.0f32;
+    let mut total_turns = 0usize;
+    let mut max_turns = 0usize;
+    let mut total_span_cols = 0usize;
+    let mut max_span_cols = 0usize;
+    let mut left_edges = 0usize;
+    let mut fallback_tracks = 0usize;
+
+    for edge in routed_edges {
+        total_edge_len += edge.length;
+        max_edge_len = max_edge_len.max(edge.length);
+        total_turns += edge.turns;
+        max_turns = max_turns.max(edge.turns);
+        total_span_cols += edge.span_cols;
+        max_span_cols = max_span_cols.max(edge.span_cols);
+        if edge.go_left {
+            left_edges += 1;
+        }
+        if edge.used_fallback_track {
+            fallback_tracks += 1;
+        }
+    }
+
+    GraphStats {
+        nodes: graph.nodes.len(),
+        edges,
+        connected_components,
+        columns: layout.column_count,
+        canvas_width: layout.canvas_size.x,
+        canvas_height: layout.canvas_size.y,
+        tile_coverage,
+        total_edge_len,
+        avg_edge_len: if edges == 0 {
+            0.0
+        } else {
+            total_edge_len / edges as f32
+        },
+        max_edge_len,
+        avg_turns: if edges == 0 {
+            0.0
+        } else {
+            total_turns as f32 / edges as f32
+        },
+        max_turns,
+        avg_span_cols: if edges == 0 {
+            0.0
+        } else {
+            total_span_cols as f32 / edges as f32
+        },
+        max_span_cols,
+        left_edges,
+        fallback_tracks,
+        linear_total,
+        linear_avg,
+    }
+}
+
+fn paint_entity_inspector(
     ui: &mut Ui,
     graph: &EntityGraph,
     selected_id: &mut Id,
-    forced_columns: usize,
-    order: EntityOrder,
-) -> GraphStats {
+    layout: &GraphLayout,
+    routed_edges: &[RoutedEdge],
+) {
     let selected_index = graph.id_to_index.get(selected_id).copied();
-    let order = entity_order(graph, order);
-    let layout = compute_graph_layout(ui, graph, forced_columns, &order);
-    let connected_components = connected_components(&build_adjacency(graph)).len();
 
     let desired_width = ui.available_width();
     let (outer_rect, _resp) =
         ui.allocate_exact_size(vec2(desired_width, layout.canvas_size.y), Sense::hover());
     if !ui.is_rect_visible(outer_rect) {
-        return GraphStats::default();
+        return;
     }
 
     let offset_x = ((desired_width - layout.canvas_size.x).max(0.0)) * 0.5;
@@ -1559,9 +1808,8 @@ fn draw_entity_inspector(
     let end_dot_radius = line_width * 2.5;
     let hover_threshold = end_dot_radius.max(line_width * 3.0);
 
-    let routed_edges = route_edges(&layout, graph);
     let mut edge_renders = Vec::with_capacity(routed_edges.len());
-    for routed in &routed_edges {
+    for routed in routed_edges {
         let raw = routed
             .points
             .iter()
@@ -1674,74 +1922,6 @@ fn draw_entity_inspector(
             }
         }
     }
-
-    let edges = routed_edges.len();
-    let tile_area = layout
-        .tile_rects
-        .iter()
-        .filter_map(|rect| rect.is_positive().then(|| rect.area()))
-        .sum::<f32>();
-    let canvas_area = layout.canvas_size.x * layout.canvas_size.y;
-    let tile_coverage = if canvas_area <= 0.0 {
-        0.0
-    } else {
-        tile_area / canvas_area
-    };
-
-    let mut total_edge_len = 0.0f32;
-    let mut max_edge_len = 0.0f32;
-    let mut total_turns = 0usize;
-    let mut max_turns = 0usize;
-    let mut total_span_cols = 0usize;
-    let mut max_span_cols = 0usize;
-    let mut left_edges = 0usize;
-    let mut fallback_tracks = 0usize;
-
-    for edge in &routed_edges {
-        total_edge_len += edge.length;
-        max_edge_len = max_edge_len.max(edge.length);
-        total_turns += edge.turns;
-        max_turns = max_turns.max(edge.turns);
-        total_span_cols += edge.span_cols;
-        max_span_cols = max_span_cols.max(edge.span_cols);
-        if edge.go_left {
-            left_edges += 1;
-        }
-        if edge.used_fallback_track {
-            fallback_tracks += 1;
-        }
-    }
-
-    GraphStats {
-        nodes: graph.nodes.len(),
-        edges,
-        connected_components,
-        columns: layout.column_count,
-        canvas_width: layout.canvas_size.x,
-        canvas_height: layout.canvas_size.y,
-        tile_coverage,
-        total_edge_len,
-        avg_edge_len: if edges == 0 {
-            0.0
-        } else {
-            total_edge_len / edges as f32
-        },
-        max_edge_len,
-        avg_turns: if edges == 0 {
-            0.0
-        } else {
-            total_turns as f32 / edges as f32
-        },
-        max_turns,
-        avg_span_cols: if edges == 0 {
-            0.0
-        } else {
-            total_span_cols as f32 / edges as f32
-        },
-        max_span_cols,
-        left_edges,
-        fallback_tracks,
-    }
 }
 
 #[derive(Debug)]
@@ -1749,6 +1929,7 @@ struct InspectorState {
     selected: Id,
     columns: usize,
     order: EntityOrder,
+    barycentric_passes: usize,
 }
 
 impl Default for InspectorState {
@@ -1758,6 +1939,7 @@ impl Default for InspectorState {
             selected: id_hex!("11111111111111111111111111111111"),
             columns: 0,
             order: EntityOrder::Id,
+            barycentric_passes: 4,
         }
     }
 }
@@ -1787,6 +1969,7 @@ fn main() {
             selected: default_selected,
             columns: 0,
             order: EntityOrder::Id,
+            barycentric_passes: 4,
         },
         move |ui, state| {
             ui.with_padding(padding, |ui| {
@@ -1807,22 +1990,33 @@ fn main() {
                         widgets::ChoiceToggle::new(&mut state.order)
                             .choice(EntityOrder::Id, "ID")
                             .choice(EntityOrder::CuthillMckee, "CM")
+                            .choice(EntityOrder::Barycentric, "BC")
+                            .choice(EntityOrder::BarycentricSwap, "BS")
                             .small(),
                     );
+                    if matches!(
+                        state.order,
+                        EntityOrder::Barycentric | EntityOrder::BarycentricSwap
+                    ) {
+                        ui.add_space(8.0);
+                        ui.label(egui::RichText::new("BC PASSES").monospace().weak());
+                        let constrain = |_: usize, next: usize| next.clamp(1, 32);
+                        ui.add(
+                            widgets::NumberField::new(&mut state.barycentric_passes)
+                                .speed(0.25)
+                                .constrain_value(&constrain),
+                        );
+                    }
                 });
                 ui.add_space(8.0);
 
-                let stats = draw_entity_inspector(
-                    ui,
-                    &graph,
-                    &mut state.selected,
-                    state.columns,
-                    state.order,
-                );
+                let (layout, routed_edges, stats) =
+                    compute_inspector(ui, &graph, state.columns, state.order, state.barycentric_passes);
 
                 let metrics = format!(
                     "_{} nodes, {} edges ({} components), {} columns._\n\
 _Canvas: {:.0}×{:.0}px • Tiles: {:.0}%._\n\
+_Order: {:.0} 1D dist total • {:.1} avg._\n\
 _Wire: {:.0}px total • {:.0}px avg (max {:.0}px)._\n\
 _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • {} fallback._",
                     stats.nodes,
@@ -1832,6 +2026,8 @@ _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • 
                     stats.canvas_width,
                     stats.canvas_height,
                     stats.tile_coverage * 100.0,
+                    stats.linear_total,
+                    stats.linear_avg,
                     stats.total_edge_len,
                     stats.avg_edge_len,
                     stats.max_edge_len,
@@ -1843,6 +2039,9 @@ _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • 
                     stats.fallback_tracks,
                 );
                 widgets::markdown(ui, &metrics);
+                ui.add_space(8.0);
+
+                paint_entity_inspector(ui, &graph, &mut state.selected, &layout, &routed_edges);
             });
         }
     );
