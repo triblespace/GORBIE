@@ -224,8 +224,8 @@ pub fn state(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn reactive(input: TokenStream) -> TokenStream {
-    let code_text = LitStr::new(&macro_source_text("reactive!", &input), Span::call_site());
+pub fn react(input: TokenStream) -> TokenStream {
+    let code_text = LitStr::new(&macro_source_text("react!", &input), Span::call_site());
     let input = parse_macro_input!(input as ReactiveInput);
     let gorbie = gorbie_path();
     let ReactiveInput {

@@ -19,7 +19,7 @@ fn main() {
                 "# GORBIE!
 This is **GORBIE!**, a _minimalist_ notebook environment for **Rust**!
 
-It's much closer to a library and a shell script than the heavy environemnts
+It's much closer to a library and a shell script than the heavy environments
 that notebooks typically provide. Which makes it much easier to integrate
 into your existing projects and workflows.
 
@@ -65,10 +65,35 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         });
     });
 
+    state!(_note_open = false, move |ui, open: &mut bool| {
+        ui.with_padding(padding, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Pinned note:");
+                let anchor = ui.button("Toggle note");
+                if anchor.clicked() {
+                    *open = !*open;
+                }
+                let _ = widgets::marginalia::pinned_note(
+                    ui,
+                    &anchor,
+                    open,
+                    egui::RectAlign::RIGHT_START,
+                    280.0,
+                    |ui| {
+                        md!(
+                            ui,
+                            "**Pinned note**\n\nAnchored to the button response.\n\n- Pass a `RectAlign` to position the popup.\n- Control visibility with a mutable `bool`."
+                        );
+                    },
+                );
+            });
+        });
+    });
+
     state!(slider = (0.5).into(), move |ui, value: &mut NotifiedState<_>| {
         ui.with_padding(padding, |ui| {
             if ui
-                .add(widgets::Slider::new(value.deref_mut(), 0.0..=1.0).text("input"))
+                .add(widgets:: Slider::new(value.deref_mut(), 0.0..=1.0).text("input"))
                 .changed()
             {
                 value.notify();
@@ -79,13 +104,13 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
     react!(progress = [slider], move |ctx| {
         //Derives are executed on a new thread, so we can sleep or perform heavy computations here.
         // Sleep a bit so we can clearly see the "computing" hatch pattern.
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        //std::thread::sleep(std::time::Duration::from_secs(1));
         let slider = ctx.ready(slider).unwrap_or_default();
         slider * 0.5
     });
 
     view!(move |ui| {
-        ui.with_padding(padding, |ui| {
+        ui.with_padding(0, |ui| {
             let Some(progress) = ui.try_ready(progress) else {
                 return;
             };
