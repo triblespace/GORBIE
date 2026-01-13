@@ -56,14 +56,8 @@ struct CodeNoteDraw {
     code: String,
 }
 
-/// A notebook is a collection of cards.
-/// Each card is a piece of content that can be displayed in the notebook.
-/// Cards can be stateless or stateful.
-pub struct Notebook {
-    title: String,
-    header_title: egui::WidgetText,
-    pub cards: Vec<Box<dyn cards::Card + 'static>>,
-    pub(crate) state_store: Arc<StateStore>,
+#[derive(Clone, Default)]
+struct NotebookState {
     code_notes_open: Vec<bool>,
     code_note_offsets: Vec<egui::Vec2>,
     code_note_anchors: Vec<FloatingAnchor>,
@@ -72,6 +66,33 @@ pub struct Notebook {
     card_detached_positions: Vec<egui::Pos2>,
     card_detached_anchors: Vec<FloatingAnchor>,
     card_placeholder_sizes: Vec<egui::Vec2>,
+}
+
+impl NotebookState {
+    fn sync_len(&mut self, len: usize) {
+        self.code_notes_open.resize(len, false);
+        self.code_note_offsets.resize(len, egui::Vec2::ZERO);
+        self.code_note_anchors
+            .resize(len, FloatingAnchor::Content);
+        self.code_note_viewport_positions
+            .resize(len, egui::Pos2::ZERO);
+        self.card_detached.resize(len, false);
+        self.card_detached_positions.resize(len, egui::Pos2::ZERO);
+        self.card_detached_anchors
+            .resize(len, FloatingAnchor::Content);
+        self.card_placeholder_sizes
+            .resize(len, egui::Vec2::ZERO);
+    }
+}
+
+/// A notebook is a collection of cards.
+/// Each card is a piece of content that can be displayed in the notebook.
+/// Cards can be stateless or stateful.
+pub struct Notebook {
+    title: String,
+    header_title: egui::WidgetText,
+    pub cards: Vec<Box<dyn cards::Card + 'static>>,
+    pub(crate) state_store: Arc<StateStore>,
 }
 
 const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
@@ -99,27 +120,15 @@ impl Notebook {
             header_title,
             cards: Vec::new(),
             state_store: Arc::new(StateStore::new()),
-            code_notes_open: Vec::new(),
-            code_note_offsets: Vec::new(),
-            code_note_anchors: Vec::new(),
-            code_note_viewport_positions: Vec::new(),
-            card_detached: Vec::new(),
-            card_detached_positions: Vec::new(),
-            card_detached_anchors: Vec::new(),
-            card_placeholder_sizes: Vec::new(),
         }
     }
 
     pub fn push(&mut self, card: Box<dyn cards::Card>) {
         self.cards.push(card);
-        self.code_notes_open.push(false);
-        self.code_note_offsets.push(egui::Vec2::ZERO);
-        self.code_note_anchors.push(FloatingAnchor::Content);
-        self.code_note_viewport_positions.push(egui::Pos2::ZERO);
-        self.card_detached.push(false);
-        self.card_detached_positions.push(egui::Pos2::ZERO);
-        self.card_detached_anchors.push(FloatingAnchor::Content);
-        self.card_placeholder_sizes.push(egui::Vec2::ZERO);
+    }
+
+    fn state_id(&self) -> egui::Id {
+        egui::Id::new(("gorbie_notebook_state", self.title.as_str()))
     }
 
     pub fn run(self) -> eframe::Result {
@@ -160,13 +169,17 @@ impl Notebook {
 
 impl eframe::App for Notebook {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical()
-                .auto_shrink([false; 2])
-                .show_viewport(ui, |ui, viewport| {
-                    let rect = ui.max_rect();
-                    let clip_rect = ui.clip_rect();
-                    let scroll_y = viewport.min.y;
+        let state_id = self.state_id();
+        ctx.data_mut(|data| {
+            let runtime =
+                data.get_temp_mut_or_insert_with(state_id, NotebookState::default);
+            egui::CentralPanel::default().show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false; 2])
+                    .show_viewport(ui, |ui, viewport| {
+                        let rect = ui.max_rect();
+                        let clip_rect = ui.clip_rect();
+                        let scroll_y = viewport.min.y;
 
                     let column_width = NOTEBOOK_COLUMN_WIDTH;
                     let left_margin_width = 0.0;
@@ -245,45 +258,26 @@ impl eframe::App for Notebook {
                                 ui.add_space(12.0);
 
                                 let divider_x_range = ui.max_rect().x_range();
-
-                                self.code_notes_open.resize(self.cards.len(), false);
-                                self.code_note_offsets
-                                    .resize(self.cards.len(), egui::Vec2::ZERO);
-                                self.code_note_anchors
-                                    .resize(self.cards.len(), FloatingAnchor::Content);
-                                self.code_note_viewport_positions
-                                    .resize(self.cards.len(), egui::Pos2::ZERO);
-                                self.card_detached.resize(self.cards.len(), false);
-                                self.card_detached_positions
-                                    .resize(self.cards.len(), egui::Pos2::ZERO);
-                                self.card_detached_anchors
-                                    .resize(self.cards.len(), FloatingAnchor::Content);
-                                self.card_placeholder_sizes
-                                    .resize(self.cards.len(), egui::Vec2::ZERO);
+                                runtime.sync_len(self.cards.len());
 
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 let mut max_code_note_bottom_content_y: Option<f32> = None;
                                 let mut floating_elements: Vec<FloatingElement> = Vec::new();
                                 let mut dragged_layer_ids: Vec<egui::LayerId> = Vec::new();
                                 for (i, card) in self.cards.iter_mut().enumerate() {
-                                    let code_note_open = self
-                                        .code_notes_open
+                                    let code_note_open = runtime.code_notes_open
                                         .get_mut(i)
                                         .expect("code_notes_open synced to cards");
-                                    let card_detached = self
-                                        .card_detached
+                                    let card_detached = runtime.card_detached
                                         .get_mut(i)
                                         .expect("card_detached synced to cards");
-                                    let card_detached_position = self
-                                        .card_detached_positions
+                                    let card_detached_position = runtime.card_detached_positions
                                         .get_mut(i)
                                         .expect("card_detached_positions synced to cards");
-                                    let card_detached_anchor = self
-                                        .card_detached_anchors
+                                    let card_detached_anchor = runtime.card_detached_anchors
                                         .get_mut(i)
                                         .expect("card_detached_anchors synced to cards");
-                                    let card_placeholder_size = self
-                                        .card_placeholder_sizes
+                                    let card_placeholder_size = runtime.card_placeholder_sizes
                                         .get_mut(i)
                                         .expect("card_placeholder_sizes synced to cards");
                                     ui.push_id(i, |ui| {
@@ -564,8 +558,7 @@ impl eframe::App for Notebook {
                                     for element in floating_elements.iter() {
                                         match element {
                                             FloatingElement::DetachedCard(draw) => {
-                                                let current_anchor = *self
-                                                    .card_detached_anchors
+                                                let current_anchor = *runtime.card_detached_anchors
                                                     .get(draw.index)
                                                     .expect(
                                                         "card_detached_anchors synced to cards",
@@ -574,22 +567,19 @@ impl eframe::App for Notebook {
                                                     continue;
                                                 }
 
-                                                let card_detached = self
-                                                    .card_detached
+                                                let card_detached = runtime.card_detached
                                                     .get_mut(draw.index)
                                                     .expect("card_detached synced to cards");
                                                 if !*card_detached {
                                                     continue;
                                                 }
 
-                                                let card_detached_position = self
-                                                    .card_detached_positions
+                                                let card_detached_position = runtime.card_detached_positions
                                                     .get_mut(draw.index)
                                                     .expect(
                                                         "card_detached_positions synced to cards",
                                                     );
-                                                let card_detached_anchor = self
-                                                    .card_detached_anchors
+                                                let card_detached_anchor = runtime.card_detached_anchors
                                                     .get_mut(draw.index)
                                                     .expect(
                                                         "card_detached_anchors synced to cards",
@@ -789,24 +779,20 @@ impl eframe::App for Notebook {
                                                     });
                                             }
                                             FloatingElement::CodeNote(draw) => {
-                                                let code_note_open = self
-                                                    .code_notes_open
+                                                let code_note_open = runtime.code_notes_open
                                                     .get_mut(draw.index)
                                                     .expect("code_notes_open synced to cards");
                                                 if !*code_note_open {
                                                     continue;
                                                 }
 
-                                                let code_note_offset = self
-                                                    .code_note_offsets
+                                                let code_note_offset = runtime.code_note_offsets
                                                     .get_mut(draw.index)
                                                     .expect("code_note_offsets synced to cards");
-                                                let code_note_anchor = self
-                                                    .code_note_anchors
+                                                let code_note_anchor = runtime.code_note_anchors
                                                     .get_mut(draw.index)
                                                     .expect("code_note_anchors synced to cards");
-                                                let code_note_viewport_position = self
-                                                    .code_note_viewport_positions
+                                                let code_note_viewport_position = runtime.code_note_viewport_positions
                                                     .get_mut(draw.index)
                                                     .expect(
                                                         "code_note_viewport_positions synced to cards",
@@ -1050,6 +1036,7 @@ impl eframe::App for Notebook {
                             });
                     });
                 });
+            });
         });
     }
 }
