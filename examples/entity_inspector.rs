@@ -1947,8 +1947,8 @@ impl Default for InspectorState {
 #[notebook]
 fn main(nb: &mut Notebook) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    stateless_card(nb, move |ui| {
-        ui.with_padding(padding, |ui| {
+    nb.view(move |ui| {
+        with_padding(ui, padding, |ui| {
             md!(
                 ui,
                 "# Hi Triblespace entity inspector (prototype)\n\nTables-first tiled layout, with orthogonal “subway” routing through gutters.\n\nClick a table to select."
@@ -1964,14 +1964,14 @@ fn main(nb: &mut Notebook) {
     let space = std::sync::Arc::new(space);
     let graph = std::sync::Arc::new(build_entity_graph(&space, &formatter_cache, limits));
 
-    let inspector = stateful_card(nb, InspectorState {
+    let inspector = nb.state(InspectorState {
             selected: default_selected,
             columns: 0,
             order: EntityOrder::Id,
             barycentric_passes: 4,
         },
         move |ui, state| {
-            ui.with_padding(padding, |ui| {
+            with_padding(ui, padding, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("COLUMNS").monospace().strong());
                     let max_columns = graph.nodes.len().max(1);
@@ -2045,8 +2045,8 @@ _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • 
         }
     );
 
-    stateless_card(nb, move |ui| {
-        ui.with_padding(padding, |ui| {
+    nb.view(move |ui| {
+        with_padding(ui, padding, |ui| {
             let selected = inspector
                 .read(ui)
                 .expect("inspector state missing")

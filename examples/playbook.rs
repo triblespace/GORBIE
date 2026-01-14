@@ -8,7 +8,7 @@
 
 use egui::Color32;
 use egui::{self};
-use GORBIE::cards::{stateful_card, stateless_card, UiExt as _};
+use GORBIE::cards::with_padding;
 use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::widgets;
@@ -437,8 +437,8 @@ impl Default for WidgetPlaybookState {
 #[notebook]
 fn main(nb: &mut Notebook) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    stateless_card(nb, move |ui| {
-        ui.with_padding(padding, |ui| {
+    nb.view(move |ui| {
+        with_padding(ui, padding, |ui| {
             // Introduction
             md!(
                 ui,
@@ -447,8 +447,8 @@ fn main(nb: &mut Notebook) {
         });
     });
 
-    stateless_card(nb, move |ui| {
-        ui.with_padding(padding, |ui| {
+    nb.view(move |ui| {
+        with_padding(ui, padding, |ui| {
             let light_foreground = GORBIE::themes::ral(9011);
             let light_background = GORBIE::themes::ral(7047);
             let light_surface = GORBIE::themes::ral(7047);
@@ -536,8 +536,8 @@ fn main(nb: &mut Notebook) {
         });
     });
 
-    let _palette_state = stateful_card(nb, PaletteState::default(), move |ui, state| {
-        ui.with_padding(padding, |ui| {
+    let _palette_state = nb.state(PaletteState::default(), move |ui, state| {
+        with_padding(ui, padding, |ui| {
             ui.label(egui::RichText::new("RAL PICKER").monospace().strong());
             ui.add_space(12.0);
 
@@ -613,8 +613,8 @@ fn main(nb: &mut Notebook) {
         });
     });
 
-    stateless_card(nb, move |ui| {
-        ui.with_padding(padding, |ui| {
+    nb.view(move |ui| {
+        with_padding(ui, padding, |ui| {
             md!(
                 ui,
                 "## Widget Playbook\n\nA quick showcase of our custom widgets. The value is normalized to `[0, 1]`."
@@ -622,9 +622,9 @@ fn main(nb: &mut Notebook) {
         });
     });
 
-    let widget_state = stateful_card(nb, WidgetPlaybookState::default(),
+    let widget_state = nb.state(WidgetPlaybookState::default(),
         move |ui, state| {
-            ui.with_padding(padding, |ui| {
+            with_padding(ui, padding, |ui| {
                 ui.label(egui::RichText::new("BUTTONS").monospace().strong());
                 ui.horizontal(|ui| {
                     let _ = ui.add(widgets::Button::new("BUTTON"));
@@ -647,8 +647,8 @@ fn main(nb: &mut Notebook) {
         }
     );
 
-    stateless_card(nb, move |ui| {
-        ui.with_padding(padding, |ui| {
+    nb.view(move |ui| {
+        with_padding(ui, padding, |ui| {
             ui.label(egui::RichText::new("SLIDER + METERS").monospace().strong());
 
             let mut state = widget_state
@@ -680,8 +680,8 @@ fn main(nb: &mut Notebook) {
         });
     });
 
-    stateless_card(nb, move |ui| {
-        ui.with_padding(padding, |ui| {
+    nb.view(move |ui| {
+        with_padding(ui, padding, |ui| {
             ui.label(egui::RichText::new("HISTOGRAM").monospace().strong());
             ui.monospace("Uses COUNT/BYTES + slider to shift the synthetic distribution.");
 

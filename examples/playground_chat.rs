@@ -25,7 +25,7 @@ use triblespace::prelude::blobschemas::LongString;
 use triblespace::prelude::valueschemas::{Blake3, GenId, Handle, NsTAIInterval, ShortString};
 use triblespace::prelude::*;
 
-use GORBIE::cards::{stateful_card, UiExt as _};
+use GORBIE::cards::with_padding;
 use GORBIE::dataflow::ComputedState;
 use GORBIE::{md, notebook, widgets, Notebook};
 
@@ -286,13 +286,13 @@ fn main(nb: &mut Notebook) {
         .unwrap_or_else(|| "./playground.pile".to_owned());
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
 
-    let _chat = stateful_card(nb, {
+    let _chat = nb.state({
             let mut initial = ChatState::default();
             initial.pile_path = default_path;
             initial
         },
         move |ui, state| {
-            ui.with_padding(padding, |ui| {
+            with_padding(ui, padding, |ui| {
                 md!(ui, "# Playground chat\n\nQueue requests into a triblespace pile and view responses.");
 
                 ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);

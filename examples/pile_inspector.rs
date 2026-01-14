@@ -35,7 +35,7 @@ use triblespace::core::value::schemas::hash::{Blake3, Handle};
 use triblespace::core::value::schemas::time::NsTAIInterval;
 use triblespace::macros::{find, pattern};
 use triblespace::prelude::View;
-use GORBIE::cards::{stateful_card, stateless_card, UiExt as _};
+use GORBIE::cards::with_padding;
 use GORBIE::dataflow::ComputedState;
 use GORBIE::md;
 use GORBIE::notebook;
@@ -1727,7 +1727,7 @@ fn main(nb: &mut Notebook) {
         .unwrap_or_else(|| "./repo.pile".to_owned());
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
 
-    let inspector = stateful_card(nb, InspectorState {
+    let inspector = nb.state(InspectorState {
             pile_path: default_path,
             pile: None,
             pile_open_path: None,
@@ -1738,7 +1738,7 @@ fn main(nb: &mut Notebook) {
             summary_sim: SummarySimState::default(),
         },
         move |ui, state| {
-            ui.with_padding(padding, |ui| {
+            with_padding(ui, padding, |ui| {
                 md!(
                     ui,
                     "# Triblespace pile inspector\n\nOpen a `.pile` file on disk and inspect its blob and branch indices.\n\nTip: pass a path as the first CLI arg to prefill this field."
@@ -1784,8 +1784,8 @@ fn main(nb: &mut Notebook) {
         }
     );
 
-    let summary_tuning = stateful_card(nb, SummaryTuning::default(), move |ui, tuning| {
-        ui.with_padding(padding, |ui| {
+    let summary_tuning = nb.state(SummaryTuning::default(), move |ui, tuning| {
+        with_padding(ui, padding, |ui| {
             md!(ui, "## Summary knobs");
             ui.horizontal(|ui| {
                 ui.label("MODE:");
@@ -1848,8 +1848,8 @@ fn main(nb: &mut Notebook) {
         });
     });
 
-    stateless_card(nb, move |ui| {
-        ui.with_padding(padding, |ui| {
+    nb.view(move |ui| {
+        with_padding(ui, padding, |ui| {
             let mut state = inspector.read_mut(ui).expect("inspector state missing");
             md!(ui, "## Blob size distribution");
 
@@ -1993,9 +1993,9 @@ fn main(nb: &mut Notebook) {
         });
     });
 
-    stateless_card(nb, move |ui| {
+    nb.view(move |ui| {
         let summary_padding = egui::Margin::ZERO;
-        ui.with_padding(summary_padding, |ui| {
+        with_padding(ui, summary_padding, |ui| {
             let mut state = inspector.read_mut(ui).expect("inspector state missing");
             let tuning = summary_tuning.read(ui).expect("summary tuning missing");
             let now_ms = now_ms();
@@ -2174,8 +2174,8 @@ fn main(nb: &mut Notebook) {
         });
     });
 
-    stateless_card(nb, move |ui| {
-        ui.with_padding(padding, |ui| {
+    nb.view(move |ui| {
+        with_padding(ui, padding, |ui| {
             let mut state = inspector.read_mut(ui).expect("inspector state missing");
             md!(ui, "## Commit graph");
 
@@ -2199,8 +2199,8 @@ fn main(nb: &mut Notebook) {
         });
     });
 
-    stateless_card(nb, move |ui| {
-        ui.with_padding(padding, |ui| {
+    nb.view(move |ui| {
+        with_padding(ui, padding, |ui| {
             let mut state = inspector.read_mut(ui).expect("inspector state missing");
             md!(ui, "## Blobs");
 

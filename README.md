@@ -21,13 +21,13 @@ In such a setup, the `notebook.rs` script would look something like this:
 //! egui = "0.31"
 //! ```
 
-use GORBIE::cards::{stateful_card, stateless_card, UiExt as _, DEFAULT_CARD_PADDING};
+use GORBIE::cards::{with_padding, DEFAULT_CARD_PADDING};
 use GORBIE::{md, notebook, Notebook};
 
 #[notebook]
 fn main(nb: &mut Notebook) {
-    stateless_card(nb, |ui| {
-        ui.with_padding(DEFAULT_CARD_PADDING, |ui| {
+    nb.view(|ui| {
+        with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
             md!(
                 ui,
                 "# GORBIE!
@@ -41,14 +41,14 @@ Development is part of the [trible.space](https://trible.space) project.
         });
     });
 
-    let slider = stateful_card(nb, 0.5, |ui, value| {
-        ui.with_padding(DEFAULT_CARD_PADDING, |ui| {
+    let slider = nb.state(0.5, |ui, value| {
+        with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
             ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
         });
     });
 
-    stateless_card(nb, move |ui| {
-        ui.with_padding(DEFAULT_CARD_PADDING, |ui| {
+    nb.view(move |ui| {
+        with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
             let Some(value) = slider.read(ui) else {
                 return;
             };

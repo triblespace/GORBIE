@@ -5,7 +5,7 @@
 //! egui = "0.32"
 //! ```
 
-use GORBIE::cards::{stateful_card, stateless_card, UiExt as _};
+use GORBIE::cards::with_padding;
 use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::widgets;
@@ -14,8 +14,8 @@ use GORBIE::Notebook;
 #[notebook]
 fn main(nb: &mut Notebook) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    let _prompt = stateful_card(nb, "", move |ui, value| {
-        ui.with_padding(padding, |ui| {
+    let _prompt = nb.state("", move |ui, value| {
+        with_padding(ui, padding, |ui| {
             md!(ui,
             "# Candle
 In this notebook we're going to use huggingfaces `candle` crate, to create a simple prompt based chatbot.
@@ -31,7 +31,7 @@ In this notebook we're going to use huggingfaces `candle` crate, to create a sim
         });
     });
 
-    stateless_card(nb, move |ui| {
-        ui.with_padding(padding, |_ui| {});
+    nb.view(move |ui| {
+        with_padding(ui, padding, |_ui| {});
     });
 }

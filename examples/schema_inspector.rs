@@ -173,8 +173,8 @@ fn main(nb: &mut Notebook) {
     let metadata_set = build_schema_metadata(&mut blobs);
     let reader = blobs.reader().expect("metadata blob reader");
 
-    stateless_card(nb, move |ui| {
-        ui.with_padding(padding, |ui| {
+    nb.view(move |ui| {
+        with_padding(ui, padding, |ui| {
             ui.label(egui::RichText::new("Schema metadata").heading());
             ui.label("Built-in value and blob schemas with their discovery metadata.");
             ui.add_space(6.0);

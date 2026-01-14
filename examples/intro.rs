@@ -10,8 +10,8 @@ use GORBIE::prelude::*;
 #[notebook]
 fn main(nb: &mut Notebook) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    stateless_card(nb, move |ui| {
-        ui.with_padding(padding, |ui| {
+    nb.view(move |ui| {
+        with_padding(ui, padding, |ui| {
             md!(
                 ui,
                 "# GORBIE!
@@ -63,14 +63,14 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         });
     });
 
-    let slider = stateful_card(nb, 0.5, move |ui, value: &mut f32| {
-        ui.with_padding(padding, |ui| {
+    let slider = nb.state(0.5, move |ui, value: &mut f32| {
+        with_padding(ui, padding, |ui| {
             ui.add(widgets::Slider::new(value, 0.0..=1.0).text("input"));
         });
     });
 
-    let _progress = stateful_card(nb, ComputedState::<f32>::default(), move |ui, value| {
-        ui.with_padding(padding, |ui| {
+    let _progress = nb.state(ComputedState::<f32>::default(), move |ui, value| {
+        with_padding(ui, padding, |ui| {
             let slider = slider.read(ui).map(|value| *value).unwrap_or_default();
             let progress = *widgets::load_button(ui, value, "Compute", move || {
                 std::thread::sleep(std::time::Duration::from_secs(1));

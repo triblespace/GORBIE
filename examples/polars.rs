@@ -9,7 +9,7 @@
 //! ```
 
 use polars::prelude::*;
-use GORBIE::cards::{stateful_card, UiExt as _};
+use GORBIE::cards::with_padding;
 use GORBIE::dataflow::ComputedState;
 use GORBIE::md;
 use GORBIE::notebook;
@@ -19,8 +19,8 @@ use GORBIE::Notebook;
 #[notebook]
 fn main(nb: &mut Notebook) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    let _df = stateful_card(nb, ComputedState::<Option<DataFrame>>::default(), move |ui, value| {
-        ui.with_padding(padding, |ui| {
+    let _df = nb.state(ComputedState::<Option<DataFrame>>::default(), move |ui, value| {
+        with_padding(ui, padding, |ui| {
             md!(
                 ui,
                 "# Polars

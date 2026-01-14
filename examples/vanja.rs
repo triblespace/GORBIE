@@ -10,8 +10,8 @@ use GORBIE::prelude::*;
 #[notebook]
 fn main(nb: &mut Notebook) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    stateless_card(nb, move |ui| {
-        ui.with_padding(padding, |ui| {
+    nb.view(move |ui| {
+        with_padding(ui, padding, |ui| {
             md!(
                 ui,
                 "# GORBIE!
@@ -63,8 +63,8 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         });
     });
 
-    let _note_open = stateful_card(nb, false, move |ui, open: &mut bool| {
-        ui.with_padding(padding, |ui| {
+    let _note_open = nb.state(false, move |ui, open: &mut bool| {
+        with_padding(ui, padding, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Pinned note:");
                 let anchor = ui.button("Toggle note");
@@ -88,14 +88,14 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         });
     });
 
-    let slider = stateful_card(nb, 0.5, move |ui, value: &mut f32| {
-        ui.with_padding(padding, |ui| {
+    let slider = nb.state(0.5, move |ui, value: &mut f32| {
+        with_padding(ui, padding, |ui| {
             ui.add(widgets::Slider::new(value, 0.0..=1.0).text("input"));
         });
     });
 
-    stateless_card(nb, move |ui| {
-        ui.with_padding(0, |ui| {
+    nb.view(move |ui| {
+        with_padding(ui, 0, |ui| {
             let progress = slider
                 .read(ui)
                 .map(|value| *value)

@@ -2,7 +2,7 @@
 pub use crate::widgets;
 
 // Re-export macros and helpers
-pub use crate::cards::{stateful_card, stateless_card, UiExt as _};
+pub use crate::cards::with_padding;
 pub use crate::dataflow::ComputedState;
 pub use crate::md;
 pub use crate::notebook;

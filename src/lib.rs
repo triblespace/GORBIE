@@ -9,9 +9,9 @@
 //! value. Use `Option<T>` when a value may be absent while a computation runs.
 //!
 //! But sometimes that isn't enough, e.g. when you want to display some application
-//! global state. This is why `state!` and `view!` are carefully designed to stay
-//! independent from any dataflow runtime. Instead they can be used, like any other
-//! mutable rust type, via the typed `StateId` handle.
+//! global state. This is why `Notebook::state` and `Notebook::view` are carefully
+//! designed to stay independent from any dataflow runtime. Instead they can be used,
+//! like any other mutable rust type, via the typed `StateId` handle.
 //!
 
 #![allow(non_snake_case)]
@@ -24,7 +24,6 @@ pub mod themes;
 pub mod widgets;
 
 pub use gorbie_macros::notebook;
-pub use crate::cards::UiExt;
 
 use crate::themes::industrial_dark;
 use crate::themes::industrial_fonts;
@@ -146,6 +145,18 @@ impl Notebook {
             cards: Vec::new(),
             next_state_id: 0,
         }
+    }
+
+    pub fn view(&mut self, function: impl FnMut(&mut egui::Ui) + 'static) {
+        cards::stateless_card(self, function);
+    }
+
+    pub fn state<T: std::fmt::Debug + std::default::Default + Send + Sync + 'static>(
+        &mut self,
+        init: T,
+        function: impl FnMut(&mut egui::Ui, &mut T) + 'static,
+    ) -> state::StateId<T> {
+        cards::stateful_card(self, init, function)
     }
 
     pub fn push(&mut self, card: Box<dyn cards::Card>) {
