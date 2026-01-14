@@ -24,13 +24,12 @@ pub mod themes;
 pub mod widgets;
 
 pub use gorbie_macros::{notebook, state, view};
+pub use crate::cards::UiExt;
 
-use crate::state::StateStore;
 use crate::themes::industrial_dark;
 use crate::themes::industrial_fonts;
 use crate::themes::industrial_light;
 use eframe::egui::{self};
-use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FloatingAnchor {
@@ -92,7 +91,7 @@ pub struct Notebook {
     title: String,
     header_title: egui::WidgetText,
     pub cards: Vec<Box<dyn cards::Card + 'static>>,
-    pub(crate) state_store: Arc<StateStore>,
+    next_state_id: u64,
 }
 
 const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
@@ -119,7 +118,7 @@ impl Notebook {
             title,
             header_title,
             cards: Vec::new(),
-            state_store: Arc::new(StateStore::new()),
+            next_state_id: 0,
         }
     }
 
@@ -129,6 +128,13 @@ impl Notebook {
 
     fn state_id(&self) -> egui::Id {
         egui::Id::new(("gorbie_notebook_state", self.title.as_str()))
+    }
+
+    pub(crate) fn alloc_state_id<T>(&mut self) -> state::StateId<T> {
+        let id = self.next_state_id;
+        self.next_state_id = self.next_state_id.wrapping_add(1);
+        let scoped = self.state_id().with(("state", id));
+        state::StateId::new(scoped)
     }
 
     pub fn run(self) -> eframe::Result {
@@ -170,15 +176,17 @@ impl Notebook {
 impl eframe::App for Notebook {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let state_id = self.state_id();
-        ctx.data_mut(|data| {
-            let runtime =
-                data.get_temp_mut_or_insert_with(state_id, NotebookState::default);
-            egui::CentralPanel::default().show(ctx, |ui| {
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false; 2])
-                    .show_viewport(ui, |ui, viewport| {
-                        let rect = ui.max_rect();
-                        let clip_rect = ui.clip_rect();
+        let mut runtime = ctx.data_mut(|data| {
+            let slot = data.get_temp_mut_or_insert_with(state_id, NotebookState::default);
+            std::mem::take(slot)
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .show_viewport(ui, |ui, viewport| {
+                    let rect = ui.max_rect();
+                    let clip_rect = ui.clip_rect();
                         let scroll_y = viewport.min.y;
 
                     let column_width = NOTEBOOK_COLUMN_WIDTH;
@@ -343,11 +351,7 @@ impl eframe::App for Notebook {
                                                 .show(ui, |ui| {
                                                     ui.reset_style();
                                                     ui.set_width(card_width);
-                                                    let mut ctx = cards::CardContext::new(
-                                                        ui,
-                                                        self.state_store.as_ref(),
-                                                    );
-                                                    card.draw(&mut ctx);
+                                                    card.draw(ui);
                                                 });
                                             *card_placeholder_size = egui::vec2(
                                                 card_width,
@@ -712,13 +716,7 @@ impl eframe::App for Notebook {
                                                                 .show(ui, |ui| {
                                                                     ui.reset_style();
                                                                     ui.set_width(card_width);
-                                                                    let mut ctx =
-                                                                        cards::CardContext::new(
-                                                                            ui,
-                                                                            self.state_store
-                                                                                .as_ref(),
-                                                                        );
-                                                                    card.draw(&mut ctx);
+                                                                    card.draw(ui);
                                                                 });
                                                             handle_resp_local
                                                         });
@@ -1036,7 +1034,10 @@ impl eframe::App for Notebook {
                             });
                     });
                 });
-            });
+        });
+
+        ctx.data_mut(|data| {
+            data.insert_temp(state_id, runtime);
         });
     }
 }

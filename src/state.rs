@@ -1,9 +1,7 @@
-use std::any::Any;
-use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use eframe::egui;
 use parking_lot::RawRwLock;
 use parking_lot::RwLock;
 
@@ -12,7 +10,7 @@ pub type ArcWriteGuard<T> = parking_lot::lock_api::ArcRwLockWriteGuard<RawRwLock
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct StateId<T> {
-    key: StateKey,
+    id: egui::Id,
     _marker: PhantomData<fn() -> T>,
 }
 
@@ -24,84 +22,60 @@ impl<T> Clone for StateId<T> {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-struct StateKey(u64);
-
 impl<T> StateId<T> {
-    fn new(key: StateKey) -> Self {
+    pub(crate) fn new(id: egui::Id) -> Self {
         Self {
-            key,
+            id,
             _marker: PhantomData,
         }
     }
 
-    // Intentionally no public accessors; keep the key internal to the store.
-}
-
-pub struct StateStore {
-    next_id: AtomicU64,
-    entries: RwLock<HashMap<StateKey, Arc<StateEntry>>>,
-}
-
-struct StateEntry {
-    value: Box<dyn Any + Send + Sync>,
-    type_name: &'static str,
-}
-
-impl StateStore {
-    pub fn new() -> Self {
-        Self {
-            next_id: AtomicU64::new(1),
-            entries: RwLock::new(HashMap::new()),
-        }
+    pub(crate) fn id(self) -> egui::Id {
+        self.id
     }
+}
 
-    pub fn insert<T: Send + Sync + 'static>(&self, value: T) -> StateId<T> {
-        let key = StateKey(self.next_id.fetch_add(1, Ordering::Relaxed));
-        let entry = StateEntry {
-            value: Box::new(Arc::new(RwLock::new(value))),
-            type_name: std::any::type_name::<T>(),
-        };
-        self.entries.write().insert(key, Arc::new(entry));
-        StateId::new(key)
-    }
-
-    pub fn read<T: 'static>(&self, id: StateId<T>) -> Option<ArcReadGuard<T>> {
-        let state = self.state(id)?;
+impl<T: Send + Sync + 'static> StateId<T> {
+    pub fn read(self, ui: &egui::Ui) -> Option<ArcReadGuard<T>> {
+        let state = self.state_arc(ui)?;
         Some(state.read_arc())
     }
 
-    pub fn try_read<T: 'static>(&self, id: StateId<T>) -> Option<ArcReadGuard<T>> {
-        let state = self.state(id)?;
+    pub fn try_read(self, ui: &egui::Ui) -> Option<ArcReadGuard<T>> {
+        let state = self.state_arc(ui)?;
         state.try_read_arc()
     }
 
-    pub fn read_mut<T: 'static>(&self, id: StateId<T>) -> Option<ArcWriteGuard<T>> {
-        let state = self.state(id)?;
+    pub fn read_mut(self, ui: &egui::Ui) -> Option<ArcWriteGuard<T>> {
+        let state = self.state_arc(ui)?;
         Some(state.write_arc())
     }
 
-    pub fn try_read_mut<T: 'static>(&self, id: StateId<T>) -> Option<ArcWriteGuard<T>> {
-        let state = self.state(id)?;
+    pub fn try_read_mut(self, ui: &egui::Ui) -> Option<ArcWriteGuard<T>> {
+        let state = self.state_arc(ui)?;
         state.try_write_arc()
     }
 
-    fn state<T: 'static>(&self, id: StateId<T>) -> Option<Arc<RwLock<T>>> {
-        let entry = self.entry(id.key)?;
-        let state = entry
-            .value
-            .downcast_ref::<Arc<RwLock<T>>>()
-            .unwrap_or_else(|| {
-                panic!(
-                    "state type mismatch: expected {}, got {}",
-                    std::any::type_name::<T>(),
-                    entry.type_name
-                );
-            });
-        Some(Arc::clone(state))
+    pub(crate) fn state_or_init(
+        self,
+        ui: &egui::Ui,
+        init: &mut Option<T>,
+    ) -> Arc<RwLock<T>>
+    where
+        T: Default,
+    {
+        let state_id = self.id();
+        ui.ctx().data_mut(|data| {
+            data.get_temp_mut_or_insert_with(state_id, || {
+                Arc::new(RwLock::new(init.take().unwrap_or_default()))
+            })
+            .clone()
+        })
     }
 
-    fn entry(&self, key: StateKey) -> Option<Arc<StateEntry>> {
-        self.entries.read().get(&key).cloned()
+    fn state_arc(self, ui: &egui::Ui) -> Option<Arc<RwLock<T>>> {
+        let state_id = self.id();
+        ui.ctx()
+            .data_mut(|data| data.get_temp::<Arc<RwLock<T>>>(state_id))
     }
 }

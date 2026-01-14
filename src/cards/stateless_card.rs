@@ -1,18 +1,15 @@
 use crate::cards::Card;
-use crate::cards::CardContext;
 use crate::Notebook;
+use eframe::egui;
 
 pub struct StatelessCard {
-    function: Box<dyn FnMut(&mut CardContext)>,
+    function: Box<dyn FnMut(&mut egui::Ui)>,
     code: Option<String>,
 }
 
 impl Card for StatelessCard {
-    fn draw(&mut self, ctx: &mut CardContext) {
-        let CardContext { ui, store } = ctx;
-        ui.set_width(ui.available_width());
-        let mut ctx = CardContext::new(ui, store);
-        (self.function)(&mut ctx);
+    fn draw(&mut self, ui: &mut egui::Ui) {
+        (self.function)(ui);
     }
 
     fn code(&self) -> Option<&str> {
@@ -22,7 +19,7 @@ impl Card for StatelessCard {
 
 pub fn stateless_card(
     nb: &mut Notebook,
-    function: impl FnMut(&mut CardContext) + 'static,
+    function: impl FnMut(&mut egui::Ui) + 'static,
     code: Option<&str>,
 ) {
     nb.push(Box::new(StatelessCard {

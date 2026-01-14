@@ -96,7 +96,11 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
 
     view!(move |ui| {
         ui.with_padding(0, |ui| {
-            let progress = ui.read(slider).map(|value| *value).unwrap_or_default() * 0.5;
+            let progress = slider
+                .read(ui)
+                .map(|value| *value)
+                .unwrap_or_default()
+                * 0.5;
             md!(ui, "Progress: {:.2}%", progress * 100.0);
             ui.add(
                 widgets::ProgressBar::new(progress)

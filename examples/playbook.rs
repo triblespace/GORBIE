@@ -652,7 +652,9 @@ fn main() {
         ui.with_padding(padding, |ui| {
             ui.label(egui::RichText::new("SLIDER + METERS").monospace().strong());
 
-            let mut state = ui.read_mut(widget_state).expect("widget state missing");
+            let mut state = widget_state
+                .read_mut(ui)
+                .expect("widget state missing");
             let _ = ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).text("LEVEL"));
             let progress = state.progress;
 
@@ -684,7 +686,7 @@ fn main() {
             ui.label(egui::RichText::new("HISTOGRAM").monospace().strong());
             ui.monospace("Uses COUNT/BYTES + slider to shift the synthetic distribution.");
 
-            let state = ui.read(widget_state).expect("widget state missing");
+            let state = widget_state.read(ui).expect("widget state missing");
             let (progress, metric_bytes) = (state.progress, state.metric_bytes);
 
             let y_axis = if metric_bytes {

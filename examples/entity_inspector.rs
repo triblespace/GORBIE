@@ -2048,8 +2048,8 @@ _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • 
 
     view!(move |ui| {
         ui.with_padding(padding, |ui| {
-            let selected = ui
-                .read(inspector)
+            let selected = inspector
+                .read(ui)
                 .expect("inspector state missing")
                 .selected;
             md!(ui, "Selected entity: `{}`", id_short(selected));

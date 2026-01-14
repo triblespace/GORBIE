@@ -128,6 +128,10 @@ pub fn view(input: TokenStream) -> TokenStream {
     let gorbie = gorbie_path();
     let ViewInput { notebook, code } = input;
     let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| quote!(#expr));
+    let code = quote!({
+        use #gorbie::UiExt as _;
+        #code
+    });
 
     TokenStream::from(quote!({
         #gorbie::cards::stateless_card(#notebook, #code, Some(#code_text))
@@ -147,6 +151,10 @@ pub fn state(input: TokenStream) -> TokenStream {
     } = input;
     let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| quote!(#expr));
     let init_expr = quote!(#init);
+    let code = quote!({
+        use #gorbie::UiExt as _;
+        #code
+    });
 
     TokenStream::from(quote!(
         let #name = #gorbie::cards::stateful_card(

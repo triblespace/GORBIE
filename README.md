@@ -49,7 +49,7 @@ Development is part of the [trible.space](https://trible.space) project.
 
     view!(move |ui| {
         ui.with_padding(DEFAULT_CARD_PADDING, |ui| {
-            let Some(value) = ui.read(slider) else {
+            let Some(value) = slider.read(ui) else {
                 return;
             };
             ui.add(egui::ProgressBar::new(*value).text("output"));

@@ -1851,7 +1851,7 @@ fn main() {
 
     view!(move |ui| {
         ui.with_padding(padding, |ui| {
-            let mut state = ui.read_mut(inspector).expect("inspector state missing");
+            let mut state = inspector.read_mut(ui).expect("inspector state missing");
             md!(ui, "## Blob size distribution");
 
         ui.horizontal(|ui| {
@@ -1997,8 +1997,8 @@ fn main() {
     view!(move |ui| {
         let summary_padding = egui::Margin::ZERO;
         ui.with_padding(summary_padding, |ui| {
-            let mut state = ui.read_mut(inspector).expect("inspector state missing");
-            let tuning = ui.read(summary_tuning).expect("summary tuning missing");
+            let mut state = inspector.read_mut(ui).expect("inspector state missing");
+            let tuning = summary_tuning.read(ui).expect("summary tuning missing");
             let now_ms = now_ms();
             let bg_color = egui::Color32::from_rgb(8, 8, 8);
             let label_color = egui::Color32::from_rgb(245, 140, 45);
@@ -2177,7 +2177,7 @@ fn main() {
 
     view!(move |ui| {
         ui.with_padding(padding, |ui| {
-            let mut state = ui.read_mut(inspector).expect("inspector state missing");
+            let mut state = inspector.read_mut(ui).expect("inspector state missing");
             md!(ui, "## Commit graph");
 
             state.snapshot.poll();
@@ -2202,7 +2202,7 @@ fn main() {
 
     view!(move |ui| {
         ui.with_padding(padding, |ui| {
-            let mut state = ui.read_mut(inspector).expect("inspector state missing");
+            let mut state = inspector.read_mut(ui).expect("inspector state missing");
             md!(ui, "## Blobs");
 
         state.snapshot.poll();
