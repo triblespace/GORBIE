@@ -63,13 +63,13 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         });
     });
 
-    let slider = nb.state(0.5, move |ui, value: &mut f32| {
+    let slider = nb.state("slider", 0.5, move |ui, value: &mut f32| {
         with_padding(ui, padding, |ui| {
             ui.add(widgets::Slider::new(value, 0.0..=1.0).text("input"));
         });
     });
 
-    let _progress = nb.state(ComputedState::<f32>::default(), move |ui, value| {
+    let _progress = nb.state("progress", ComputedState::<f32>::default(), move |ui, value| {
         with_padding(ui, padding, |ui| {
             let slider = slider.read(ui).map(|value| *value).unwrap_or_default();
             let progress = *widgets::load_button(ui, value, "Compute", move || {

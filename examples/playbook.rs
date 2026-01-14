@@ -536,7 +536,7 @@ fn main(nb: &mut Notebook) {
         });
     });
 
-    let _palette_state = nb.state(PaletteState::default(), move |ui, state| {
+    let _palette_state = nb.state("palette_state", PaletteState::default(), move |ui, state| {
         with_padding(ui, padding, |ui| {
             ui.label(egui::RichText::new("RAL PICKER").monospace().strong());
             ui.add_space(12.0);
@@ -622,9 +622,8 @@ fn main(nb: &mut Notebook) {
         });
     });
 
-    let widget_state = nb.state(WidgetPlaybookState::default(),
-        move |ui, state| {
-            with_padding(ui, padding, |ui| {
+    let widget_state = nb.state("widget_state", WidgetPlaybookState::default(), move |ui, state| {
+        with_padding(ui, padding, |ui| {
                 ui.label(egui::RichText::new("BUTTONS").monospace().strong());
                 ui.horizontal(|ui| {
                     let _ = ui.add(widgets::Button::new("BUTTON"));
@@ -643,9 +642,8 @@ fn main(nb: &mut Notebook) {
                         "BYTES",
                     ));
                 });
-            });
-        }
-    );
+        });
+    });
 
     nb.view(move |ui| {
         with_padding(ui, padding, |ui| {

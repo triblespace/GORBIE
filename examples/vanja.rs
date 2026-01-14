@@ -63,7 +63,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         });
     });
 
-    let _note_open = nb.state(false, move |ui, open: &mut bool| {
+    let _note_open = nb.state("note_open", false, move |ui, open: &mut bool| {
         with_padding(ui, padding, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Pinned note:");
@@ -88,7 +88,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         });
     });
 
-    let slider = nb.state(0.5, move |ui, value: &mut f32| {
+    let slider = nb.state("slider", 0.5, move |ui, value: &mut f32| {
         with_padding(ui, padding, |ui| {
             ui.add(widgets::Slider::new(value, 0.0..=1.0).text("input"));
         });

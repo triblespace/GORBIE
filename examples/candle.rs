@@ -14,7 +14,7 @@ use GORBIE::Notebook;
 #[notebook]
 fn main(nb: &mut Notebook) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    let _prompt = nb.state("", move |ui, value| {
+    let _prompt = nb.state("prompt", "", move |ui, value| {
         with_padding(ui, padding, |ui| {
             md!(ui,
             "# Candle

@@ -41,7 +41,7 @@ Development is part of the [trible.space](https://trible.space) project.
         });
     });
 
-    let slider = nb.state(0.5, |ui, value| {
+    let slider = nb.state("slider", 0.5, |ui, value| {
         with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
             ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
         });

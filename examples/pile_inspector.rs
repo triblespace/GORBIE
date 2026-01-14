@@ -1727,7 +1727,9 @@ fn main(nb: &mut Notebook) {
         .unwrap_or_else(|| "./repo.pile".to_owned());
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
 
-    let inspector = nb.state(InspectorState {
+    let inspector = nb.state(
+        "inspector",
+        InspectorState {
             pile_path: default_path,
             pile: None,
             pile_open_path: None,
@@ -1784,7 +1786,7 @@ fn main(nb: &mut Notebook) {
         }
     );
 
-    let summary_tuning = nb.state(SummaryTuning::default(), move |ui, tuning| {
+    let summary_tuning = nb.state("summary_tuning", SummaryTuning::default(), move |ui, tuning| {
         with_padding(ui, padding, |ui| {
             md!(ui, "## Summary knobs");
             ui.horizontal(|ui| {

@@ -19,7 +19,10 @@ use GORBIE::Notebook;
 #[notebook]
 fn main(nb: &mut Notebook) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    let _df = nb.state(ComputedState::<Option<DataFrame>>::default(), move |ui, value| {
+    let _df = nb.state(
+        "dataframe",
+        ComputedState::<Option<DataFrame>>::default(),
+        move |ui, value| {
         with_padding(ui, padding, |ui| {
             md!(
                 ui,

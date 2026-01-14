@@ -79,7 +79,6 @@ struct NotebookApp {
 pub struct Notebook {
     state_id: egui::Id,
     cards: Vec<Box<dyn cards::Card + 'static>>,
-    next_state_id: u64,
 }
 
 const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
@@ -143,7 +142,6 @@ impl Notebook {
         Self {
             state_id: config.state_id(),
             cards: Vec::new(),
-            next_state_id: 0,
         }
     }
 
@@ -151,23 +149,25 @@ impl Notebook {
         cards::stateless_card(self, function);
     }
 
-    pub fn state<T: std::fmt::Debug + std::default::Default + Send + Sync + 'static>(
+    pub fn state<K, T>(
         &mut self,
+        key: &K,
         init: T,
         function: impl FnMut(&mut egui::Ui, &mut T) + 'static,
-    ) -> state::StateId<T> {
-        cards::stateful_card(self, init, function)
+    ) -> state::StateId<T>
+    where
+        K: std::hash::Hash + ?Sized,
+        T: std::fmt::Debug + std::default::Default + Send + Sync + 'static,
+    {
+        cards::stateful_card(self, key, init, function)
     }
 
     pub fn push(&mut self, card: Box<dyn cards::Card>) {
         self.cards.push(card);
     }
 
-    pub(crate) fn alloc_state_id<T>(&mut self) -> state::StateId<T> {
-        let id = self.next_state_id;
-        self.next_state_id = self.next_state_id.wrapping_add(1);
-        let scoped = self.state_id.with(("state", id));
-        state::StateId::new(scoped)
+    pub(crate) fn state_id_for<K: std::hash::Hash + ?Sized>(&self, key: &K) -> egui::Id {
+        self.state_id.with(("state", key))
     }
 }
 

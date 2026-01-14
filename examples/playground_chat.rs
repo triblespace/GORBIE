@@ -286,7 +286,7 @@ fn main(nb: &mut Notebook) {
         .unwrap_or_else(|| "./playground.pile".to_owned());
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
 
-    let _chat = nb.state({
+    let _chat = nb.state("chat", {
             let mut initial = ChatState::default();
             initial.pile_path = default_path;
             initial

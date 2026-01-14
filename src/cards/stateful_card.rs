@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 use crate::cards::Card;
 use crate::state::StateId;
 use crate::Notebook;
@@ -19,12 +21,17 @@ impl<T: std::fmt::Debug + std::default::Default + Send + Sync + 'static> Card fo
     }
 }
 
-pub fn stateful_card<T: std::fmt::Debug + std::default::Default + Send + Sync + 'static>(
+pub fn stateful_card<K, T>(
     nb: &mut Notebook,
+    key: &K,
     init: T,
     function: impl FnMut(&mut egui::Ui, &mut T) + 'static,
-) -> StateId<T> {
-    let state = nb.alloc_state_id();
+) -> StateId<T>
+where
+    K: Hash + ?Sized,
+    T: std::fmt::Debug + std::default::Default + Send + Sync + 'static,
+{
+    let state = StateId::new(nb.state_id_for(key));
     let handle = state;
     nb.push(Box::new(StatefulCard {
         state,

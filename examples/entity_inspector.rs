@@ -1964,7 +1964,9 @@ fn main(nb: &mut Notebook) {
     let space = std::sync::Arc::new(space);
     let graph = std::sync::Arc::new(build_entity_graph(&space, &formatter_cache, limits));
 
-    let inspector = nb.state(InspectorState {
+    let inspector = nb.state(
+        "inspector",
+        InspectorState {
             selected: default_selected,
             columns: 0,
             order: EntityOrder::Id,
