@@ -8,7 +8,7 @@
 use GORBIE::prelude::*;
 
 #[notebook]
-fn main(nb: &mut NotebookFrame) {
+fn main(nb: &mut Notebook) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
     stateless_card(nb, move |ui| {
         ui.with_padding(padding, |ui| {

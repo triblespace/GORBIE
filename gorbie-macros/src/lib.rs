@@ -48,7 +48,7 @@ pub fn notebook(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut setup_stmts: Vec<syn::Stmt> = Vec::new();
     if let Some(name) = name {
         setup_stmts.push(syn::parse_quote!(
-            let __gorbie_notebook_owner = #gorbie::Notebook::new(#name);
+            let __gorbie_notebook_owner = #gorbie::NotebookConfig::new(#name);
         ));
     } else {
         setup_stmts.push(syn::parse_quote!(let __gorbie_notebook_file = file!();));
@@ -59,7 +59,8 @@ pub fn notebook(attr: TokenStream, item: TokenStream) -> TokenStream {
                 .unwrap_or(__gorbie_notebook_file);
         ));
         setup_stmts.push(syn::parse_quote!(
-            let __gorbie_notebook_owner = #gorbie::Notebook::new(__gorbie_notebook_name);
+            let __gorbie_notebook_owner =
+                #gorbie::NotebookConfig::new(__gorbie_notebook_name);
         ));
     }
 

@@ -12,7 +12,7 @@ use GORBIE::cards::{stateful_card, stateless_card, UiExt as _};
 use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::widgets;
-use GORBIE::NotebookFrame;
+use GORBIE::Notebook;
 
 fn to_hex(c: Color32) -> String {
     let r = c.r();
@@ -435,7 +435,7 @@ impl Default for WidgetPlaybookState {
 }
 
 #[notebook]
-fn main(nb: &mut NotebookFrame) {
+fn main(nb: &mut Notebook) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
     stateless_card(nb, move |ui| {
         ui.with_padding(padding, |ui| {

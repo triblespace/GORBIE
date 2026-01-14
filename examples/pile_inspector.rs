@@ -40,7 +40,7 @@ use GORBIE::dataflow::ComputedState;
 use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::widgets;
-use GORBIE::NotebookFrame;
+use GORBIE::Notebook;
 
 const HISTOGRAM_MIN_BUCKET_EXP: u32 = 6; // 64B (pile record alignment).
 const HISTOGRAM_MAX_BUCKET_EXP: u32 = 36; // 64 GiB and above go into the last bucket.
@@ -1721,7 +1721,7 @@ impl Default for InspectorState {
 }
 
 #[notebook]
-fn main(nb: &mut NotebookFrame) {
+fn main(nb: &mut Notebook) {
     let default_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "./repo.pile".to_owned());

@@ -14,10 +14,10 @@ use GORBIE::dataflow::ComputedState;
 use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::widgets::{dataframe, load_auto};
-use GORBIE::NotebookFrame;
+use GORBIE::Notebook;
 
 #[notebook]
-fn main(nb: &mut NotebookFrame) {
+fn main(nb: &mut Notebook) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
     let _df = stateful_card(nb, ComputedState::<Option<DataFrame>>::default(), move |ui, value| {
         ui.with_padding(padding, |ui| {

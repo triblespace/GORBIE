@@ -66,20 +66,19 @@ impl NotebookState {
     }
 }
 
-/// A notebook provides configuration for a collection of cards rendered each frame.
-pub struct Notebook {
+/// Configuration for a notebook application.
+pub struct NotebookConfig {
     title: String,
-    header_title: egui::WidgetText,
 }
 
 struct NotebookApp {
-    notebook: Notebook,
-    body: Box<dyn for<'a> FnMut(&mut NotebookFrame<'a>)>,
+    config: NotebookConfig,
+    body: Box<dyn FnMut(&mut Notebook)>,
 }
 
 /// Frame-scoped notebook builder used to collect cards in immediate mode.
-pub struct NotebookFrame<'a> {
-    notebook: &'a Notebook,
+pub struct Notebook {
+    state_id: egui::Id,
     cards: Vec<Box<dyn cards::Card + 'static>>,
     next_state_id: u64,
 }
@@ -87,42 +86,28 @@ pub struct NotebookFrame<'a> {
 const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
 const NOTEBOOK_MIN_HEIGHT: f32 = 360.0;
 
-impl Default for Notebook {
+impl Default for NotebookConfig {
     fn default() -> Self {
         Self::new(String::new())
     }
 }
 
-impl Notebook {
+impl NotebookConfig {
     pub fn new(name: impl Into<String>) -> Self {
         let title = name.into();
-        let header_title = if title.is_empty() {
-            egui::WidgetText::default()
-        } else {
-            egui::RichText::new(title.to_uppercase())
-                .monospace()
-                .strong()
-                .into()
-        };
-        Self {
-            title,
-            header_title,
-        }
+        Self { title }
     }
 
     fn state_id(&self) -> egui::Id {
         egui::Id::new(("gorbie_notebook_state", self.title.as_str()))
     }
 
-    pub fn run(
-        self,
-        body: impl for<'a> FnMut(&mut NotebookFrame<'a>) + 'static,
-    ) -> eframe::Result {
-        let notebook = self;
-        let window_title = if notebook.title.is_empty() {
+    pub fn run(self, body: impl FnMut(&mut Notebook) + 'static) -> eframe::Result {
+        let config = self;
+        let window_title = if config.title.is_empty() {
             "GORBIE".to_owned()
         } else {
-            notebook.title.clone()
+            config.title.clone()
         };
 
         let mut native_options = eframe::NativeOptions::default();
@@ -148,16 +133,16 @@ impl Notebook {
                 cc.egui_ctx
                     .set_style_of(egui::Theme::Dark, industrial_dark());
 
-                Ok(Box::new(NotebookApp { notebook, body }))
+                Ok(Box::new(NotebookApp { config, body }))
             }),
         )
     }
 }
 
-impl<'a> NotebookFrame<'a> {
-    fn new(notebook: &'a Notebook) -> Self {
+impl Notebook {
+    fn new(config: &NotebookConfig) -> Self {
         Self {
-            notebook,
+            state_id: config.state_id(),
             cards: Vec::new(),
             next_state_id: 0,
         }
@@ -170,18 +155,18 @@ impl<'a> NotebookFrame<'a> {
     pub(crate) fn alloc_state_id<T>(&mut self) -> state::StateId<T> {
         let id = self.next_state_id;
         self.next_state_id = self.next_state_id.wrapping_add(1);
-        let scoped = self.notebook.state_id().with(("state", id));
+        let scoped = self.state_id.with(("state", id));
         state::StateId::new(scoped)
     }
 }
 
 impl eframe::App for NotebookApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let notebook = &self.notebook;
-        let mut frame = NotebookFrame::new(notebook);
-        (self.body)(&mut frame);
+        let config = &self.config;
+        let mut notebook = Notebook::new(config);
+        (self.body)(&mut notebook);
 
-        let state_id = notebook.state_id();
+        let state_id = config.state_id();
         let mut runtime = ctx.data_mut(|data| {
             let slot = data.get_temp_mut_or_insert_with(state_id, NotebookState::default);
             std::mem::take(slot)
@@ -241,11 +226,12 @@ impl eframe::App for NotebookApp {
                                 // Theme switch is part of the page header (above the first card).
                                 ui.horizontal(|ui| {
                                     ui.add_space(16.0);
-                                    if !notebook.header_title.is_empty() {
-                                        ui.add(
-                                            egui::Label::new(notebook.header_title.clone())
-                                                .truncate(),
-                                        );
+                                    if !config.title.is_empty() {
+                                        let header_title =
+                                            egui::RichText::new(config.title.to_uppercase())
+                                                .monospace()
+                                                .strong();
+                                        ui.add(egui::Label::new(header_title).truncate());
                                     }
 
                                     ui.with_layout(
@@ -272,12 +258,12 @@ impl eframe::App for NotebookApp {
                                 ui.add_space(12.0);
 
                                 let divider_x_range = ui.max_rect().x_range();
-                                runtime.sync_len(frame.cards.len());
+                                runtime.sync_len(notebook.cards.len());
 
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 let mut floating_elements: Vec<FloatingElement> = Vec::new();
                                 let mut dragged_layer_ids: Vec<egui::LayerId> = Vec::new();
-                                for (i, card) in frame.cards.iter_mut().enumerate() {
+                                for (i, card) in notebook.cards.iter_mut().enumerate() {
                                     let card_detached = runtime.card_detached
                                         .get_mut(i)
                                         .expect("card_detached synced to cards");
@@ -511,7 +497,7 @@ impl eframe::App for NotebookApp {
 
                                                 let card_width = draw.width;
                                                 let detached_id = draw.area_id;
-                                                let card: &mut dyn cards::Card = frame
+                                                let card: &mut dyn cards::Card = notebook
                                                     .cards
                                                     .get_mut(draw.index)
                                                     .expect("cards synced to floating_elements")

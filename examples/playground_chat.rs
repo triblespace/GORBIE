@@ -27,7 +27,7 @@ use triblespace::prelude::*;
 
 use GORBIE::cards::{stateful_card, UiExt as _};
 use GORBIE::dataflow::ComputedState;
-use GORBIE::{md, notebook, widgets, NotebookFrame};
+use GORBIE::{md, notebook, widgets, Notebook};
 
 mod playground {
     use super::*;
@@ -280,7 +280,7 @@ impl Default for ChatState {
 }
 
 #[notebook]
-fn main(nb: &mut NotebookFrame) {
+fn main(nb: &mut Notebook) {
     let default_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "./playground.pile".to_owned());

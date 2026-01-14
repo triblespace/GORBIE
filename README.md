@@ -22,10 +22,10 @@ In such a setup, the `notebook.rs` script would look something like this:
 //! ```
 
 use GORBIE::cards::{stateful_card, stateless_card, UiExt as _, DEFAULT_CARD_PADDING};
-use GORBIE::{md, notebook, NotebookFrame};
+use GORBIE::{md, notebook, Notebook};
 
 #[notebook]
-fn main(nb: &mut NotebookFrame) {
+fn main(nb: &mut Notebook) {
     stateless_card(nb, |ui| {
         ui.with_padding(DEFAULT_CARD_PADDING, |ui| {
             md!(

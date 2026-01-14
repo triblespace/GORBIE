@@ -1,6 +1,6 @@
 use crate::cards::Card;
 use crate::state::StateId;
-use crate::NotebookFrame;
+use crate::Notebook;
 use eframe::egui;
 
 type StatefulCardFn<T> = dyn FnMut(&mut egui::Ui, &mut T);
@@ -20,7 +20,7 @@ impl<T: std::fmt::Debug + std::default::Default + Send + Sync + 'static> Card fo
 }
 
 pub fn stateful_card<T: std::fmt::Debug + std::default::Default + Send + Sync + 'static>(
-    nb: &mut NotebookFrame<'_>,
+    nb: &mut Notebook,
     init: T,
     function: impl FnMut(&mut egui::Ui, &mut T) + 'static,
 ) -> StateId<T> {
