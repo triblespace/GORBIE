@@ -35,12 +35,12 @@ use triblespace::core::value::schemas::hash::{Blake3, Handle};
 use triblespace::core::value::schemas::time::NsTAIInterval;
 use triblespace::macros::{find, pattern};
 use triblespace::prelude::View;
+use GORBIE::cards::{stateful_card, stateless_card, UiExt as _};
 use GORBIE::dataflow::ComputedState;
 use GORBIE::md;
 use GORBIE::notebook;
-use GORBIE::state;
-use GORBIE::view;
 use GORBIE::widgets;
+use GORBIE::NotebookFrame;
 
 const HISTOGRAM_MIN_BUCKET_EXP: u32 = 6; // 64B (pile record alignment).
 const HISTOGRAM_MAX_BUCKET_EXP: u32 = 36; // 64 GiB and above go into the last bucket.
@@ -1721,14 +1721,13 @@ impl Default for InspectorState {
 }
 
 #[notebook]
-fn main() {
+fn main(nb: &mut NotebookFrame) {
     let default_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "./repo.pile".to_owned());
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
 
-    state!(
-        inspector = InspectorState {
+    let inspector = stateful_card(nb, InspectorState {
             pile_path: default_path,
             pile: None,
             pile_open_path: None,
@@ -1785,7 +1784,7 @@ fn main() {
         }
     );
 
-    state!(summary_tuning = SummaryTuning::default(), move |ui, tuning| {
+    let summary_tuning = stateful_card(nb, SummaryTuning::default(), move |ui, tuning| {
         ui.with_padding(padding, |ui| {
             md!(ui, "## Summary knobs");
             ui.horizontal(|ui| {
@@ -1849,7 +1848,7 @@ fn main() {
         });
     });
 
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         ui.with_padding(padding, |ui| {
             let mut state = inspector.read_mut(ui).expect("inspector state missing");
             md!(ui, "## Blob size distribution");
@@ -1994,7 +1993,7 @@ fn main() {
         });
     });
 
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         let summary_padding = egui::Margin::ZERO;
         ui.with_padding(summary_padding, |ui| {
             let mut state = inspector.read_mut(ui).expect("inspector state missing");
@@ -2175,7 +2174,7 @@ fn main() {
         });
     });
 
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         ui.with_padding(padding, |ui| {
             let mut state = inspector.read_mut(ui).expect("inspector state missing");
             md!(ui, "## Commit graph");
@@ -2200,7 +2199,7 @@ fn main() {
         });
     });
 
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         ui.with_padding(padding, |ui| {
             let mut state = inspector.read_mut(ui).expect("inspector state missing");
             md!(ui, "## Blobs");

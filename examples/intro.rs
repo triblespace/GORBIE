@@ -8,9 +8,9 @@
 use GORBIE::prelude::*;
 
 #[notebook]
-fn main() {
+fn main(nb: &mut NotebookFrame) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         ui.with_padding(padding, |ui| {
             md!(
                 ui,
@@ -63,13 +63,13 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         });
     });
 
-    state!(slider = 0.5, move |ui, value: &mut f32| {
+    let slider = stateful_card(nb, 0.5, move |ui, value: &mut f32| {
         ui.with_padding(padding, |ui| {
             ui.add(widgets::Slider::new(value, 0.0..=1.0).text("input"));
         });
     });
 
-    state!(_progress = ComputedState::<f32>::default(), move |ui, value| {
+    let _progress = stateful_card(nb, ComputedState::<f32>::default(), move |ui, value| {
         ui.with_padding(padding, |ui| {
             let slider = slider.read(ui).map(|value| *value).unwrap_or_default();
             let progress = *widgets::load_button(ui, value, "Compute", move || {

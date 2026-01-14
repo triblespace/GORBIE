@@ -167,13 +167,13 @@ fn render_schema_sections(
 }
 
 #[notebook]
-fn main() {
+fn main(nb: &mut NotebookFrame) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
     let mut blobs = MemoryBlobStore::<Blake3>::new();
     let metadata_set = build_schema_metadata(&mut blobs);
     let reader = blobs.reader().expect("metadata blob reader");
 
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         ui.with_padding(padding, |ui| {
             ui.label(egui::RichText::new("Schema metadata").heading());
             ui.label("Built-in value and blob schemas with their discovery metadata.");

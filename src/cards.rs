@@ -31,8 +31,4 @@ impl UiExt for egui::Ui {
 
 pub trait Card {
     fn draw(&mut self, ui: &mut egui::Ui);
-
-    fn code(&self) -> Option<&str> {
-        None
-    }
 }

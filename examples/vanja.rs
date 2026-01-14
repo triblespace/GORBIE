@@ -8,9 +8,9 @@
 use GORBIE::prelude::*;
 
 #[notebook]
-fn main() {
+fn main(nb: &mut NotebookFrame) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         ui.with_padding(padding, |ui| {
             md!(
                 ui,
@@ -63,7 +63,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         });
     });
 
-    state!(_note_open = false, move |ui, open: &mut bool| {
+    let _note_open = stateful_card(nb, false, move |ui, open: &mut bool| {
         ui.with_padding(padding, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Pinned note:");
@@ -88,13 +88,13 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         });
     });
 
-    state!(slider = 0.5, move |ui, value: &mut f32| {
+    let slider = stateful_card(nb, 0.5, move |ui, value: &mut f32| {
         ui.with_padding(padding, |ui| {
             ui.add(widgets::Slider::new(value, 0.0..=1.0).text("input"));
         });
     });
 
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         ui.with_padding(0, |ui| {
             let progress = slider
                 .read(ui)

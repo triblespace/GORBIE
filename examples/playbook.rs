@@ -8,11 +8,11 @@
 
 use egui::Color32;
 use egui::{self};
+use GORBIE::cards::{stateful_card, stateless_card, UiExt as _};
 use GORBIE::md;
 use GORBIE::notebook;
-use GORBIE::state;
-use GORBIE::view;
 use GORBIE::widgets;
+use GORBIE::NotebookFrame;
 
 fn to_hex(c: Color32) -> String {
     let r = c.r();
@@ -435,9 +435,9 @@ impl Default for WidgetPlaybookState {
 }
 
 #[notebook]
-fn main() {
+fn main(nb: &mut NotebookFrame) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         ui.with_padding(padding, |ui| {
             // Introduction
             md!(
@@ -447,7 +447,7 @@ fn main() {
         });
     });
 
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         ui.with_padding(padding, |ui| {
             let light_foreground = GORBIE::themes::ral(9011);
             let light_background = GORBIE::themes::ral(7047);
@@ -536,7 +536,7 @@ fn main() {
         });
     });
 
-    state!(_palette_state = PaletteState::default(), move |ui, state| {
+    let _palette_state = stateful_card(nb, PaletteState::default(), move |ui, state| {
         ui.with_padding(padding, |ui| {
             ui.label(egui::RichText::new("RAL PICKER").monospace().strong());
             ui.add_space(12.0);
@@ -613,7 +613,7 @@ fn main() {
         });
     });
 
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         ui.with_padding(padding, |ui| {
             md!(
                 ui,
@@ -622,8 +622,7 @@ fn main() {
         });
     });
 
-    state!(
-        widget_state = WidgetPlaybookState::default(),
+    let widget_state = stateful_card(nb, WidgetPlaybookState::default(),
         move |ui, state| {
             ui.with_padding(padding, |ui| {
                 ui.label(egui::RichText::new("BUTTONS").monospace().strong());
@@ -648,7 +647,7 @@ fn main() {
         }
     );
 
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         ui.with_padding(padding, |ui| {
             ui.label(egui::RichText::new("SLIDER + METERS").monospace().strong());
 
@@ -681,7 +680,7 @@ fn main() {
         });
     });
 
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         ui.with_padding(padding, |ui| {
             ui.label(egui::RichText::new("HISTOGRAM").monospace().strong());
             ui.monospace("Uses COUNT/BYTES + slider to shift the synthetic distribution.");

@@ -5,16 +5,16 @@
 //! egui = "0.32"
 //! ```
 
+use GORBIE::cards::{stateful_card, stateless_card, UiExt as _};
 use GORBIE::md;
 use GORBIE::notebook;
-use GORBIE::state;
-use GORBIE::view;
 use GORBIE::widgets;
+use GORBIE::NotebookFrame;
 
 #[notebook]
-fn main() {
+fn main(nb: &mut NotebookFrame) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    state!(_prompt = "", move |ui, value| {
+    let _prompt = stateful_card(nb, "", move |ui, value| {
         ui.with_padding(padding, |ui| {
             md!(ui,
             "# Candle
@@ -31,7 +31,7 @@ In this notebook we're going to use huggingfaces `candle` crate, to create a sim
         });
     });
 
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         ui.with_padding(padding, |_ui| {});
     });
 }

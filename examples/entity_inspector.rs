@@ -1945,9 +1945,9 @@ impl Default for InspectorState {
 }
 
 #[notebook]
-fn main() {
+fn main(nb: &mut NotebookFrame) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         ui.with_padding(padding, |ui| {
             md!(
                 ui,
@@ -1964,8 +1964,7 @@ fn main() {
     let space = std::sync::Arc::new(space);
     let graph = std::sync::Arc::new(build_entity_graph(&space, &formatter_cache, limits));
 
-    state!(
-        inspector = InspectorState {
+    let inspector = stateful_card(nb, InspectorState {
             selected: default_selected,
             columns: 0,
             order: EntityOrder::Id,
@@ -2046,7 +2045,7 @@ _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • 
         }
     );
 
-    view!(move |ui| {
+    stateless_card(nb, move |ui| {
         ui.with_padding(padding, |ui| {
             let selected = inspector
                 .read(ui)

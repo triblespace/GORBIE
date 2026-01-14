@@ -25,8 +25,9 @@ use triblespace::prelude::blobschemas::LongString;
 use triblespace::prelude::valueschemas::{Blake3, GenId, Handle, NsTAIInterval, ShortString};
 use triblespace::prelude::*;
 
+use GORBIE::cards::{stateful_card, UiExt as _};
 use GORBIE::dataflow::ComputedState;
-use GORBIE::{md, notebook, state, widgets};
+use GORBIE::{md, notebook, widgets, NotebookFrame};
 
 mod playground {
     use super::*;
@@ -279,14 +280,13 @@ impl Default for ChatState {
 }
 
 #[notebook]
-fn main() {
+fn main(nb: &mut NotebookFrame) {
     let default_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "./playground.pile".to_owned());
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
 
-    state!(
-        _chat = {
+    let _chat = stateful_card(nb, {
             let mut initial = ChatState::default();
             initial.pile_path = default_path;
             initial
