@@ -94,6 +94,11 @@ pub struct Notebook {
     next_state_id: u64,
 }
 
+struct NotebookApp {
+    notebook: Notebook,
+    body: Box<dyn FnMut(&mut Notebook)>,
+}
+
 const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
 const NOTEBOOK_MIN_HEIGHT: f32 = 360.0;
 
@@ -137,7 +142,10 @@ impl Notebook {
         state::StateId::new(scoped)
     }
 
-    pub fn run(self) -> eframe::Result {
+    pub fn run(
+        self,
+        body: impl FnMut(&mut Notebook) + 'static,
+    ) -> eframe::Result {
         let notebook = self;
         let window_title = if notebook.title.is_empty() {
             "GORBIE".to_owned()
@@ -152,6 +160,7 @@ impl Notebook {
             .with_inner_size(egui::vec2(1200.0, 800.0))
             .with_min_inner_size(egui::vec2(NOTEBOOK_COLUMN_WIDTH, NOTEBOOK_MIN_HEIGHT));
 
+        let body = Box::new(body);
         eframe::run_native(
             &window_title,
             native_options,
@@ -167,15 +176,20 @@ impl Notebook {
                 cc.egui_ctx
                     .set_style_of(egui::Theme::Dark, industrial_dark());
 
-                Ok(Box::new(notebook))
+                Ok(Box::new(NotebookApp { notebook, body }))
             }),
         )
     }
 }
 
-impl eframe::App for Notebook {
+impl eframe::App for NotebookApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let state_id = self.state_id();
+        let notebook = &mut self.notebook;
+        notebook.cards.clear();
+        notebook.next_state_id = 0;
+        (self.body)(notebook);
+
+        let state_id = notebook.state_id();
         let mut runtime = ctx.data_mut(|data| {
             let slot = data.get_temp_mut_or_insert_with(state_id, NotebookState::default);
             std::mem::take(slot)
@@ -236,9 +250,10 @@ impl eframe::App for Notebook {
                                 // Theme switch is part of the page header (above the first card).
                                 ui.horizontal(|ui| {
                                     ui.add_space(16.0);
-                                    if !self.header_title.is_empty() {
+                                    if !notebook.header_title.is_empty() {
                                         ui.add(
-                                            egui::Label::new(self.header_title.clone()).truncate(),
+                                            egui::Label::new(notebook.header_title.clone())
+                                                .truncate(),
                                         );
                                     }
 
@@ -266,13 +281,13 @@ impl eframe::App for Notebook {
                                 ui.add_space(12.0);
 
                                 let divider_x_range = ui.max_rect().x_range();
-                                runtime.sync_len(self.cards.len());
+                                runtime.sync_len(notebook.cards.len());
 
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 let mut max_code_note_bottom_content_y: Option<f32> = None;
                                 let mut floating_elements: Vec<FloatingElement> = Vec::new();
                                 let mut dragged_layer_ids: Vec<egui::LayerId> = Vec::new();
-                                for (i, card) in self.cards.iter_mut().enumerate() {
+                                for (i, card) in notebook.cards.iter_mut().enumerate() {
                                     let code_note_open = runtime.code_notes_open
                                         .get_mut(i)
                                         .expect("code_notes_open synced to cards");
@@ -605,7 +620,7 @@ impl eframe::App for Notebook {
 
                                                 let card_width = draw.width;
                                                 let detached_id = draw.area_id;
-                                                let card: &mut dyn cards::Card = self
+                                                let card: &mut dyn cards::Card = notebook
                                                     .cards
                                                     .get_mut(draw.index)
                                                     .expect("cards synced to floating_elements")

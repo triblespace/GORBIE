@@ -127,7 +127,7 @@ pub fn view(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as ViewInput);
     let gorbie = gorbie_path();
     let ViewInput { notebook, code } = input;
-    let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| quote!(#expr));
+    let notebook = notebook.map_or_else(|| quote!(__gorbie_notebook!()), |expr| quote!(#expr));
     let code = quote!({
         use #gorbie::UiExt as _;
         #code
@@ -149,7 +149,7 @@ pub fn state(input: TokenStream) -> TokenStream {
         init,
         code,
     } = input;
-    let notebook = notebook.map_or_else(|| quote!(&mut __gorbie_notebook!()), |expr| quote!(#expr));
+    let notebook = notebook.map_or_else(|| quote!(__gorbie_notebook!()), |expr| quote!(#expr));
     let init_expr = quote!(#init);
     let code = quote!({
         use #gorbie::UiExt as _;
@@ -175,7 +175,7 @@ pub fn notebook(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut setup_stmts: Vec<syn::Stmt> = Vec::new();
     if let Some(name) = name {
         setup_stmts.push(syn::parse_quote!(
-            let mut __gorbie_notebook_owner = #gorbie::Notebook::new(#name);
+            let __gorbie_notebook_owner = #gorbie::Notebook::new(#name);
         ));
     } else {
         setup_stmts.push(syn::parse_quote!(let __gorbie_notebook_file = file!();));
@@ -186,22 +186,27 @@ pub fn notebook(attr: TokenStream, item: TokenStream) -> TokenStream {
                 .unwrap_or(__gorbie_notebook_file);
         ));
         setup_stmts.push(syn::parse_quote!(
-            let mut __gorbie_notebook_owner = #gorbie::Notebook::new(__gorbie_notebook_name);
+            let __gorbie_notebook_owner = #gorbie::Notebook::new(__gorbie_notebook_name);
         ));
     }
 
-    setup_stmts.push(syn::parse_quote!(
-        macro_rules! __gorbie_notebook {
-            () => {
-                __gorbie_notebook_owner
-            };
-        }
-    ));
+    let body_stmts = input.block.stmts.clone();
+    let run_stmt: syn::Stmt = syn::parse_quote! {
+        __gorbie_notebook_owner
+            .run(|__gorbie_notebook_ctx| {
+                macro_rules! __gorbie_notebook {
+                    () => {
+                        __gorbie_notebook_ctx
+                    };
+                }
+                #(#body_stmts)*
+            })
+            .unwrap();
+    };
 
-    let mut stmts = Vec::with_capacity(setup_stmts.len() + input.block.stmts.len() + 1);
+    let mut stmts = Vec::with_capacity(setup_stmts.len() + 1);
     stmts.extend(setup_stmts);
-    stmts.extend(input.block.stmts.clone());
-    stmts.push(syn::parse_quote!(__gorbie_notebook!().run().unwrap();));
+    stmts.push(run_stmt);
     input.block.stmts = stmts;
 
     TokenStream::from(quote!(#input))
