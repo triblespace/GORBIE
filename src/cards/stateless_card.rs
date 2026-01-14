@@ -1,5 +1,5 @@
 use crate::cards::Card;
-use crate::Notebook;
+use crate::NotebookFrame;
 use eframe::egui;
 
 pub struct StatelessCard {
@@ -18,7 +18,7 @@ impl Card for StatelessCard {
 }
 
 pub fn stateless_card(
-    nb: &mut Notebook,
+    nb: &mut NotebookFrame<'_>,
     function: impl FnMut(&mut egui::Ui) + 'static,
     code: Option<&str>,
 ) {

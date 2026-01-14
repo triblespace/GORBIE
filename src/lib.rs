@@ -84,19 +84,22 @@ impl NotebookState {
     }
 }
 
-/// A notebook is a collection of cards.
-/// Each card is a piece of content that can be displayed in the notebook.
-/// Cards can be stateless or stateful.
+/// A notebook provides configuration for a collection of cards rendered each frame.
 pub struct Notebook {
     title: String,
     header_title: egui::WidgetText,
-    pub cards: Vec<Box<dyn cards::Card + 'static>>,
-    next_state_id: u64,
 }
 
 struct NotebookApp {
     notebook: Notebook,
-    body: Box<dyn FnMut(&mut Notebook)>,
+    body: Box<dyn for<'a> FnMut(&mut NotebookFrame<'a>)>,
+}
+
+/// Frame-scoped notebook builder used to collect cards in immediate mode.
+pub struct NotebookFrame<'a> {
+    notebook: &'a Notebook,
+    cards: Vec<Box<dyn cards::Card + 'static>>,
+    next_state_id: u64,
 }
 
 const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
@@ -122,29 +125,16 @@ impl Notebook {
         Self {
             title,
             header_title,
-            cards: Vec::new(),
-            next_state_id: 0,
         }
-    }
-
-    pub fn push(&mut self, card: Box<dyn cards::Card>) {
-        self.cards.push(card);
     }
 
     fn state_id(&self) -> egui::Id {
         egui::Id::new(("gorbie_notebook_state", self.title.as_str()))
     }
 
-    pub(crate) fn alloc_state_id<T>(&mut self) -> state::StateId<T> {
-        let id = self.next_state_id;
-        self.next_state_id = self.next_state_id.wrapping_add(1);
-        let scoped = self.state_id().with(("state", id));
-        state::StateId::new(scoped)
-    }
-
     pub fn run(
         self,
-        body: impl FnMut(&mut Notebook) + 'static,
+        body: impl for<'a> FnMut(&mut NotebookFrame<'a>) + 'static,
     ) -> eframe::Result {
         let notebook = self;
         let window_title = if notebook.title.is_empty() {
@@ -182,12 +172,32 @@ impl Notebook {
     }
 }
 
+impl<'a> NotebookFrame<'a> {
+    fn new(notebook: &'a Notebook) -> Self {
+        Self {
+            notebook,
+            cards: Vec::new(),
+            next_state_id: 0,
+        }
+    }
+
+    pub fn push(&mut self, card: Box<dyn cards::Card>) {
+        self.cards.push(card);
+    }
+
+    pub(crate) fn alloc_state_id<T>(&mut self) -> state::StateId<T> {
+        let id = self.next_state_id;
+        self.next_state_id = self.next_state_id.wrapping_add(1);
+        let scoped = self.notebook.state_id().with(("state", id));
+        state::StateId::new(scoped)
+    }
+}
+
 impl eframe::App for NotebookApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let notebook = &mut self.notebook;
-        notebook.cards.clear();
-        notebook.next_state_id = 0;
-        (self.body)(notebook);
+        let notebook = &self.notebook;
+        let mut frame = NotebookFrame::new(notebook);
+        (self.body)(&mut frame);
 
         let state_id = notebook.state_id();
         let mut runtime = ctx.data_mut(|data| {
@@ -281,13 +291,13 @@ impl eframe::App for NotebookApp {
                                 ui.add_space(12.0);
 
                                 let divider_x_range = ui.max_rect().x_range();
-                                runtime.sync_len(notebook.cards.len());
+                                runtime.sync_len(frame.cards.len());
 
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 let mut max_code_note_bottom_content_y: Option<f32> = None;
                                 let mut floating_elements: Vec<FloatingElement> = Vec::new();
                                 let mut dragged_layer_ids: Vec<egui::LayerId> = Vec::new();
-                                for (i, card) in notebook.cards.iter_mut().enumerate() {
+                                for (i, card) in frame.cards.iter_mut().enumerate() {
                                     let code_note_open = runtime.code_notes_open
                                         .get_mut(i)
                                         .expect("code_notes_open synced to cards");
@@ -620,7 +630,7 @@ impl eframe::App for NotebookApp {
 
                                                 let card_width = draw.width;
                                                 let detached_id = draw.area_id;
-                                                let card: &mut dyn cards::Card = notebook
+                                                let card: &mut dyn cards::Card = frame
                                                     .cards
                                                     .get_mut(draw.index)
                                                     .expect("cards synced to floating_elements")
