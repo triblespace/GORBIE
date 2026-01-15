@@ -774,35 +774,41 @@ impl eframe::App for NotebookApp {
                                                             .corner_radius(0.0)
                                                             .inner_margin(egui::Margin::ZERO);
 
-                                                        let mut handle_resp = None;
                                                         let inner = frame.show(ui, |ui| {
-                                                            let handle_height = 18.0;
-                                                            let previous_spacing =
-                                                                ui.spacing().item_spacing;
-                                                            ui.spacing_mut().item_spacing = egui::vec2(
-                                                                previous_spacing.x,
-                                                                0.0,
-                                                            );
-                                                            let (handle_rect, handle_resp_local) =
-                                                                ui.allocate_exact_size(
-                                                                    egui::vec2(
-                                                                        ui.available_width(),
-                                                                        handle_height,
-                                                                    ),
-                                                                    egui::Sense::click_and_drag(),
-                                                                );
-                                                            ui.spacing_mut().item_spacing =
-                                                                previous_spacing;
-                                                            if handle_resp_local.dragged() {
-                                                                ui.ctx().set_cursor_icon(
-                                                                    egui::CursorIcon::Grabbing,
-                                                                );
-                                                            } else if handle_resp_local.hovered() {
-                                                                ui.ctx().set_cursor_icon(
-                                                                    egui::CursorIcon::Grab,
-                                                                );
-                                                            }
+                                                            ui.reset_style();
+                                                            ui.set_width(card_width);
+                                                            card.draw(ui);
+                                                        });
 
+                                                        let handle_height = 18.0;
+                                                        let handle_rect = egui::Rect::from_min_size(
+                                                            inner.response.rect.min,
+                                                            egui::vec2(
+                                                                inner.response.rect.width(),
+                                                                handle_height,
+                                                            ),
+                                                        );
+                                                        let handle_id =
+                                                            ui.id().with("detached_handle");
+                                                        let handle_resp = ui.interact(
+                                                            handle_rect,
+                                                            handle_id,
+                                                            egui::Sense::click_and_drag(),
+                                                        );
+
+                                                        if handle_resp.dragged() {
+                                                            ui.ctx().set_cursor_icon(
+                                                                egui::CursorIcon::Grabbing,
+                                                            );
+                                                        } else if handle_resp.hovered() {
+                                                            ui.ctx().set_cursor_icon(
+                                                                egui::CursorIcon::Grab,
+                                                            );
+                                                        }
+
+                                                        if handle_resp.hovered()
+                                                            || handle_resp.dragged()
+                                                        {
                                                             let stripe_color =
                                                                 crate::themes::ral(9004);
                                                             let stripe_stroke = egui::Stroke::new(
@@ -814,11 +820,14 @@ impl eframe::App for NotebookApp {
                                                             let stripe_spacing = 3.0;
                                                             let mut stripe_y = handle_rect.top()
                                                                 + stripe_padding;
+                                                            let painter = ui
+                                                                .painter()
+                                                                .with_clip_rect(handle_rect);
                                                             while stripe_y
                                                                 <= handle_rect.bottom()
                                                                     - stripe_padding
                                                             {
-                                                                ui.painter().hline(
+                                                                painter.hline(
                                                                     stripe_x,
                                                                     stripe_y,
                                                                     stripe_stroke,
@@ -828,25 +837,12 @@ impl eframe::App for NotebookApp {
 
                                                             show_postit_tooltip(
                                                                 ui,
-                                                                &handle_resp_local,
+                                                                &handle_resp,
                                                                 "Dock card",
                                                             );
+                                                        }
 
-                                                            handle_resp =
-                                                                Some(handle_resp_local.clone());
-                                                            egui::Frame::group(ui.style())
-                                                                .stroke(egui::Stroke::NONE)
-                                                                .corner_radius(0.0)
-                                                                .inner_margin(egui::Margin::ZERO)
-                                                                .show(ui, |ui| {
-                                                                    ui.reset_style();
-                                                                    ui.set_width(card_width);
-                                                                    card.draw(ui);
-                                                                });
-                                                            handle_resp_local
-                                                        });
-
-                                                        if let Some(handle_resp) = handle_resp {
+                                                        {
                                                             if handle_resp.dragged() {
                                                                 ui.ctx().move_to_top(
                                                                     handle_resp.layer_id,
