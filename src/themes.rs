@@ -113,6 +113,10 @@ pub fn slider_style(_dark_mode: bool) -> GorbieSliderStyle {
     }
 }
 
+pub fn button_light_on() -> Color32 {
+    ral(2005)
+}
+
 impl From<&Style> for GorbieSliderStyle {
     fn from(style: &Style) -> Self {
         slider_style(style.visuals.dark_mode)
@@ -144,7 +148,7 @@ impl From<&Style> for GorbieToggleButtonStyle {
             shadow_offset: base.shadow_offset,
             rounding: 2.0,
             rail_bg: base.rail_bg,
-            led_on: ral(2005),
+            led_on: button_light_on(),
             led_off_towards_fill: 0.25,
         }
     }
@@ -163,7 +167,7 @@ impl From<&Style> for GorbieChoiceToggleStyle {
             segment_rounding: 2,
             rail_bg: base.rail_bg,
             segment_gap: 2.0,
-            led_on: ral(2005),
+            led_on: button_light_on(),
             led_off_towards_fill: 0.25,
         }
     }

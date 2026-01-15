@@ -11,6 +11,9 @@ pub struct Button {
     small: bool,
     selected: bool,
     fill: Option<Color32>,
+    light: Option<Color32>,
+    latched: bool,
+    latch_on_click: bool,
     gorbie_style: Option<GorbieButtonStyle>,
 }
 
@@ -21,6 +24,9 @@ impl Button {
             small: false,
             selected: false,
             fill: None,
+            light: None,
+            latched: false,
+            latch_on_click: false,
             gorbie_style: None,
         }
     }
@@ -39,6 +45,21 @@ impl Button {
         self.fill = Some(fill);
         self
     }
+
+    pub fn light(mut self, color: Color32) -> Self {
+        self.light = Some(color);
+        self
+    }
+
+    pub fn latched(mut self, latched: bool) -> Self {
+        self.latched = latched;
+        self
+    }
+
+    pub fn latch_on_click(mut self, latch_on_click: bool) -> Self {
+        self.latch_on_click = latch_on_click;
+        self
+    }
 }
 
 impl Widget for Button {
@@ -48,6 +69,9 @@ impl Widget for Button {
             small,
             selected,
             fill,
+            light,
+            latched,
+            latch_on_click,
             gorbie_style,
         } = self;
 
@@ -104,7 +128,11 @@ impl Widget for Button {
         let base_fill = fill.unwrap_or(gstyle.fill);
         let disabled_fill = crate::themes::blend(base_fill, visuals.window_fill, 0.65);
 
-        let is_down = enabled && response.is_pointer_button_down_on();
+        let mut latched = latched;
+        if latch_on_click && response.clicked() {
+            latched = true;
+        }
+        let is_down = enabled && (response.is_pointer_button_down_on() || latched);
         let hovered = response.hovered() || response.has_focus();
 
         let fill = if enabled { base_fill } else { disabled_fill };
@@ -147,6 +175,29 @@ impl Widget for Button {
             body_rect.center().y - galley.size().y / 2.0,
         );
         painter.galley(text_pos, galley, text_color);
+
+        if let Some(light) = light {
+            let led_height = if small { 3.0 } else { 4.0 };
+            let led_inset_x = 2.0;
+            let led_inset_y = 2.0;
+            let led_rect = Rect::from_min_max(
+                pos2(
+                    body_rect.left() + led_inset_x,
+                    body_rect.top() + led_inset_y,
+                ),
+                pos2(
+                    body_rect.right() - led_inset_x,
+                    (body_rect.top() + led_inset_y + led_height).min(body_rect.bottom()),
+                ),
+            );
+            if led_rect.is_positive() {
+                let mut led_fill = light;
+                if !enabled {
+                    led_fill = crate::themes::blend(led_fill, visuals.window_fill, 0.6);
+                }
+                painter.rect_filled(led_rect, 1.0, led_fill);
+            }
+        }
 
         response
     }
@@ -314,7 +365,7 @@ impl Widget for ToggleButton<'_> {
         );
         painter.galley(text_pos, galley, text_color);
 
-        let led_height = if small { 1.5 } else { 2.0 };
+        let led_height = if small { 3.0 } else { 4.0 };
         let led_inset_x = 2.0;
         let led_inset_y = 2.0;
         let led_rect = Rect::from_min_max(
@@ -666,7 +717,7 @@ where
             );
             painter.galley(text_pos, galley, text_color);
 
-            let led_height = if small { 1.5 } else { 2.0 };
+            let led_height = if small { 3.0 } else { 4.0 };
             let led_inset_x = 2.0;
             let led_inset_y = 2.0;
             let led_rect = Rect::from_min_max(
