@@ -29,6 +29,7 @@ use crate::themes::industrial_dark;
 use crate::themes::industrial_fonts;
 use crate::themes::industrial_light;
 use eframe::egui::{self};
+use std::process::Command;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FloatingAnchor {
@@ -44,6 +45,78 @@ struct DetachedCardDraw {
     index: usize,
     area_id: egui::Id,
     width: f32,
+}
+
+#[derive(Clone, Debug)]
+struct SourceLocation {
+    file: String,
+    line: u32,
+    column: u32,
+}
+
+impl SourceLocation {
+    fn from_location(location: &'static std::panic::Location<'static>) -> Self {
+        Self {
+            file: location.file().to_string(),
+            line: location.line(),
+            column: location.column(),
+        }
+    }
+
+    fn format_arg(&self, template: &str) -> String {
+        let file = &self.file;
+        let line = self.line;
+        let column = self.column;
+        template
+            .replace("{file}", file)
+            .replace("{line}", &line.to_string())
+            .replace("{column}", &column.to_string())
+    }
+
+    fn file_line_column(&self) -> String {
+        let file = &self.file;
+        let line = self.line;
+        let column = self.column;
+        format!("{file}:{line}:{column}")
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct EditorCommand {
+    program: String,
+    args: Vec<String>,
+}
+
+impl EditorCommand {
+    pub fn new(program: impl Into<String>) -> Self {
+        Self {
+            program: program.into(),
+            args: Vec::new(),
+        }
+    }
+
+    pub fn arg(mut self, arg: impl Into<String>) -> Self {
+        self.args.push(arg.into());
+        self
+    }
+
+    fn open(&self, source: &SourceLocation) -> std::io::Result<()> {
+        let mut cmd = Command::new(&self.program);
+        if self.args.is_empty() {
+            cmd.arg(source.file_line_column());
+        } else {
+            for arg in &self.args {
+                cmd.arg(source.format_arg(arg));
+            }
+        }
+        let _child = cmd.spawn()?;
+        Ok(())
+    }
+}
+
+struct CardEntry {
+    card: Box<dyn cards::Card + 'static>,
+    source: Option<SourceLocation>,
 }
 
 #[derive(Clone, Default)]
@@ -68,6 +141,7 @@ impl NotebookState {
 /// Configuration for a notebook application.
 pub struct NotebookConfig {
     title: String,
+    editor: Option<EditorCommand>,
 }
 
 struct NotebookApp {
@@ -78,7 +152,7 @@ struct NotebookApp {
 /// Frame-scoped notebook builder used to collect cards in immediate mode.
 pub struct Notebook {
     state_id: egui::Id,
-    cards: Vec<Box<dyn cards::Card + 'static>>,
+    cards: Vec<CardEntry>,
 }
 
 const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
@@ -93,7 +167,15 @@ impl Default for NotebookConfig {
 impl NotebookConfig {
     pub fn new(name: impl Into<String>) -> Self {
         let title = name.into();
-        Self { title }
+        Self {
+            title,
+            editor: editor_from_env(),
+        }
+    }
+
+    pub fn with_editor(mut self, editor: EditorCommand) -> Self {
+        self.editor = Some(editor);
+        self
     }
 
     fn state_id(&self) -> egui::Id {
@@ -137,6 +219,31 @@ impl NotebookConfig {
     }
 }
 
+fn editor_from_env() -> Option<EditorCommand> {
+    let editor = std::env::var("GORBIE_EDITOR")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            std::env::var("VISUAL")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
+        .or_else(|| {
+            std::env::var("EDITOR")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })?;
+
+    let mut parts = editor.split_whitespace();
+    let program = parts.next()?.to_string();
+    let args = parts.map(str::to_string);
+    let mut command = EditorCommand::new(program);
+    for arg in args {
+        command = command.arg(arg);
+    }
+    Some(command)
+}
+
 impl Notebook {
     fn new(config: &NotebookConfig) -> Self {
         Self {
@@ -145,10 +252,14 @@ impl Notebook {
         }
     }
 
+    #[track_caller]
     pub fn view(&mut self, function: impl FnMut(&mut egui::Ui) + 'static) {
-        cards::stateless_card(self, function);
+        let source = SourceLocation::from_location(std::panic::Location::caller());
+        let card = cards::StatelessCard::new(function);
+        self.push_with_source(Box::new(card), Some(source));
     }
 
+    #[track_caller]
     pub fn state<K, T>(
         &mut self,
         key: &K,
@@ -159,15 +270,28 @@ impl Notebook {
         K: std::hash::Hash + ?Sized,
         T: std::fmt::Debug + std::default::Default + Send + Sync + 'static,
     {
-        cards::stateful_card(self, key, init, function)
+        let source = SourceLocation::from_location(std::panic::Location::caller());
+        let state = state::StateId::new(self.state_id_for(key));
+        let handle = state;
+        let card = cards::StatefulCard::new(state, init, function);
+        self.push_with_source(Box::new(card), Some(source));
+        handle
     }
 
     pub fn push(&mut self, card: Box<dyn cards::Card>) {
-        self.cards.push(card);
+        self.push_with_source(card, None);
     }
 
     pub(crate) fn state_id_for<K: std::hash::Hash + ?Sized>(&self, key: &K) -> egui::Id {
         self.state_id.with(("state", key))
+    }
+
+    fn push_with_source(
+        &mut self,
+        card: Box<dyn cards::Card>,
+        source: Option<SourceLocation>,
+    ) {
+        self.cards.push(CardEntry { card, source });
     }
 }
 
@@ -274,7 +398,7 @@ impl eframe::App for NotebookApp {
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 let mut floating_elements: Vec<FloatingElement> = Vec::new();
                                 let mut dragged_layer_ids: Vec<egui::LayerId> = Vec::new();
-                                for (i, card) in notebook.cards.iter_mut().enumerate() {
+                                for (i, entry) in notebook.cards.iter_mut().enumerate() {
                                     let card_detached = runtime.card_detached
                                         .get_mut(i)
                                         .expect("card_detached synced to cards");
@@ -288,7 +412,7 @@ impl eframe::App for NotebookApp {
                                         .get_mut(i)
                                         .expect("card_placeholder_sizes synced to cards");
                                     ui.push_id(i, |ui| {
-                                        let card: &mut dyn cards::Card = card.as_mut();
+                                        let card: &mut dyn cards::Card = entry.card.as_mut();
                                         let card_rect = if *card_detached {
                                             let placeholder_height =
                                                 if card_placeholder_size.y > 0.0 {
@@ -365,12 +489,109 @@ impl eframe::App for NotebookApp {
                                         );
 
                                         let button_size = egui::vec2(18.0, 18.0);
+                                        let button_gap = 6.0;
                                         let button_x = (card_rect.right() + 8.0).round();
                                         let show_detach_button = !*card_detached;
+                                        let show_open_button = show_detach_button
+                                            && entry.source.is_some()
+                                            && config.editor.is_some();
+                                        let button_count =
+                                            usize::from(show_open_button) + 1;
+                                        let total_height = button_size.y
+                                            * button_count as f32
+                                            + button_gap * (button_count.saturating_sub(1) as f32);
+                                        let top_y = (card_rect.center().y
+                                            - total_height / 2.0)
+                                            .round();
+                                        let open_pos = show_open_button.then(|| {
+                                            egui::pos2(button_x, top_y)
+                                        });
                                         let detach_pos = Some(egui::pos2(
                                             button_x,
-                                            (card_rect.center().y - button_size.y / 2.0).round(),
+                                            (top_y
+                                                + if show_open_button {
+                                                    button_size.y + button_gap
+                                                } else {
+                                                    0.0
+                                                })
+                                            .round(),
                                         ));
+
+                                        if let Some(open_pos) = open_pos {
+                                            let open_id = ui.id().with("open_button");
+                                            let open_area = egui::Area::new(open_id)
+                                                .order(egui::Order::Middle)
+                                                .fixed_pos(open_pos)
+                                                .movable(false)
+                                                .constrain_to(egui::Rect::EVERYTHING);
+                                            let open_resp = open_area.show(ui.ctx(), |ui| {
+                                                let (rect, resp) = ui.allocate_exact_size(
+                                                    button_size,
+                                                    egui::Sense::click(),
+                                                );
+                                                let fill = ui.visuals().window_fill;
+                                                let outline = ui
+                                                    .visuals()
+                                                    .widgets
+                                                    .noninteractive
+                                                    .bg_stroke
+                                                    .color;
+                                                let accent =
+                                                    ui.visuals().selection.stroke.color;
+                                                let stroke_color =
+                                                    if resp.hovered() || resp.has_focus() {
+                                                        accent
+                                                    } else {
+                                                        outline
+                                                    };
+                                                let stroke =
+                                                    egui::Stroke::new(1.0, stroke_color);
+
+                                                ui.painter().rect_filled(rect, 0.0, fill);
+                                                ui.painter().rect_stroke(
+                                                    rect,
+                                                    0.0,
+                                                    stroke,
+                                                    egui::StrokeKind::Inside,
+                                                );
+                                                ui.painter().text(
+                                                    rect.center(),
+                                                    egui::Align2::CENTER_CENTER,
+                                                    "<>",
+                                                    egui::FontId::monospace(10.0),
+                                                    ui.visuals().text_color(),
+                                                );
+
+                                                if let Some(source) = entry.source.as_ref() {
+                                                    let file = &source.file;
+                                                    let line = source.line;
+                                                    let tooltip =
+                                                        format!("Open in editor\n{file}:{line}");
+                                                    show_postit_tooltip(ui, &resp, &tooltip);
+                                                } else {
+                                                    show_postit_tooltip(
+                                                        ui,
+                                                        &resp,
+                                                        "Open in editor",
+                                                    );
+                                                }
+                                                resp
+                                            });
+
+                                            if open_resp.inner.clicked() {
+                                                if let Some(source) = entry.source.as_ref() {
+                                                    if let Some(editor) =
+                                                        config.editor.as_ref()
+                                                    {
+                                                        if let Err(err) = editor.open(source) {
+                                                            log::warn!(
+                                                                "failed to open editor: {err}"
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
 
                                         if let Some(detach_pos) = detach_pos {
                                             let detach_id = ui.id().with("detach_button");
@@ -512,6 +733,7 @@ impl eframe::App for NotebookApp {
                                                     .cards
                                                     .get_mut(draw.index)
                                                     .expect("cards synced to floating_elements")
+                                                    .card
                                                     .as_mut();
 
                                                 let area_order = match pass_anchor {

@@ -13,6 +13,20 @@ pub struct StatefulCard<T> {
     function: Box<StatefulCardFn<T>>,
 }
 
+impl<T> StatefulCard<T> {
+    pub(crate) fn new(
+        state: StateId<T>,
+        init: T,
+        function: impl FnMut(&mut egui::Ui, &mut T) + 'static,
+    ) -> Self {
+        Self {
+            state,
+            init: Some(init),
+            function: Box::new(function),
+        }
+    }
+}
+
 impl<T: std::fmt::Debug + std::default::Default + Send + Sync + 'static> Card for StatefulCard<T> {
     fn draw(&mut self, ui: &mut egui::Ui) {
         let state = self.state;
@@ -33,10 +47,6 @@ where
 {
     let state = StateId::new(nb.state_id_for(key));
     let handle = state;
-    nb.push(Box::new(StatefulCard {
-        state,
-        init: Some(init),
-        function: Box::new(function),
-    }));
+    nb.push(Box::new(StatefulCard::new(state, init, function)));
     handle
 }
