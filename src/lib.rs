@@ -351,8 +351,9 @@ impl eframe::App for NotebookApp {
                         let fill = ui.visuals().window_fill;
 
                         let column_inner_margin = egui::Margin::symmetric(0, 12);
+                        let mut divider_ys: Vec<f32> = Vec::new();
 
-                        egui::Frame::new()
+                        let column_frame = egui::Frame::new()
                             .fill(fill)
                             .stroke(stroke)
                             .corner_radius(0.0)
@@ -392,7 +393,6 @@ impl eframe::App for NotebookApp {
 
                                 ui.add_space(12.0);
 
-                                let divider_x_range = ui.max_rect().x_range();
                                 runtime.sync_len(notebook.cards.len());
 
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
@@ -482,11 +482,7 @@ impl eframe::App for NotebookApp {
                                             );
                                             inner.response.rect
                                         };
-                                        ui.painter().hline(
-                                            divider_x_range,
-                                            card_rect.top(),
-                                            ui.visuals().widgets.noninteractive.bg_stroke,
-                                        );
+                                        divider_ys.push(card_rect.top());
 
                                         let button_size = egui::vec2(18.0, 18.0);
                                         let button_gap = 6.0;
@@ -906,6 +902,24 @@ impl eframe::App for NotebookApp {
                                 }
 
                             });
+                        let frame_rect = column_frame.response.rect;
+                        let divider_x_range = frame_rect.x_range();
+                        let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+                        let height = stroke.width.max(1.0);
+                        let restore_clip_rect = ui.clip_rect();
+                        let divider_clip_rect = egui::Rect::from_min_max(
+                            egui::pos2(frame_rect.min.x, restore_clip_rect.min.y),
+                            egui::pos2(frame_rect.max.x, restore_clip_rect.max.y),
+                        );
+                        ui.set_clip_rect(divider_clip_rect);
+                        for y in divider_ys {
+                            let rect = egui::Rect::from_min_max(
+                                egui::pos2(divider_x_range.min, y - height / 2.0),
+                                egui::pos2(divider_x_range.max, y + height / 2.0),
+                            );
+                            ui.painter().rect_filled(rect, 0.0, stroke.color);
+                        }
+                        ui.set_clip_rect(restore_clip_rect);
                     });
                 });
         });

@@ -66,7 +66,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
     nb.view(|ui| {
         note!(
             ui,
-            "Notes can be quick, bold, and bright. Detach this card for a sticky note vibe."
+            "Notes can be quick, **bold**, and bright. Detach this card for a sticky note vibe."
         );
     });
 
