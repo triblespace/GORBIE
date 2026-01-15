@@ -134,6 +134,20 @@ fn lcd_ink_color(dark_mode: bool) -> Color32 {
     }
 }
 
+fn singleline_margin(ui: &Ui, row_height: f32) -> Margin {
+    let padding = ui.spacing().button_padding;
+    let target_height = ui.spacing().interact_size.y;
+    let vertical = ((target_height - row_height) * 0.5).at_least(0.0);
+    let pad_x = padding
+        .x
+        .round()
+        .clamp(0.0, i8::MAX as f32) as i8;
+    let pad_y = vertical
+        .round()
+        .clamp(0.0, i8::MAX as f32) as i8;
+    Margin::symmetric(pad_x, pad_y)
+}
+
 fn default_event_filter() -> EventFilter {
     EventFilter {
         horizontal_arrows: true,
@@ -211,6 +225,7 @@ fn lcd_text_edit(
     clip_text: bool,
     fill: Color32,
     outline: Color32,
+    accent: Color32,
     rounding: f32,
     ink: Color32,
     text_color: Color32,
@@ -266,8 +281,6 @@ fn lcd_text_edit(
     };
     let mut response = ui.interact(outer_rect, id, sense);
 
-    paint_field_frame(ui.painter(), outer_rect, fill, outline, rounding);
-
     let mut state = LcdTextEditState::load(ui.ctx(), id);
     let galley_placement = place_galley(&galley, rect, align);
     let galley_pos_unscrolled = galley_placement.pos;
@@ -306,6 +319,12 @@ fn lcd_text_edit(
 
     let mut changed = false;
     let has_focus = ui.memory(|mem| mem.has_focus(id));
+    let frame_outline = if interactive && has_focus {
+        accent
+    } else {
+        outline
+    };
+    paint_field_frame(ui.painter(), outer_rect, fill, frame_outline, rounding);
     let os = ui.ctx().os();
 
     let mut cursor_range = state
@@ -704,9 +723,9 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
             crate::themes::blend(ink, fill, 0.55)
         };
 
-        let margin: Margin = ui.spacing().button_padding.into();
         let font_id = egui::TextStyle::Name("LCD".into()).resolve(ui.style());
         let row_height = ui.fonts(|fonts| fonts.row_height(&font_id));
+        let margin = singleline_margin(ui, row_height);
         let mut desired_width = (ui.spacing().interact_size.x - margin.sum().x).at_least(24.0);
 
         let id = ui.next_auto_id();
@@ -801,16 +820,17 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
                 desired_width,
                 1,
                 ui.spacing().interact_size,
-                margin,
-                Align2::CENTER_CENTER,
-                true,
-                fill,
-                outline,
-                gstyle.rounding,
-                ink,
-                text_color,
-                gstyle.scanline_height,
-            );
+            margin,
+            Align2::CENTER_CENTER,
+            true,
+            fill,
+            outline,
+            gstyle.accent,
+            gstyle.rounding,
+            ink,
+            text_color,
+            gstyle.scanline_height,
+        );
             let mut response = output.response;
             if kb_changed {
                 response.mark_changed();
@@ -981,11 +1001,17 @@ impl Widget for TextField<'_> {
             crate::themes::blend(ink, fill, 0.55)
         };
 
-        let margin: Margin = ui.spacing().button_padding.into();
+        let font_id = egui::TextStyle::Name("LCD".into()).resolve(ui.style());
+        let row_height = ui.fonts(|fonts| fonts.row_height(&font_id));
+        let margin = if multiline {
+            ui.spacing().button_padding.into()
+        } else {
+            singleline_margin(ui, row_height)
+        };
         let align = if multiline {
             Align2::LEFT_TOP
         } else {
-            Align2([ui.layout().horizontal_align(), ui.layout().vertical_align()])
+            Align2::LEFT_CENTER
         };
 
         let output = lcd_text_edit(
@@ -1002,6 +1028,7 @@ impl Widget for TextField<'_> {
             !multiline,
             fill,
             outline,
+            gstyle.accent,
             gstyle.rounding,
             ink,
             text_color,
