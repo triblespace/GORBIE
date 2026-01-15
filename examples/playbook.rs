@@ -669,7 +669,12 @@ fn main(nb: &mut Notebook) {
                 ui.label(egui::RichText::new("ROW ALIGNMENT").monospace().strong());
                 let mut number_id = None;
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    ui.monospace("LEVEL");
+                    let label_width = 72.0;
+                    let label_height = ui.spacing().interact_size.y;
+                    ui.add_sized(
+                        egui::vec2(label_width, label_height),
+                        egui::Label::new(egui::RichText::new("LEVEL").monospace()),
+                    );
                     let slider_response =
                         ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).show_value(false));
                     if slider_response.changed() {
