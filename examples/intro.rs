@@ -63,6 +63,13 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         });
     });
 
+    nb.view(|ui| {
+        note!(
+            ui,
+            "Notes can be quick, bold, and bright. Detach this card for a sticky note vibe."
+        );
+    });
+
     let slider = nb.state("slider", 0.5, move |ui, value: &mut f32| {
         with_padding(ui, padding, |ui| {
             ui.add(widgets::Slider::new(value, 0.0..=1.0).text("input"));

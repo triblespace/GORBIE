@@ -5,6 +5,7 @@ pub use crate::widgets;
 pub use crate::cards::with_padding;
 pub use crate::dataflow::ComputedState;
 pub use crate::md;
+pub use crate::note;
 pub use crate::notebook;
 pub use crate::state::StateId;
 pub use crate::Notebook;
