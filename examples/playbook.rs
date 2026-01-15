@@ -420,17 +420,39 @@ impl Default for PaletteState {
 #[derive(Debug)]
 struct WidgetPlaybookState {
     progress: f32,
+    level_percent: f64,
     toggle_on: bool,
     metric_bytes: bool,
+    line_text: String,
+    multi_text: String,
+    focus_target: FocusTarget,
 }
 
 impl Default for WidgetPlaybookState {
     fn default() -> Self {
         Self {
             progress: 0.5,
+            level_percent: 50.0,
             toggle_on: false,
             metric_bytes: false,
+            line_text: "Short prompt".to_string(),
+            multi_text: "First line\nSecond line\nThird line".to_string(),
+            focus_target: FocusTarget::None,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FocusTarget {
+    None,
+    NumberField,
+    SingleLine,
+    Multiline,
+}
+
+impl Default for FocusTarget {
+    fn default() -> Self {
+        Self::None
     }
 }
 
@@ -642,6 +664,64 @@ fn main(nb: &mut Notebook) {
                         "BYTES",
                     ));
                 });
+
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("ROW ALIGNMENT").monospace().strong());
+                let mut number_id = None;
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.monospace("LEVEL");
+                    let slider_response =
+                        ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).show_value(false));
+                    if slider_response.changed() {
+                        state.level_percent = state.progress as f64 * 100.0;
+                    }
+                    ui.add_space(8.0);
+                    let number_response = ui.add(
+                        widgets::NumberField::new(&mut state.level_percent)
+                            .suffix("%")
+                            .min_decimals(0)
+                            .max_decimals(1)
+                            .update_while_editing(false)
+                            .constrain_value(&|_, proposed| proposed.clamp(0.0, 100.0)),
+                    );
+                    if number_response.changed() {
+                        state.progress = (state.level_percent / 100.0) as f32;
+                    }
+                    number_id = Some(number_response.id);
+                    ui.add_space(8.0);
+                    let _ = ui.add(widgets::Button::new("APPLY").small());
+                });
+
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("FOCUS").monospace().strong());
+                ui.horizontal(|ui| {
+                    ui.add(
+                        widgets::ChoiceToggle::new(&mut state.focus_target)
+                            .choice(FocusTarget::None, "NONE")
+                            .choice(FocusTarget::NumberField, "NUMBER")
+                            .choice(FocusTarget::SingleLine, "LINE")
+                            .choice(FocusTarget::Multiline, "MULTI")
+                            .small(),
+                    );
+                });
+
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("TEXT FIELDS").monospace().strong());
+                let line_response =
+                    ui.add(widgets::TextField::singleline(&mut state.line_text));
+                ui.add_space(8.0);
+                let multi_response =
+                    ui.add(widgets::TextField::multiline(&mut state.multi_text));
+
+                let focus_id = match state.focus_target {
+                    FocusTarget::None => None,
+                    FocusTarget::NumberField => number_id,
+                    FocusTarget::SingleLine => Some(line_response.id),
+                    FocusTarget::Multiline => Some(multi_response.id),
+                };
+                if let Some(id) = focus_id {
+                    ui.memory_mut(|mem| mem.request_focus(id));
+                }
         });
     });
 
@@ -652,7 +732,11 @@ fn main(nb: &mut Notebook) {
             let mut state = widget_state
                 .read_mut(ui)
                 .expect("widget state missing");
-            let _ = ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).text("LEVEL"));
+            let slider_response =
+                ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).text("LEVEL"));
+            if slider_response.changed() {
+                state.level_percent = state.progress as f64 * 100.0;
+            }
             let progress = state.progress;
 
             ui.monospace(format!("Value: {progress:.3}"));
