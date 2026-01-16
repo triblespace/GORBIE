@@ -978,7 +978,7 @@ impl Slider<'_> {
             );
 
             // Notch to make the handle feel mechanical.
-            let focus_marks = response.has_focus() || response.dragged();
+            let focus_marks = response.hovered() || response.has_focus() || response.dragged();
             let notch_margin = 4.0;
             let notch_stroke = Stroke::new(1.0, outline);
             let notch_offsets = if focus_marks {
