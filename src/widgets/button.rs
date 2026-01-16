@@ -1,6 +1,6 @@
 use eframe::egui::{
-    self, pos2, vec2, Color32, NumExt as _, Rect, Response, Sense, Stroke, TextStyle, Ui, Widget,
-    WidgetInfo, WidgetText, WidgetType,
+    self, pos2, vec2, Color32, Key, NumExt as _, Rect, Response, Sense, Stroke, TextStyle, Ui,
+    Widget, WidgetInfo, WidgetText, WidgetType,
 };
 
 use crate::themes::{GorbieButtonStyle, GorbieChoiceToggleStyle, GorbieToggleButtonStyle};
@@ -132,27 +132,37 @@ impl Widget for Button {
         if latch_on_click && response.clicked() {
             latched = true;
         }
-        let is_down = enabled && (response.is_pointer_button_down_on() || latched);
-        let hovered = response.hovered() || response.has_focus();
+        let keyboard_down = response.has_focus()
+            && ui.input(|input| input.key_down(Key::Space) || input.key_down(Key::Enter));
+        let is_down = enabled && (response.is_pointer_button_down_on() || keyboard_down || latched);
+        let prepress = enabled && !is_down && (response.hovered() || response.has_focus());
 
         let fill = if enabled { base_fill } else { disabled_fill };
-        let stroke_color = if enabled && (selected || hovered || is_down) {
-            accent
-        } else {
-            outline
-        };
+        let stroke_color = if enabled && selected { accent } else { outline };
         let stroke_width = 1.0;
 
         let mut body_rect =
             Rect::from_min_max(outer_rect.min, outer_rect.max - shadow_inset).intersect(outer_rect);
-        if is_down {
-            body_rect = body_rect.translate(shadow_offset);
+        let press_offset = if is_down {
+            shadow_offset
+        } else if prepress {
+            shadow_offset * 0.5
+        } else {
+            vec2(0.0, 0.0)
+        };
+        if press_offset != vec2(0.0, 0.0) {
+            body_rect = body_rect.translate(press_offset);
         }
 
         let rounding = gstyle.rounding;
         let painter = ui.painter();
 
         if enabled && !is_down {
+            let shadow_offset = if prepress {
+                shadow_offset * 0.5
+            } else {
+                shadow_offset
+            };
             let shadow_rect = body_rect.translate(shadow_offset);
             painter.rect_filled(shadow_rect, rounding, shadow_color);
         }
@@ -311,24 +321,26 @@ impl Widget for ToggleButton<'_> {
 
         let visuals = ui.visuals();
         let outline = gstyle.outline;
-        let accent = gstyle.accent;
         let shadow_color = gstyle.shadow;
 
         let base_fill = fill.unwrap_or(gstyle.fill);
         let disabled_fill = crate::themes::blend(base_fill, visuals.window_fill, 0.65);
 
-        let is_down = enabled && response.is_pointer_button_down_on();
-        let hovered = response.hovered() || response.has_focus();
+        let keyboard_down = response.has_focus()
+            && ui.input(|input| input.key_down(Key::Space) || input.key_down(Key::Enter));
+        let is_down = enabled && (response.is_pointer_button_down_on() || keyboard_down);
         let toggled_on = *on;
+        let prepress =
+            enabled && !is_down && !toggled_on && (response.hovered() || response.has_focus());
 
         let fill = if enabled { base_fill } else { disabled_fill };
-        let stroke_color = if enabled && hovered { accent } else { outline };
+        let stroke_color = outline;
 
         let body_rect_up =
             Rect::from_min_max(outer_rect.min, outer_rect.max - shadow_inset).intersect(outer_rect);
         let body_rect = if is_down {
             body_rect_up.translate(shadow_offset)
-        } else if toggled_on {
+        } else if toggled_on || prepress {
             body_rect_up.translate(shadow_offset / 2.0)
         } else {
             body_rect_up
@@ -338,7 +350,7 @@ impl Widget for ToggleButton<'_> {
         let painter = ui.painter();
 
         if enabled && !is_down {
-            let offset = if toggled_on {
+            let offset = if toggled_on || prepress {
                 shadow_offset / 2.0
             } else {
                 shadow_offset
@@ -594,6 +606,8 @@ where
         }
 
         let pointer_pressed = enabled && ui.input(|i| i.pointer.any_pressed());
+        let keyboard_down =
+            enabled && ui.input(|input| input.key_down(Key::Space) || input.key_down(Key::Enter));
 
         let mut changed = false;
         if pointer_pressed {
@@ -653,23 +667,27 @@ where
             let painter = ui.painter();
             let fill = if enabled { base_fill } else { disabled_fill };
             let is_pressed = is_down || is_active;
+            let prepress = enabled && !is_pressed && hovered;
 
             let pressed_offset = vec2(0.0, shadow_offset.y.max(0.0));
             let face_rect = if is_pressed {
                 face_up.translate(pressed_offset)
+            } else if prepress {
+                face_up.translate(pressed_offset * 0.5)
             } else {
                 face_up
             };
 
             if enabled && !is_pressed {
+                let shadow_offset = if prepress {
+                    pressed_offset * 0.5
+                } else {
+                    shadow_offset
+                };
                 painter.rect_filled(face_rect.translate(shadow_offset), rounding, shadow_color);
             }
 
-            let stroke_color = if enabled && (hovered || is_down) {
-                accent
-            } else {
-                outline
-            };
+            let stroke_color = if enabled && is_active { accent } else { outline };
 
             painter.rect_filled(face_rect, rounding, fill);
             painter.rect_stroke(
@@ -791,7 +809,9 @@ where
             };
 
             let hovered = segment_responses[idx].hovered() || segment_responses[idx].has_focus();
-            let is_down = enabled && segment_responses[idx].is_pointer_button_down_on();
+            let is_down = enabled
+                && (segment_responses[idx].is_pointer_button_down_on()
+                    || (segment_responses[idx].has_focus() && keyboard_down));
             let is_active = idx == active_index;
 
             let mask_stroke = MaskStroke {

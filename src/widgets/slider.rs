@@ -861,14 +861,7 @@ impl Slider<'_> {
             let value = self.get_value();
 
             let outline = gstyle.rail_fill;
-            let accent = ui.visuals().selection.stroke.color;
-            let active_stroke_color =
-                if response.dragged() || response.hovered() || response.has_focus() {
-                    accent
-                } else {
-                    outline
-                };
-            let active_stroke = Stroke::new(1.0, active_stroke_color);
+            let active_stroke = Stroke::new(1.0, outline);
 
             let slot_height = (ui.spacing().slider_rail_height + 2.0)
                 .at_least(8.0)
@@ -985,90 +978,41 @@ impl Slider<'_> {
             );
 
             // Notch to make the handle feel mechanical.
+            let focus_marks = response.has_focus() || response.dragged();
             let notch_margin = 4.0;
             let notch_stroke = Stroke::new(1.0, outline);
+            let notch_offsets = if focus_marks {
+                [-3.0, 0.0, 3.0]
+            } else {
+                [0.0, 0.0, 0.0]
+            };
             match self.orientation {
                 SliderOrientation::Horizontal => {
                     let x = handle_rect.center().x;
-                    painter.line_segment(
-                        [
-                            pos2(x, handle_rect.top() + notch_margin),
-                            pos2(x, handle_rect.bottom() - notch_margin),
-                        ],
-                        notch_stroke,
-                    );
+                    for offset in notch_offsets {
+                        painter.line_segment(
+                            [
+                                pos2(x + offset, handle_rect.top() + notch_margin),
+                                pos2(x + offset, handle_rect.bottom() - notch_margin),
+                            ],
+                            notch_stroke,
+                        );
+                    }
                 }
                 SliderOrientation::Vertical => {
                     let y = handle_rect.center().y;
-                    painter.line_segment(
-                        [
-                            pos2(handle_rect.left() + notch_margin, y),
-                            pos2(handle_rect.right() - notch_margin, y),
-                        ],
-                        notch_stroke,
-                    );
+                    for offset in notch_offsets {
+                        painter.line_segment(
+                            [
+                                pos2(handle_rect.left() + notch_margin, y + offset),
+                                pos2(handle_rect.right() - notch_margin, y + offset),
+                            ],
+                            notch_stroke,
+                        );
+                    }
                 }
             }
         }
-    }
-
-    fn paint_focus_overlay(&mut self, ui: &Ui, response: &Response) {
-        if !ui.is_rect_visible(response.rect) {
-            return;
-        }
-
-        let rect = &response.rect;
-        let gstyle = self
-            .gorbie_style
-            .clone()
-            .unwrap_or_else(|| crate::themes::GorbieSliderStyle::from(ui.style().as_ref()));
-        let position_range = self.te_position_range(ui, rect, gstyle.shadow_offset);
-        let value = self.get_value();
-
-        let outline = ui.visuals().selection.stroke.color;
-        let focus_stroke = Stroke::new(1.0, outline);
-
-        let slot_height = (ui.spacing().slider_rail_height + 2.0)
-            .at_least(8.0)
-            .at_most(rect.height() - 10.0);
-        let slot_radius = (slot_height / 2.0).at_least(0.0);
-        let slot_rect = self.rail_rect(rect, slot_radius);
-
-        let position_1d = self.position_from_value(value, position_range);
-        let center = self.marker_center(position_1d, &slot_rect);
-
-        let shadow_inset_x =
-            (-gstyle.shadow_offset.x).max(0.0) + gstyle.shadow_offset.x.max(0.0);
-        let shadow_inset_y =
-            (-gstyle.shadow_offset.y).max(0.0) + gstyle.shadow_offset.y.max(0.0);
-        let handle_long_limit = match self.orientation {
-            SliderOrientation::Horizontal => rect.height() - 2.0 - shadow_inset_y,
-            SliderOrientation::Vertical => rect.width() - 2.0 - shadow_inset_x,
-        };
-        let handle_long = (slot_height + 10.0)
-            .at_most(handle_long_limit.at_least(0.0))
-            .at_least(slot_height);
-        let handle_short = (slot_height * 1.4).clamp(12.0, 18.0);
-        let handle_size = match self.orientation {
-            SliderOrientation::Horizontal => vec2(handle_short, handle_long),
-            SliderOrientation::Vertical => vec2(handle_long, handle_short),
-        };
-        let handle_rect = Rect::from_center_size(center, handle_size);
-        let handle_rounding = 2.0;
-
-        let painter = ui.painter_at(*rect);
-        painter.rect_stroke(
-            slot_rect,
-            slot_radius,
-            focus_stroke,
-            epaint::StrokeKind::Inside,
-        );
-        painter.rect_stroke(
-            handle_rect,
-            handle_rounding,
-            focus_stroke,
-            epaint::StrokeKind::Inside,
-        );
     }
 
     fn marker_center(&self, position_1d: f32, rail_rect: &Rect) -> Pos2 {
@@ -1217,12 +1161,6 @@ impl Slider<'_> {
         } else {
             None
         };
-
-        if let Some(value_response) = value_response.as_ref() {
-            if value_response.has_focus() && !response.has_focus() {
-                self.paint_focus_overlay(ui, &response);
-            }
-        }
 
         if !self.text.is_empty() {
             let label_response =

@@ -225,7 +225,6 @@ fn lcd_text_edit(
     clip_text: bool,
     fill: Color32,
     outline: Color32,
-    accent: Color32,
     rounding: f32,
     ink: Color32,
     text_color: Color32,
@@ -319,12 +318,7 @@ fn lcd_text_edit(
 
     let mut changed = false;
     let has_focus = ui.memory(|mem| mem.has_focus(id));
-    let frame_outline = if interactive && has_focus {
-        accent
-    } else {
-        outline
-    };
-    paint_field_frame(ui.painter(), outer_rect, fill, frame_outline, rounding);
+    paint_field_frame(ui.painter(), outer_rect, fill, outline, rounding);
     let os = ui.ctx().os();
 
     let mut cursor_range = state
@@ -820,17 +814,16 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
                 desired_width,
                 1,
                 ui.spacing().interact_size,
-            margin,
-            Align2::CENTER_CENTER,
-            true,
-            fill,
-            outline,
-            gstyle.accent,
-            gstyle.rounding,
-            ink,
-            text_color,
-            gstyle.scanline_height,
-        );
+                margin,
+                Align2::CENTER_CENTER,
+                true,
+                fill,
+                outline,
+                gstyle.rounding,
+                ink,
+                text_color,
+                gstyle.scanline_height,
+            );
             let mut response = output.response;
             if kb_changed {
                 response.mark_changed();
@@ -1028,7 +1021,6 @@ impl Widget for TextField<'_> {
             !multiline,
             fill,
             outline,
-            gstyle.accent,
             gstyle.rounding,
             ink,
             text_color,
