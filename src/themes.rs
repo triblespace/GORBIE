@@ -398,6 +398,12 @@ pub fn industrial_fonts() -> FontDefinitions {
         ))),
     );
     fonts.font_data.insert(
+        "IosevkaGorbieBold".to_owned(),
+        std::sync::Arc::new(FontData::from_static(include_bytes!(
+            "../assets/fonts/IosevkaGorbie/IosevkaGorbie-Bold.ttf"
+        ))),
+    );
+    fonts.font_data.insert(
         "LCD".to_owned(),
         std::sync::Arc::new(FontData::from_static(include_bytes!(
             "../assets/fonts/Jersey_15/Jersey15-Regular.ttf"
@@ -414,6 +420,10 @@ pub fn industrial_fonts() -> FontDefinitions {
     fonts.families.insert(
         FontFamily::Name("IosevkaGorbie".into()),
         vec!["IosevkaGorbie".to_owned()],
+    );
+    fonts.families.insert(
+        FontFamily::Name("IosevkaGorbieBold".into()),
+        vec!["IosevkaGorbieBold".to_owned()],
     );
     fonts
         .families

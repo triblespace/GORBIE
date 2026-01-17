@@ -1,5 +1,5 @@
 use crate::alerts::AlertBundle;
-use egui::{RichText, TextBuffer, TextStyle, Ui, text::LayoutJob};
+use egui::{FontFamily, RichText, TextBuffer, TextStyle, Ui, text::LayoutJob};
 use std::collections::HashMap;
 
 use crate::pulldown::ScrollableCache;
@@ -168,6 +168,7 @@ impl Style {
 
         if self.strong {
             text = text.strong();
+            text = text.family(FontFamily::Name("IosevkaGorbieBold".into()));
         }
 
         if self.emphasis {
