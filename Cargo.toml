@@ -19,6 +19,7 @@ image = { version = "0.25", features = ["png", "jpeg"] }
 hifitime = "4.2.3"
 polars = "0.50.0"
 rapier2d = "0.18"
+dark-light = "1"
 
 [features]
 serde = []

@@ -30,6 +30,9 @@ use crate::themes::industrial_fonts;
 use crate::themes::industrial_light;
 use eframe::egui::{self};
 use std::process::Command;
+use std::sync::Arc;
+
+use dark_light::Mode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FloatingAnchor {
@@ -133,8 +136,7 @@ impl NotebookState {
         self.card_detached_positions.resize(len, egui::Pos2::ZERO);
         self.card_detached_anchors
             .resize(len, FloatingAnchor::Content);
-        self.card_placeholder_sizes
-            .resize(len, egui::Vec2::ZERO);
+        self.card_placeholder_sizes.resize(len, egui::Vec2::ZERO);
     }
 }
 
@@ -144,9 +146,17 @@ pub struct NotebookConfig {
     editor: Option<EditorCommand>,
 }
 
+#[derive(Clone)]
+struct AppIcons {
+    light: Arc<egui::IconData>,
+    dark: Arc<egui::IconData>,
+}
+
 struct NotebookApp {
     config: NotebookConfig,
     body: Box<dyn FnMut(&mut Notebook)>,
+    icons: Option<AppIcons>,
+    icon_is_dark: Option<bool>,
 }
 
 /// Frame-scoped notebook builder used to collect cards in immediate mode.
@@ -190,12 +200,20 @@ impl NotebookConfig {
             config.title.clone()
         };
 
+        let icons = load_app_icons();
         let mut native_options = eframe::NativeOptions::default();
         native_options.persist_window = true;
         native_options.viewport = native_options
             .viewport
             .with_inner_size(egui::vec2(1200.0, 800.0))
             .with_min_inner_size(egui::vec2(NOTEBOOK_COLUMN_WIDTH, NOTEBOOK_MIN_HEIGHT));
+        if let Some(icons) = icons.as_ref() {
+            let icon = match dark_light::detect() {
+                Mode::Light => icons.light.clone(),
+                Mode::Dark | Mode::Default => icons.dark.clone(),
+            };
+            native_options.viewport = native_options.viewport.with_icon(icon);
+        }
 
         let body = Box::new(body);
         eframe::run_native(
@@ -213,10 +231,25 @@ impl NotebookConfig {
                 cc.egui_ctx
                     .set_style_of(egui::Theme::Dark, industrial_dark());
 
-                Ok(Box::new(NotebookApp { config, body }))
+                Ok(Box::new(NotebookApp {
+                    config,
+                    body,
+                    icons,
+                    icon_is_dark: None,
+                }))
             }),
         )
     }
+}
+
+fn load_app_icons() -> Option<AppIcons> {
+    let light =
+        eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon_light.png")).ok()?;
+    let dark = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon_dark.png")).ok()?;
+    Some(AppIcons {
+        light: Arc::new(light),
+        dark: Arc::new(dark),
+    })
 }
 
 fn editor_from_env() -> Option<EditorCommand> {
@@ -286,17 +319,35 @@ impl Notebook {
         self.state_id.with(("state", key))
     }
 
-    fn push_with_source(
-        &mut self,
-        card: Box<dyn cards::Card>,
-        source: Option<SourceLocation>,
-    ) {
+    fn push_with_source(&mut self, card: Box<dyn cards::Card>, source: Option<SourceLocation>) {
         self.cards.push(CardEntry { card, source });
+    }
+}
+
+impl NotebookApp {
+    fn update_app_icon(&mut self, ctx: &egui::Context) {
+        let Some(icons) = self.icons.as_ref() else {
+            return;
+        };
+        let is_dark = matches!(ctx.theme(), egui::Theme::Dark);
+        if self.icon_is_dark == Some(is_dark) {
+            return;
+        }
+
+        let icon = if is_dark {
+            icons.dark.clone()
+        } else {
+            icons.light.clone()
+        };
+        ctx.send_viewport_cmd(egui::ViewportCommand::Icon(Some(icon)));
+        self.icon_is_dark = Some(is_dark);
     }
 }
 
 impl eframe::App for NotebookApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.update_app_icon(ctx);
+
         let config = &self.config;
         let mut notebook = Notebook::new(config);
         (self.body)(&mut notebook);

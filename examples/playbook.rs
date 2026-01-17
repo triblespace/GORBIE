@@ -558,82 +558,86 @@ fn main(nb: &mut Notebook) {
         });
     });
 
-    let _palette_state = nb.state("palette_state", PaletteState::default(), move |ui, state| {
-        with_padding(ui, padding, |ui| {
-            ui.label(egui::RichText::new("RAL PICKER").monospace().strong());
-            ui.add_space(12.0);
+    let _palette_state = nb.state(
+        "palette_state",
+        PaletteState::default(),
+        move |ui, state| {
+            with_padding(ui, padding, |ui| {
+                ui.label(egui::RichText::new("RAL PICKER").monospace().strong());
+                ui.add_space(12.0);
 
-            let histogram_size = rgb_histogram_editor_size(ui);
-            let preview_size = egui::vec2(histogram_size.y, histogram_size.y);
+                let histogram_size = rgb_histogram_editor_size(ui);
+                let preview_size = egui::vec2(histogram_size.y, histogram_size.y);
 
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
-                let (preview_rect, preview_resp) =
-                    ui.allocate_exact_size(preview_size, egui::Sense::hover());
-                ui.add_space(16.0);
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                    let (preview_rect, preview_resp) =
+                        ui.allocate_exact_size(preview_size, egui::Sense::hover());
+                    ui.add_space(16.0);
 
-                let rgb_edit = rgb_histogram_editor(ui, &mut state.rgb);
-                if rgb_edit.changed || rgb_edit.interaction_ended {
-                    state.ral_code = closest_ral_from_rgb(state.rgb);
-                }
-                if rgb_edit.interaction_ended {
-                    if let Some((_, color)) = ral_lookup(state.ral_code) {
-                        state.rgb = [color.r(), color.g(), color.b()];
+                    let rgb_edit = rgb_histogram_editor(ui, &mut state.rgb);
+                    if rgb_edit.changed || rgb_edit.interaction_ended {
+                        state.ral_code = closest_ral_from_rgb(state.rgb);
                     }
-                }
+                    if rgb_edit.interaction_ended {
+                        if let Some((_, color)) = ral_lookup(state.ral_code) {
+                            state.rgb = [color.r(), color.g(), color.b()];
+                        }
+                    }
 
-                ui.add_space(24.0);
-                ui.vertical(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.monospace("RAL");
-                        let ral_response = ui.add(
-                            widgets::NumberField::new(&mut state.ral_code)
-                                .constrain_value(&|current, proposed| {
-                                    let proposed = proposed.clamp(0u16, 9999u16);
-                                    closest_ral_code(current, proposed)
-                                })
-                                .update_while_editing(false)
-                                .speed(0.25),
-                        );
+                    ui.add_space(24.0);
+                    ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.monospace("RAL");
+                            let ral_response = ui.add(
+                                widgets::NumberField::new(&mut state.ral_code)
+                                    .constrain_value(&|current, proposed| {
+                                        let proposed = proposed.clamp(0u16, 9999u16);
+                                        closest_ral_code(current, proposed)
+                                    })
+                                    .update_while_editing(false)
+                                    .speed(0.25),
+                            );
 
-                        if ral_response.changed() {
-                            if let Some((_, color)) = ral_lookup(state.ral_code) {
-                                state.rgb = [color.r(), color.g(), color.b()];
+                            if ral_response.changed() {
+                                if let Some((_, color)) = ral_lookup(state.ral_code) {
+                                    state.rgb = [color.r(), color.g(), color.b()];
+                                }
                             }
+                        });
+
+                        ui.add_space(8.0);
+
+                        let code = state.ral_code;
+                        if let Some((name, ral_color)) = ral_lookup(code) {
+                            ui.label(name);
+                            ui.monospace(to_hex(ral_color));
+                        } else {
+                            ui.label(egui::RichText::new("Unknown RAL code").monospace());
                         }
                     });
 
-                    ui.add_space(8.0);
+                    let color = Color32::from_rgb(state.rgb[0], state.rgb[1], state.rgb[2]);
+                    let hex = to_hex(color);
+                    if ui.is_rect_visible(preview_rect) {
+                        ui.painter().rect_filled(preview_rect, 0.0, color);
+                        ui.painter().rect_stroke(
+                            preview_rect,
+                            0.0,
+                            ui.visuals().window_stroke,
+                            egui::StrokeKind::Inside,
+                        );
+                    }
 
                     let code = state.ral_code;
-                    if let Some((name, ral_color)) = ral_lookup(code) {
-                        ui.label(name);
-                        ui.monospace(to_hex(ral_color));
-                    } else {
-                        ui.label(egui::RichText::new("Unknown RAL code").monospace());
-                    }
+                    let name = ral_lookup(code)
+                        .map(|(name, _)| name)
+                        .unwrap_or("Unknown RAL");
+                    let tooltip = format!("RAL {code} — {name}\n{hex}");
+                    let _ = preview_resp.on_hover_text(tooltip);
                 });
-
-                let color = Color32::from_rgb(state.rgb[0], state.rgb[1], state.rgb[2]);
-                let hex = to_hex(color);
-                if ui.is_rect_visible(preview_rect) {
-                    ui.painter().rect_filled(preview_rect, 0.0, color);
-                    ui.painter().rect_stroke(
-                        preview_rect,
-                        0.0,
-                        ui.visuals().window_stroke,
-                        egui::StrokeKind::Inside,
-                    );
-                }
-
-                let code = state.ral_code;
-                let name = ral_lookup(code)
-                    .map(|(name, _)| name)
-                    .unwrap_or("Unknown RAL");
-                let tooltip = format!("RAL {code} — {name}\n{hex}");
-                let _ = preview_resp.on_hover_text(tooltip);
             });
-        });
-    });
+        },
+    );
 
     nb.view(move |ui| {
         with_padding(ui, padding, |ui| {
@@ -644,8 +648,11 @@ fn main(nb: &mut Notebook) {
         });
     });
 
-    let widget_state = nb.state("widget_state", WidgetPlaybookState::default(), move |ui, state| {
-        with_padding(ui, padding, |ui| {
+    let widget_state = nb.state(
+        "widget_state",
+        WidgetPlaybookState::default(),
+        move |ui, state| {
+            with_padding(ui, padding, |ui| {
                 ui.label(egui::RichText::new("BUTTONS").monospace().strong());
                 ui.horizontal(|ui| {
                     let _ = ui.add(widgets::Button::new("BUTTON"));
@@ -670,8 +677,9 @@ fn main(nb: &mut Notebook) {
                 let mut number_id = None;
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     let _ = widgets::row_label(ui, egui::RichText::new("LEVEL").monospace());
-                    let slider_response =
-                        ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).show_value(false));
+                    let slider_response = ui.add(
+                        widgets::Slider::new(&mut state.progress, 0.0..=1.0).show_value(false),
+                    );
                     if slider_response.changed() {
                         state.level_percent = state.progress as f64 * 100.0;
                     }
@@ -707,11 +715,9 @@ fn main(nb: &mut Notebook) {
 
                 ui.add_space(12.0);
                 ui.label(egui::RichText::new("TEXT FIELDS").monospace().strong());
-                let line_response =
-                    ui.add(widgets::TextField::singleline(&mut state.line_text));
+                let line_response = ui.add(widgets::TextField::singleline(&mut state.line_text));
                 ui.add_space(8.0);
-                let multi_response =
-                    ui.add(widgets::TextField::multiline(&mut state.multi_text));
+                let multi_response = ui.add(widgets::TextField::multiline(&mut state.multi_text));
 
                 let focus_id = match state.focus_target {
                     FocusTarget::None => None,
@@ -722,16 +728,15 @@ fn main(nb: &mut Notebook) {
                 if let Some(id) = focus_id {
                     ui.memory_mut(|mem| mem.request_focus(id));
                 }
-        });
-    });
+            });
+        },
+    );
 
     nb.view(move |ui| {
         with_padding(ui, padding, |ui| {
             ui.label(egui::RichText::new("SLIDER + METERS").monospace().strong());
 
-            let mut state = widget_state
-                .read_mut(ui)
-                .expect("widget state missing");
+            let mut state = widget_state.read_mut(ui).expect("widget state missing");
             let slider_response =
                 ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).text("LEVEL"));
             if slider_response.changed() {

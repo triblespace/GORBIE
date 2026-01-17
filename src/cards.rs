@@ -11,12 +11,10 @@ pub fn with_padding<R>(
     padding: impl Into<egui::Margin>,
     add_contents: impl FnOnce(&mut egui::Ui) -> R,
 ) -> egui::InnerResponse<R> {
-    egui::Frame::new()
-        .inner_margin(padding)
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            add_contents(ui)
-        })
+    egui::Frame::new().inner_margin(padding).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        add_contents(ui)
+    })
 }
 
 pub fn note_frame<R>(

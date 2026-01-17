@@ -29,7 +29,7 @@ use triblespace::core::value::Value;
 use triblespace::core::value_formatter::WasmFormatterLimits;
 use triblespace::core::value_formatter::WasmValueFormatter;
 use triblespace::prelude::blobschemas::LongString;
-use triblespace::prelude::valueschemas::{GenId, R256, ShortString};
+use triblespace::prelude::valueschemas::{GenId, ShortString, R256};
 use triblespace::prelude::{and, entity, find, pattern, TribleSet};
 
 use GORBIE::prelude::*;
@@ -204,48 +204,148 @@ fn build_demo_space() -> (TribleSet, MemoryRepo, Id) {
     }
 
     let books = [
-        ("Dune", 0, "Deep in the human unconscious is a need for a logical universe.", 412),
-        ("Dune Messiah", 0, "He shall know your ways as if born to them.", 256),
-        ("Foundation", 1, "Violence is the last refuge of the incompetent.", 255),
+        (
+            "Dune",
+            0,
+            "Deep in the human unconscious is a need for a logical universe.",
+            412,
+        ),
+        (
+            "Dune Messiah",
+            0,
+            "He shall know your ways as if born to them.",
+            256,
+        ),
+        (
+            "Foundation",
+            1,
+            "Violence is the last refuge of the incompetent.",
+            255,
+        ),
         ("I, Robot", 1, "A robot may not injure a human being.", 224),
-        ("Frankenstein", 2, "Beware; for I am fearless, and therefore powerful.", 280),
-        ("The Last Man", 2, "My imagination was the only reality.", 360),
-        ("Pride and Prejudice", 3, "It is a truth universally acknowledged.", 279),
-        ("Sense and Sensibility", 3, "What do you know of my heart?", 240),
+        (
+            "Frankenstein",
+            2,
+            "Beware; for I am fearless, and therefore powerful.",
+            280,
+        ),
+        (
+            "The Last Man",
+            2,
+            "My imagination was the only reality.",
+            360,
+        ),
+        (
+            "Pride and Prejudice",
+            3,
+            "It is a truth universally acknowledged.",
+            279,
+        ),
+        (
+            "Sense and Sensibility",
+            3,
+            "What do you know of my heart?",
+            240,
+        ),
         ("Moby Dick", 4, "Call me Ishmael.", 635),
         ("Billy Budd", 4, "The sea had jeered at it all.", 192),
-        ("Odyssey", 5, "Tell me, O Muse, of the man of many ways.", 500),
+        (
+            "Odyssey",
+            5,
+            "Tell me, O Muse, of the man of many ways.",
+            500,
+        ),
         ("Iliad", 5, "Sing, goddess, the anger of Achilles.", 480),
-        ("Hamlet", 6, "To be, or not to be, that is the question.", 200),
-        ("The Tempest", 6, "We are such stuff as dreams are made on.", 200),
+        (
+            "Hamlet",
+            6,
+            "To be, or not to be, that is the question.",
+            200,
+        ),
+        (
+            "The Tempest",
+            6,
+            "We are such stuff as dreams are made on.",
+            200,
+        ),
         ("Twenty Thousand Leagues", 7, "The sea is everything.", 300),
-        ("Journey to the Center", 7, "Science, my boy, is made up of mistakes.", 300),
+        (
+            "Journey to the Center",
+            7,
+            "Science, my boy, is made up of mistakes.",
+            300,
+        ),
         ("1984", 8, "Big Brother is watching you.", 328),
-        ("Animal Farm", 8, "All animals are equal, but some are more equal.", 112),
-        ("Mrs Dalloway", 9, "Mrs. Dalloway said she would buy the flowers herself.", 296),
+        (
+            "Animal Farm",
+            8,
+            "All animals are equal, but some are more equal.",
+            112,
+        ),
+        (
+            "Mrs Dalloway",
+            9,
+            "Mrs. Dalloway said she would buy the flowers herself.",
+            296,
+        ),
         ("To the Lighthouse", 9, "Nothing was simply one thing.", 209),
-        ("Crime and Punishment", 10, "The darker the night, the brighter the stars.", 671),
+        (
+            "Crime and Punishment",
+            10,
+            "The darker the night, the brighter the stars.",
+            671,
+        ),
         ("The Idiot", 10, "Beauty will save the world.", 656),
-        ("War and Peace", 11, "Well, Prince, so Genoa and Lucca are now just family estates.", 1225),
+        (
+            "War and Peace",
+            11,
+            "Well, Prince, so Genoa and Lucca are now just family estates.",
+            1225,
+        ),
         ("Anna Karenina", 11, "All happy families are alike.", 864),
-        ("Don Quixote", 12, "The truth may be stretched, but cannot be broken.", 863),
-        ("Metamorphosis", 13, "When Gregor Samsa awoke, he found himself changed.", 201),
+        (
+            "Don Quixote",
+            12,
+            "The truth may be stretched, but cannot be broken.",
+            863,
+        ),
+        (
+            "Metamorphosis",
+            13,
+            "When Gregor Samsa awoke, he found himself changed.",
+            201,
+        ),
         ("The Trial", 13, "Someone must have slandered Josef K.", 255),
-        ("Tom Sawyer", 14, "Tom appeared on the sidewalk with a bucket of whitewash.", 274),
-        ("Huckleberry Finn", 14, "You do not know about me without you have read a book.", 366),
-        ("Dorian Gray", 15, "The only way to get rid of a temptation is to yield to it.", 254),
-        ("Earnest", 15, "The truth is rarely pure and never simple.", 180),
+        (
+            "Tom Sawyer",
+            14,
+            "Tom appeared on the sidewalk with a bucket of whitewash.",
+            274,
+        ),
+        (
+            "Huckleberry Finn",
+            14,
+            "You do not know about me without you have read a book.",
+            366,
+        ),
+        (
+            "Dorian Gray",
+            15,
+            "The only way to get rid of a temptation is to yield to it.",
+            254,
+        ),
+        (
+            "Earnest",
+            15,
+            "The truth is rarely pure and never simple.",
+            180,
+        ),
     ];
 
     for (idx, (title, author_idx, quote, pages)) in books.iter().enumerate() {
         let id = demo_id(0xB000 + idx as u16);
-        let author_id = author_ids
-            .get(*author_idx)
-            .copied()
-            .expect("author index");
-        let quote_handle = storage
-            .put::<LongString, _>(*quote)
-            .expect("quote handle");
+        let author_id = author_ids.get(*author_idx).copied().expect("author index");
+        let quote_handle = storage.put::<LongString, _>(*quote).expect("quote handle");
 
         kb += entity! { ExclusiveId::force_ref(&id) @
             demo::name: *title,
@@ -897,11 +997,7 @@ fn choose_track_y(gap_tracks: &[(f32, f32)], start_y: f32, end_y: f32) -> f32 {
     best
 }
 
-fn choose_track_y_monotonic(
-    corridors: &[(f32, f32)],
-    current_y: f32,
-    end_y: f32,
-) -> (f32, bool) {
+fn choose_track_y_monotonic(corridors: &[(f32, f32)], current_y: f32, end_y: f32) -> (f32, bool) {
     if corridors.is_empty() {
         return (current_y, true);
     }
@@ -1477,11 +1573,7 @@ fn distance_sq_to_polyline(point: egui::Pos2, points: &[egui::Pos2]) -> f32 {
     best
 }
 
-fn round_polyline(
-    points: &[egui::Pos2],
-    radius: f32,
-    segments: usize,
-) -> Vec<egui::Pos2> {
+fn round_polyline(points: &[egui::Pos2], radius: f32, segments: usize) -> Vec<egui::Pos2> {
     if points.len() < 3 || radius <= 0.0 || segments == 0 {
         return points.to_vec();
     }
@@ -1519,10 +1611,7 @@ fn round_polyline(
         let p1 = curr - dir_in * corner_radius;
         let p2 = curr + dir_out * corner_radius;
         if i == 1 {
-            if out
-                .last()
-                .is_none_or(|last| last.distance_sq(p1) > 0.01)
-            {
+            if out.last().is_none_or(|last| last.distance_sq(p1) > 0.01) {
                 out.push(p1);
             }
         } else if let Some(last) = out.last_mut() {
@@ -1684,13 +1773,7 @@ fn compute_inspector(
     };
     let layout = compute_graph_layout(ui, graph, forced_columns, &order);
     let routed_edges = route_edges(&layout, graph);
-    let stats = compute_graph_stats(
-        graph,
-        &layout,
-        &routed_edges,
-        linear_total,
-        linear_avg,
-    );
+    let stats = compute_graph_stats(graph, &layout, &routed_edges, linear_total, linear_avg);
     (layout, routed_edges, stats)
 }
 
@@ -1816,8 +1899,7 @@ fn paint_entity_inspector(
             .copied()
             .map(|p| p + origin_vec)
             .collect::<Vec<_>>();
-        let points =
-            round_polyline(&raw, (layout.text_row_height * 0.25).clamp(3.0, 8.0), 4);
+        let points = round_polyline(&raw, (layout.text_row_height * 0.25).clamp(3.0, 8.0), 4);
         let palette_index = attribute_palette_index(routed.attr_id, line_palette.len());
         let line_color = line_palette[palette_index];
         edge_renders.push(EdgeRender {
@@ -2011,8 +2093,13 @@ fn main(nb: &mut Notebook) {
                 });
                 ui.add_space(8.0);
 
-                let (layout, routed_edges, stats) =
-                    compute_inspector(ui, &graph, state.columns, state.order, state.barycentric_passes);
+                let (layout, routed_edges, stats) = compute_inspector(
+                    ui,
+                    &graph,
+                    state.columns,
+                    state.order,
+                    state.barycentric_passes,
+                );
 
                 let metrics = format!(
                     "_{} nodes, {} edges ({} components), {} columns._\n\
@@ -2044,7 +2131,7 @@ _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • 
 
                 paint_entity_inspector(ui, &graph, &mut state.selected, &layout, &routed_edges);
             });
-        }
+        },
     );
 
     nb.view(move |ui| {

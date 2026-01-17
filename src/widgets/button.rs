@@ -687,7 +687,11 @@ where
                 painter.rect_filled(face_rect.translate(shadow_offset), rounding, shadow_color);
             }
 
-            let stroke_color = if enabled && is_active { accent } else { outline };
+            let stroke_color = if enabled && is_active {
+                accent
+            } else {
+                outline
+            };
 
             painter.rect_filled(face_rect, rounding, fill);
             painter.rect_stroke(

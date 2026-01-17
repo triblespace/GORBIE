@@ -56,11 +56,7 @@ impl<T: Send + Sync + 'static> StateId<T> {
         state.try_write_arc()
     }
 
-    pub(crate) fn state_or_init(
-        self,
-        ui: &egui::Ui,
-        init: &mut Option<T>,
-    ) -> Arc<RwLock<T>>
+    pub(crate) fn state_or_init(self, ui: &egui::Ui, init: &mut Option<T>) -> Arc<RwLock<T>>
     where
         T: Default,
     {

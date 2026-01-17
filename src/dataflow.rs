@@ -38,10 +38,7 @@ impl<T> ComputedState<T> {
         if !handle.is_finished() {
             return false;
         }
-        let handle = self
-            .in_flight
-            .take()
-            .expect("in-flight handle missing");
+        let handle = self.in_flight.take().expect("in-flight handle missing");
         self.value = handle.join().unwrap();
         true
     }

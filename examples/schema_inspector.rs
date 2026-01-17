@@ -63,10 +63,9 @@ fn build_schema_metadata(blobs: &mut MemoryBlobStore<Blake3>) -> TribleSet {
     metadata_set += Blake2b::describe(blobs).expect("blake2 metadata");
     metadata_set += Blake3::describe(blobs).expect("blake3 metadata");
     metadata_set += Handle::<Blake3, LongString>::describe(blobs).expect("handle longstring");
-    metadata_set += Handle::<Blake3, SimpleArchive>::describe(blobs)
-        .expect("handle simplearchive");
-    metadata_set += Handle::<Blake3, SuccinctArchiveBlob>::describe(blobs)
-        .expect("handle succinctarchive");
+    metadata_set += Handle::<Blake3, SimpleArchive>::describe(blobs).expect("handle simplearchive");
+    metadata_set +=
+        Handle::<Blake3, SuccinctArchiveBlob>::describe(blobs).expect("handle succinctarchive");
     metadata_set += Handle::<Blake3, WasmCode>::describe(blobs).expect("handle wasmcode");
 
     metadata_set += LongString::describe(blobs).expect("longstring metadata");
@@ -154,10 +153,8 @@ fn render_schema_sections(
                 .color(ui.visuals().text_color()),
         );
         if idx + 1 < rows.len() {
-            let (rect, _) = ui.allocate_exact_size(
-                egui::vec2(ui.available_width(), 10.0),
-                egui::Sense::hover(),
-            );
+            let (rect, _) = ui
+                .allocate_exact_size(egui::vec2(ui.available_width(), 10.0), egui::Sense::hover());
             ui.painter()
                 .hline(rect.x_range(), rect.center().y, separator_stroke);
         } else {

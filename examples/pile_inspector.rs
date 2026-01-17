@@ -28,11 +28,11 @@ use triblespace::core::repo::{
     BranchStore,
 };
 use triblespace::core::trible::TribleSet;
-use triblespace::core::value::RawValue;
-use triblespace::core::value::Value;
 use triblespace::core::value::schemas::ed25519 as ed;
 use triblespace::core::value::schemas::hash::{Blake3, Handle};
 use triblespace::core::value::schemas::time::NsTAIInterval;
+use triblespace::core::value::RawValue;
+use triblespace::core::value::Value;
 use triblespace::macros::{find, pattern};
 use triblespace::prelude::View;
 use GORBIE::cards::with_padding;
@@ -263,8 +263,11 @@ impl PileSimulation {
         let mut bodies = RigidBodySet::new();
         let mut colliders = ColliderSet::new();
 
-        let ground_handle =
-            bodies.insert(RigidBodyBuilder::fixed().translation(vector![0.0, 0.0]).build());
+        let ground_handle = bodies.insert(
+            RigidBodyBuilder::fixed()
+                .translation(vector![0.0, 0.0])
+                .build(),
+        );
         let ground = ColliderBuilder::cuboid(layout.half_width * 8.0, layout.wall_thickness)
             .friction(0.9)
             .build();
@@ -392,10 +395,7 @@ impl Lcg {
     }
 
     fn next_u32(&mut self) -> u32 {
-        self.state = self
-            .state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1);
+        self.state = self.state.wrapping_mul(6364136223846793005).wrapping_add(1);
         (self.state >> 32) as u32
     }
 
@@ -901,10 +901,7 @@ fn draw_pile_sim(
         let size = block.block.size * zoom;
         let points = rotated_rect_points(center, size, angle);
         for idx in 0..4 {
-            painter.line_segment(
-                [points[idx], points[(idx + 1) % 4]],
-                stroke,
-            );
+            painter.line_segment([points[idx], points[(idx + 1) % 4]], stroke);
         }
 
         if block.block.has_branch {
@@ -980,12 +977,7 @@ impl SummarySimState {
     }
 }
 
-fn summary_overlay_row(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &str,
-    value_color: egui::Color32,
-) {
+fn summary_overlay_row(ui: &mut egui::Ui, label: &str, value: &str, value_color: egui::Color32) {
     ui.label(egui::RichText::new(label).monospace().color(value_color));
     ui.label(egui::RichText::new(value).monospace().color(value_color));
     ui.end_row();
@@ -1020,18 +1012,8 @@ fn summary_overlay_text(
                 .spacing(egui::vec2(12.0, 0.0))
                 .show(ui, |ui| {
                     summary_overlay_row(ui, "SIZE", size_value, pile_color);
-                    summary_overlay_row(
-                        ui,
-                        "BLOBS",
-                        &format!("{blob_count}"),
-                        pile_color,
-                    );
-                    summary_overlay_row(
-                        ui,
-                        "BRANCHES",
-                        &format!("{branch_count}"),
-                        sprout_color,
-                    );
+                    summary_overlay_row(ui, "BLOBS", &format!("{blob_count}"), pile_color);
+                    summary_overlay_row(ui, "BRANCHES", &format!("{branch_count}"), sprout_color);
                     summary_overlay_row(ui, "OLDEST", oldest, web_color);
                     summary_overlay_row(ui, "NEWEST", newest, web_color);
                 });
@@ -1144,13 +1126,9 @@ fn snapshot_pile(pile: &mut Pile, path: &PathBuf) -> Result<PileSnapshot, String
         blob_entries.push((timestamp_ms, handle.raw));
     }
 
-    blob_entries.sort_by(|(ts_a, hash_a), (ts_b, hash_b)| {
-        ts_b.cmp(ts_a).then_with(|| hash_a.cmp(hash_b))
-    });
-    let blob_order = blob_entries
-        .into_iter()
-        .map(|(_, hash)| hash)
-        .collect();
+    blob_entries
+        .sort_by(|(ts_a, hash_a), (ts_b, hash_b)| ts_b.cmp(ts_a).then_with(|| hash_a.cmp(hash_b)));
+    let blob_order = blob_entries.into_iter().map(|(_, hash)| hash).collect();
 
     let blob_stats = BlobStats {
         oldest_ts,
@@ -1256,11 +1234,7 @@ fn commit_summary(short_message: Option<&str>, long_message: Option<&str>) -> St
             }
         })
         .or_else(|| {
-            long_message.and_then(|msg| {
-                msg.lines()
-                    .map(str::trim)
-                    .find(|line| !line.is_empty())
-            })
+            long_message.and_then(|msg| msg.lines().map(str::trim).find(|line| !line.is_empty()))
         })
         .unwrap_or("commit");
     summary.to_owned()
@@ -1409,12 +1383,7 @@ fn text_width(ui: &egui::Ui, text: &str, style: &egui::TextStyle) -> f32 {
     })
 }
 
-fn truncate_to_width(
-    ui: &egui::Ui,
-    text: &str,
-    max_width: f32,
-    style: &egui::TextStyle,
-) -> String {
+fn truncate_to_width(ui: &egui::Ui, text: &str, max_width: f32, style: &egui::TextStyle) -> String {
     if text.is_empty() || max_width <= 0.0 {
         return String::new();
     }
@@ -1508,8 +1477,7 @@ fn draw_commit_dag(ui: &mut egui::Ui, snapshot: &PileSnapshot) {
     let lanes_width = layout.lane_count as f32 * lane_width;
     let left_padding = node_radius + 6.0;
     let top_padding = (card_height * 0.5 + 4.0).max(node_radius + 4.0);
-    let width =
-        left_padding + lanes_width + label_width + label_gap + card_width + 12.0;
+    let width = left_padding + lanes_width + label_width + label_gap + card_width + 12.0;
     let height = top_padding + (rows as f32 * row_height) + 4.0;
 
     let head_set: HashSet<RawValue> = head_labels.keys().copied().collect();
@@ -1537,8 +1505,7 @@ fn draw_commit_dag(ui: &mut egui::Ui, snapshot: &PileSnapshot) {
                 let Some(&(lane, row)) = layout.positions.get(commit) else {
                     continue;
                 };
-                let start = origin
-                    + egui::vec2(lane as f32 * lane_width, row as f32 * row_height);
+                let start = origin + egui::vec2(lane as f32 * lane_width, row as f32 * row_height);
                 let stroke = egui::Stroke::new(1.0, lane_colors[lane % lane_colors.len()]);
 
                 for parent in &info.parents {
@@ -1560,8 +1527,7 @@ fn draw_commit_dag(ui: &mut egui::Ui, snapshot: &PileSnapshot) {
                 let Some(&(lane, row)) = layout.positions.get(commit) else {
                     continue;
                 };
-                let pos =
-                    origin + egui::vec2(lane as f32 * lane_width, row as f32 * row_height);
+                let pos = origin + egui::vec2(lane as f32 * lane_width, row as f32 * row_height);
                 let is_head = head_set.contains(commit);
                 let color = lane_colors[lane % lane_colors.len()];
                 let stroke = if is_head {
@@ -1627,16 +1593,10 @@ fn draw_commit_dag(ui: &mut egui::Ui, snapshot: &PileSnapshot) {
                         tooltip.push_str(&format!("\nmessage: {message}"));
                     }
                     if let Some(author) = info.author {
-                        tooltip.push_str(&format!(
-                            "\nauthor: {}",
-                            hex_prefix(author, 12)
-                        ));
+                        tooltip.push_str(&format!("\nauthor: {}", hex_prefix(author, 12)));
                     }
                     if let Some(timestamp_ms) = info.timestamp_ms {
-                        tooltip.push_str(&format!(
-                            "\nwhen: {}",
-                            format_age(now_ms, timestamp_ms)
-                        ));
+                        tooltip.push_str(&format!("\nwhen: {}", format_age(now_ms, timestamp_ms)));
                     }
                     response.on_hover_text(tooltip);
                 }
@@ -1650,11 +1610,16 @@ fn draw_commit_dag(ui: &mut egui::Ui, snapshot: &PileSnapshot) {
                     continue;
                 };
                 let label = labels.join(", ");
-                let pos =
-                    origin + egui::vec2(lane as f32 * lane_width, row as f32 * row_height);
+                let pos = origin + egui::vec2(lane as f32 * lane_width, row as f32 * row_height);
                 let label_pos = pos + egui::vec2(node_radius + 6.0, 0.0);
                 let color = lane_colors[lane % lane_colors.len()];
-                painter.text(label_pos, egui::Align2::LEFT_CENTER, label, font_id.clone(), color);
+                painter.text(
+                    label_pos,
+                    egui::Align2::LEFT_CENTER,
+                    label,
+                    font_id.clone(),
+                    color,
+                );
             }
 
             if graph.truncated {
@@ -1786,205 +1751,210 @@ fn main(nb: &mut Notebook) {
         }
     );
 
-    let summary_tuning = nb.state("summary_tuning", SummaryTuning::default(), move |ui, tuning| {
-        with_padding(ui, padding, |ui| {
-            md!(ui, "## Summary knobs");
-            ui.horizontal(|ui| {
-                ui.label("MODE:");
-                ui.add(widgets::ChoiceToggle::binary(
-                    &mut tuning.enabled,
-                    "LIVE",
-                    "TUNE",
-                ));
+    let summary_tuning = nb.state(
+        "summary_tuning",
+        SummaryTuning::default(),
+        move |ui, tuning| {
+            with_padding(ui, padding, |ui| {
+                md!(ui, "## Summary knobs");
+                ui.horizontal(|ui| {
+                    ui.label("MODE:");
+                    ui.add(widgets::ChoiceToggle::binary(
+                        &mut tuning.enabled,
+                        "LIVE",
+                        "TUNE",
+                    ));
+                });
+                ui.add_space(6.0);
+                ui.add(
+                    widgets::Slider::new(&mut tuning.zoom, 0.35..=1.0)
+                        .text("ZOOM")
+                        .max_decimals(2),
+                );
+                ui.add(
+                    widgets::Slider::new(&mut tuning.sample_rate, 0.0..=1.0)
+                        .text("SAMPLE")
+                        .max_decimals(2),
+                );
+                ui.add(
+                    widgets::Slider::new(&mut tuning.insert_rate, 0.0..=1.0)
+                        .text("INSERT")
+                        .max_decimals(2),
+                );
+                ui.add_space(6.0);
+                ui.add_enabled_ui(tuning.enabled, |ui| {
+                    ui.add(
+                        widgets::Slider::new(&mut tuning.size_level, 0.0..=1.0)
+                            .text("SIZE")
+                            .max_decimals(2),
+                    );
+                    ui.add(
+                        widgets::Slider::new(&mut tuning.blob_level, 0.0..=1.0)
+                            .text("BLOBS")
+                            .max_decimals(2),
+                    );
+                    ui.add(
+                        widgets::Slider::new(&mut tuning.avg_blob_level, 0.0..=1.0)
+                            .text("AVG BLOB")
+                            .max_decimals(2),
+                    );
+                    ui.add(
+                        widgets::Slider::new(&mut tuning.age_level, 0.0..=1.0)
+                            .text("AGE")
+                            .max_decimals(2),
+                    );
+                    ui.add(
+                        widgets::Slider::new(&mut tuning.branch_level, 0.0..=1.0)
+                            .text("BRANCHES")
+                            .max_decimals(2),
+                    );
+                });
+                if !tuning.enabled {
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new("Enable TUNE to override the pile visualization.")
+                            .small(),
+                    );
+                }
             });
-            ui.add_space(6.0);
-            ui.add(
-                widgets::Slider::new(&mut tuning.zoom, 0.35..=1.0)
-                    .text("ZOOM")
-                    .max_decimals(2),
-            );
-            ui.add(
-                widgets::Slider::new(&mut tuning.sample_rate, 0.0..=1.0)
-                    .text("SAMPLE")
-                    .max_decimals(2),
-            );
-            ui.add(
-                widgets::Slider::new(&mut tuning.insert_rate, 0.0..=1.0)
-                    .text("INSERT")
-                    .max_decimals(2),
-            );
-            ui.add_space(6.0);
-            ui.add_enabled_ui(tuning.enabled, |ui| {
-                ui.add(
-                    widgets::Slider::new(&mut tuning.size_level, 0.0..=1.0)
-                        .text("SIZE")
-                        .max_decimals(2),
-                );
-                ui.add(
-                    widgets::Slider::new(&mut tuning.blob_level, 0.0..=1.0)
-                        .text("BLOBS")
-                        .max_decimals(2),
-                );
-                ui.add(
-                    widgets::Slider::new(&mut tuning.avg_blob_level, 0.0..=1.0)
-                        .text("AVG BLOB")
-                        .max_decimals(2),
-                );
-                ui.add(
-                    widgets::Slider::new(&mut tuning.age_level, 0.0..=1.0)
-                        .text("AGE")
-                        .max_decimals(2),
-                );
-                ui.add(
-                    widgets::Slider::new(&mut tuning.branch_level, 0.0..=1.0)
-                        .text("BRANCHES")
-                        .max_decimals(2),
-                );
-            });
-            if !tuning.enabled {
-                ui.add_space(4.0);
-                ui.label(
-                    egui::RichText::new("Enable TUNE to override the pile visualization.").small(),
-                );
-            }
-        });
-    });
+        },
+    );
 
     nb.view(move |ui| {
         with_padding(ui, padding, |ui| {
             let mut state = inspector.read_mut(ui).expect("inspector state missing");
             md!(ui, "## Blob size distribution");
 
-        ui.horizontal(|ui| {
-            ui.label("METRIC:");
-            ui.add(widgets::ChoiceToggle::binary(
-                &mut state.histogram_bytes,
-                "COUNT",
-                "BYTES",
-            ));
-        });
-        let histogram_bytes = state.histogram_bytes;
+            ui.horizontal(|ui| {
+                ui.label("METRIC:");
+                ui.add(widgets::ChoiceToggle::binary(
+                    &mut state.histogram_bytes,
+                    "COUNT",
+                    "BYTES",
+                ));
+            });
+            let histogram_bytes = state.histogram_bytes;
 
-        state.snapshot.poll();
-        let snapshot_value = state.snapshot.value().as_ref();
-        let Some(result) = snapshot_value else {
-            md!(ui, "_Load a pile to see the distribution._");
-            return;
-        };
-        let Ok(snapshot) = result else {
-            md!(ui, "_Load a valid pile to see the distribution._");
-            return;
-        };
-
-        let stats = &snapshot.blob_stats;
-        if stats.valid_blobs == 0 {
-            md!(ui, "_No valid blob sizes found._");
-            return;
-        }
-
-        fn bucket_start(exp: u32) -> u64 {
-            1u64 << exp
-        }
-
-        fn bucket_end(exp: u32) -> u64 {
-            if exp >= 63 {
-                u64::MAX
-            } else {
-                (1u64 << (exp + 1)).saturating_sub(1)
-            }
-        }
-
-        fn bucket_label(
-            exp: u32,
-            min_exp: u32,
-            max_exp: u32,
-            underflowed: bool,
-            overflowed: bool,
-        ) -> String {
-            let start = bucket_start(exp);
-            let prefix = if underflowed && exp == min_exp {
-                "≤"
-            } else {
-                ""
+            state.snapshot.poll();
+            let snapshot_value = state.snapshot.value().as_ref();
+            let Some(result) = snapshot_value else {
+                md!(ui, "_Load a pile to see the distribution._");
+                return;
             };
-            let suffix = if overflowed && exp == max_exp {
-                "+"
-            } else {
-                ""
+            let Ok(snapshot) = result else {
+                md!(ui, "_Load a valid pile to see the distribution._");
+                return;
             };
 
-            if start >= (1u64 << 30) {
-                let start_g = start >> 30;
-                format!("{prefix}{start_g}G{suffix}")
-            } else if start >= (1u64 << 20) {
-                let start_m = start >> 20;
-                format!("{prefix}{start_m}M{suffix}")
-            } else if start >= (1u64 << 10) {
-                let start_k = start >> 10;
-                format!("{prefix}{start_k}K{suffix}")
-            } else {
-                format!("{prefix}{start}B{suffix}")
+            let stats = &snapshot.blob_stats;
+            if stats.valid_blobs == 0 {
+                md!(ui, "_No valid blob sizes found._");
+                return;
             }
-        }
 
-        let y_axis = if histogram_bytes {
-            widgets::HistogramYAxis::Bytes
-        } else {
-            widgets::HistogramYAxis::Count
-        };
+            fn bucket_start(exp: u32) -> u64 {
+                1u64 << exp
+            }
 
-        let mut max_value = 0u64;
-        let mut histogram_buckets: Vec<widgets::HistogramBucket<'static>> = Vec::new();
-        for exp in HISTOGRAM_MIN_BUCKET_EXP..=HISTOGRAM_MAX_BUCKET_EXP {
-            let idx = (exp - HISTOGRAM_MIN_BUCKET_EXP) as usize;
-            let (count, bytes) = stats.buckets.get(idx).copied().unwrap_or((0, 0));
-            let value = if histogram_bytes { bytes } else { count };
-            max_value = max_value.max(value);
+            fn bucket_end(exp: u32) -> u64 {
+                if exp >= 63 {
+                    u64::MAX
+                } else {
+                    (1u64 << (exp + 1)).saturating_sub(1)
+                }
+            }
 
-            let mut bucket = widgets::HistogramBucket::new(
-                value,
-                bucket_label(
-                    exp,
-                    HISTOGRAM_MIN_BUCKET_EXP,
-                    HISTOGRAM_MAX_BUCKET_EXP,
-                    stats.saw_underflow,
-                    stats.saw_overflow,
-                ),
+            fn bucket_label(
+                exp: u32,
+                min_exp: u32,
+                max_exp: u32,
+                underflowed: bool,
+                overflowed: bool,
+            ) -> String {
+                let start = bucket_start(exp);
+                let prefix = if underflowed && exp == min_exp {
+                    "≤"
+                } else {
+                    ""
+                };
+                let suffix = if overflowed && exp == max_exp {
+                    "+"
+                } else {
+                    ""
+                };
+
+                if start >= (1u64 << 30) {
+                    let start_g = start >> 30;
+                    format!("{prefix}{start_g}G{suffix}")
+                } else if start >= (1u64 << 20) {
+                    let start_m = start >> 20;
+                    format!("{prefix}{start_m}M{suffix}")
+                } else if start >= (1u64 << 10) {
+                    let start_k = start >> 10;
+                    format!("{prefix}{start_k}K{suffix}")
+                } else {
+                    format!("{prefix}{start}B{suffix}")
+                }
+            }
+
+            let y_axis = if histogram_bytes {
+                widgets::HistogramYAxis::Bytes
+            } else {
+                widgets::HistogramYAxis::Count
+            };
+
+            let mut max_value = 0u64;
+            let mut histogram_buckets: Vec<widgets::HistogramBucket<'static>> = Vec::new();
+            for exp in HISTOGRAM_MIN_BUCKET_EXP..=HISTOGRAM_MAX_BUCKET_EXP {
+                let idx = (exp - HISTOGRAM_MIN_BUCKET_EXP) as usize;
+                let (count, bytes) = stats.buckets.get(idx).copied().unwrap_or((0, 0));
+                let value = if histogram_bytes { bytes } else { count };
+                max_value = max_value.max(value);
+
+                let mut bucket = widgets::HistogramBucket::new(
+                    value,
+                    bucket_label(
+                        exp,
+                        HISTOGRAM_MIN_BUCKET_EXP,
+                        HISTOGRAM_MAX_BUCKET_EXP,
+                        stats.saw_underflow,
+                        stats.saw_overflow,
+                    ),
+                );
+
+                if value > 0 {
+                    let range = if stats.saw_overflow && exp == HISTOGRAM_MAX_BUCKET_EXP {
+                        let start = bucket_start(exp);
+                        format!("≥ {}", format_bytes(start))
+                    } else if stats.saw_underflow && exp == HISTOGRAM_MIN_BUCKET_EXP {
+                        let end = bucket_end(exp);
+                        format!("≤ {}", format_bytes(end))
+                    } else {
+                        let start = bucket_start(exp);
+                        let end = bucket_end(exp);
+                        format!("{}–{}", format_bytes(start), format_bytes(end))
+                    };
+                    let metric = if histogram_bytes {
+                        format_bytes(bytes)
+                    } else {
+                        format!("{count}")
+                    };
+                    bucket = bucket.tooltip(format!("{range}\n{metric}"));
+                }
+
+                histogram_buckets.push(bucket);
+            }
+
+            if max_value == 0 {
+                md!(ui, "_No data to plot._");
+                return;
+            }
+
+            ui.add(
+                widgets::Histogram::new(&histogram_buckets, y_axis)
+                    .plot_height(80.0)
+                    .max_x_labels(7),
             );
-
-            if value > 0 {
-                let range = if stats.saw_overflow && exp == HISTOGRAM_MAX_BUCKET_EXP {
-                    let start = bucket_start(exp);
-                    format!("≥ {}", format_bytes(start))
-                } else if stats.saw_underflow && exp == HISTOGRAM_MIN_BUCKET_EXP {
-                    let end = bucket_end(exp);
-                    format!("≤ {}", format_bytes(end))
-                } else {
-                    let start = bucket_start(exp);
-                    let end = bucket_end(exp);
-                    format!("{}–{}", format_bytes(start), format_bytes(end))
-                };
-                let metric = if histogram_bytes {
-                    format_bytes(bytes)
-                } else {
-                    format!("{count}")
-                };
-                bucket = bucket.tooltip(format!("{range}\n{metric}"));
-            }
-
-            histogram_buckets.push(bucket);
-        }
-
-        if max_value == 0 {
-            md!(ui, "_No data to plot._");
-            return;
-        }
-
-        ui.add(
-            widgets::Histogram::new(&histogram_buckets, y_axis)
-                .plot_height(80.0)
-                .max_x_labels(7),
-        );
 
             md!(
                 ui,
@@ -2070,105 +2040,105 @@ fn main(nb: &mut Notebook) {
                                 );
                             }
                             Some(Ok(snapshot)) => {
-                            let blob_count = snapshot.blob_order.len();
-                            let branch_count = snapshot.branches.len();
-                            let oldest_ts = snapshot.blob_stats.oldest_ts;
-                            let newest_ts = snapshot.blob_stats.newest_ts;
+                                let blob_count = snapshot.blob_order.len();
+                                let branch_count = snapshot.branches.len();
+                                let oldest_ts = snapshot.blob_stats.oldest_ts;
+                                let newest_ts = snapshot.blob_stats.newest_ts;
 
-                            let oldest = oldest_ts
-                                .map(|ts| format_age(now_ms, ts))
-                                .unwrap_or_else(|| "—".to_owned());
-                            let newest = newest_ts
-                                .map(|ts| format_age(now_ms, ts))
-                                .unwrap_or_else(|| "—".to_owned());
+                                let oldest = oldest_ts
+                                    .map(|ts| format_age(now_ms, ts))
+                                    .unwrap_or_else(|| "—".to_owned());
+                                let newest = newest_ts
+                                    .map(|ts| format_age(now_ms, ts))
+                                    .unwrap_or_else(|| "—".to_owned());
 
-                            let age_span_secs = match (oldest_ts, newest_ts) {
-                                (Some(oldest_ts), Some(newest_ts)) => {
-                                    newest_ts.saturating_sub(oldest_ts) / 1000
+                                let age_span_secs = match (oldest_ts, newest_ts) {
+                                    (Some(oldest_ts), Some(newest_ts)) => {
+                                        newest_ts.saturating_sub(oldest_ts) / 1000
+                                    }
+                                    _ => 0,
+                                };
+
+                                let live_size_level = normalize_log2(snapshot.file_len, 10.0, 30.0);
+                                let live_blob_level =
+                                    normalize_log2(blob_count as u64 + 1, 0.0, 20.0);
+                                let live_branch_level =
+                                    normalize_log2(branch_count as u64 + 1, 0.0, 12.0);
+                                let live_age_level = normalize_log2(age_span_secs + 1, 0.0, 20.0);
+                                let avg_blob_size = if blob_count > 0 {
+                                    snapshot.file_len / blob_count as u64
+                                } else {
+                                    0
+                                };
+                                let live_avg_blob_level =
+                                    normalize_log2(avg_blob_size + 1, 6.0, 24.0);
+                                let levels = SummaryLevels {
+                                    size: if tuning.enabled {
+                                        tuning.size_level
+                                    } else {
+                                        live_size_level
+                                    },
+                                    blob: if tuning.enabled {
+                                        tuning.blob_level
+                                    } else {
+                                        live_blob_level
+                                    },
+                                    avg_blob: if tuning.enabled {
+                                        tuning.avg_blob_level
+                                    } else {
+                                        live_avg_blob_level
+                                    },
+                                    age: if tuning.enabled {
+                                        tuning.age_level
+                                    } else {
+                                        live_age_level
+                                    },
+                                    branch: if tuning.enabled {
+                                        tuning.branch_level
+                                    } else {
+                                        live_branch_level
+                                    },
+                                    zoom: tuning.zoom,
+                                    sample_rate: tuning.sample_rate,
+                                    insert_rate: tuning.insert_rate,
+                                };
+
+                                let panel_rect = summary_panel_base(
+                                    ui,
+                                    ui.available_width(),
+                                    bg_color,
+                                    summary_padding,
+                                );
+                                let sim_rect = summary_sim_rect(panel_rect);
+                                let spawn_interval = spawn_interval_for_rate(levels.insert_rate);
+                                let active = summary_sim.update_and_draw(
+                                    ui,
+                                    snapshot,
+                                    levels,
+                                    sim_rect,
+                                    spawn_interval,
+                                    pile_color,
+                                    web_color,
+                                    sprout_color,
+                                );
+                                if active {
+                                    ui.ctx().request_repaint();
                                 }
-                                _ => 0,
-                            };
-
-                            let live_size_level = normalize_log2(snapshot.file_len, 10.0, 30.0);
-                            let live_blob_level =
-                                normalize_log2(blob_count as u64 + 1, 0.0, 20.0);
-                            let live_branch_level =
-                                normalize_log2(branch_count as u64 + 1, 0.0, 12.0);
-                            let live_age_level = normalize_log2(age_span_secs + 1, 0.0, 20.0);
-                            let avg_blob_size = if blob_count > 0 {
-                                snapshot.file_len / blob_count as u64
-                            } else {
-                                0
-                            };
-                            let live_avg_blob_level =
-                                normalize_log2(avg_blob_size + 1, 6.0, 24.0);
-                            let levels = SummaryLevels {
-                                size: if tuning.enabled {
-                                    tuning.size_level
-                                } else {
-                                    live_size_level
-                                },
-                                blob: if tuning.enabled {
-                                    tuning.blob_level
-                                } else {
-                                    live_blob_level
-                                },
-                                avg_blob: if tuning.enabled {
-                                    tuning.avg_blob_level
-                                } else {
-                                    live_avg_blob_level
-                                },
-                                age: if tuning.enabled {
-                                    tuning.age_level
-                                } else {
-                                    live_age_level
-                                },
-                                branch: if tuning.enabled {
-                                    tuning.branch_level
-                                } else {
-                                    live_branch_level
-                                },
-                                zoom: tuning.zoom,
-                                sample_rate: tuning.sample_rate,
-                                insert_rate: tuning.insert_rate,
-                            };
-
-                            let panel_rect = summary_panel_base(
-                                ui,
-                                ui.available_width(),
-                                bg_color,
-                                summary_padding,
-                            );
-                            let sim_rect = summary_sim_rect(panel_rect);
-                            let spawn_interval = spawn_interval_for_rate(levels.insert_rate);
-                            let active = summary_sim.update_and_draw(
-                                ui,
-                                snapshot,
-                                levels,
-                                sim_rect,
-                                spawn_interval,
-                                pile_color,
-                                web_color,
-                                sprout_color,
-                            );
-                            if active {
-                                ui.ctx().request_repaint();
-                            }
-                            summary_overlay_text(
-                                ui,
-                                panel_rect,
-                                &format_bytes(snapshot.file_len),
-                                blob_count,
-                                branch_count,
-                                &oldest,
-                                &newest,
-                                &snapshot.path.display().to_string(),
-                                label_color,
-                                pile_color,
-                                web_color,
-                                sprout_color,
-                            );
-                            extend_panel_background(ui, panel_rect, bg_color, summary_padding);
+                                summary_overlay_text(
+                                    ui,
+                                    panel_rect,
+                                    &format_bytes(snapshot.file_len),
+                                    blob_count,
+                                    branch_count,
+                                    &oldest,
+                                    &newest,
+                                    &snapshot.path.display().to_string(),
+                                    label_color,
+                                    pile_color,
+                                    web_color,
+                                    sprout_color,
+                                );
+                                extend_panel_background(ui, panel_rect, bg_color, summary_padding);
                             }
                         }
                     }
@@ -2206,195 +2176,187 @@ fn main(nb: &mut Notebook) {
             let mut state = inspector.read_mut(ui).expect("inspector state missing");
             md!(ui, "## Blobs");
 
-        state.snapshot.poll();
-        let snapshot_value = state.snapshot.value().as_ref();
-        let Some(result) = snapshot_value else {
-            md!(ui, "_Load a pile to see blobs._");
-            return;
-        };
-        let Ok(snapshot) = result else {
-            md!(ui, "_Load a valid pile to see blobs._");
-            return;
-        };
+            state.snapshot.poll();
+            let snapshot_value = state.snapshot.value().as_ref();
+            let Some(result) = snapshot_value else {
+                md!(ui, "_Load a pile to see blobs._");
+                return;
+            };
+            let Ok(snapshot) = result else {
+                md!(ui, "_Load a valid pile to see blobs._");
+                return;
+            };
 
-        if snapshot.blob_order.is_empty() {
-            md!(ui, "_No blobs found._");
-            return;
-        }
+            if snapshot.blob_order.is_empty() {
+                md!(ui, "_No blobs found._");
+                return;
+            }
 
-        let page_size = state.max_rows.max(1);
-        let mut page = state.blob_page;
-        let total = snapshot.blob_order.len();
-        let total_pages = total.saturating_add(page_size - 1) / page_size;
-        page = page.min(total_pages.saturating_sub(1));
-        let mut page_next = page;
-        let start = page * page_size;
-        let end = (start + page_size).min(total);
-        let display_start = start + 1;
+            let page_size = state.max_rows.max(1);
+            let mut page = state.blob_page;
+            let total = snapshot.blob_order.len();
+            let total_pages = total.saturating_add(page_size - 1) / page_size;
+            page = page.min(total_pages.saturating_sub(1));
+            let mut page_next = page;
+            let start = page * page_size;
+            let end = (start + page_size).min(total);
+            let display_start = start + 1;
 
-        ui.scope(|ui| {
-            ui.spacing_mut().item_spacing = egui::vec2(6.0, 2.0);
+            ui.scope(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(6.0, 2.0);
 
-            let page_display = page + 1;
-            ui.horizontal(|ui| {
-                let page_label = if total_pages == 0 {
-                    "Page —".to_owned()
-                } else {
-                    format!("Page {page_display} of {total_pages}")
-                };
-                ui.label(egui::RichText::new(page_label).small());
+                let page_display = page + 1;
+                ui.horizontal(|ui| {
+                    let page_label = if total_pages == 0 {
+                        "Page —".to_owned()
+                    } else {
+                        format!("Page {page_display} of {total_pages}")
+                    };
+                    ui.label(egui::RichText::new(page_label).small());
+
+                    if total_pages > 0 {
+                        ui.label(
+                            egui::RichText::new(format!("{display_start}–{end} of {total}"))
+                                .small(),
+                        );
+                    }
+                });
 
                 if total_pages > 0 {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{display_start}–{end} of {total}"
-                        ))
-                        .small(),
+                    let mut page_select = page_display;
+                    ui.scope(|ui| {
+                        ui.spacing_mut().slider_width = ui.available_width();
+                        ui.add(
+                            widgets::Slider::new(&mut page_select, 1..=total_pages)
+                                .show_value(false),
+                        );
+                    });
+                    page_next = page_select.saturating_sub(1);
+                }
+
+                let now_ms = now_ms();
+                let branch_heads: HashSet<RawValue> = snapshot
+                    .branches
+                    .iter()
+                    .filter_map(|branch| branch.head)
+                    .collect();
+                let card_spacing = egui::vec2(4.0, 4.0);
+                let card_height = ui.text_style_height(&egui::TextStyle::Small) + 6.0;
+                let min_card_width = 56.0;
+                let card_fill = ui.visuals().widgets.noninteractive.bg_fill;
+                let outline_stroke =
+                    egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color);
+                let card_rounding = egui::CornerRadius::same(4);
+                let branch_color = egui::Color32::from_rgb(95, 210, 85);
+                let items: Vec<BlobInfo> = snapshot
+                    .blob_order
+                    .iter()
+                    .skip(start)
+                    .take(page_size)
+                    .map(|&hash| blob_info(&snapshot.reader, hash))
+                    .collect();
+                let available_width = ui.available_width();
+                let columns = ((available_width + card_spacing.x)
+                    / (min_card_width + card_spacing.x))
+                    .floor()
+                    .max(1.0) as usize;
+                let columns_f = columns as f32;
+                let card_width = ((available_width - card_spacing.x * (columns_f - 1.0))
+                    / columns_f)
+                    .floor()
+                    .max(1.0);
+                let card_size = egui::vec2(card_width, card_height);
+
+                ui.add_space(2.0);
+                ui.spacing_mut().item_spacing = card_spacing;
+
+                let render_blob_card = |ui: &mut egui::Ui, blob: &BlobInfo| {
+                    let is_head = branch_heads.contains(&blob.hash);
+                    let (rect, response) = ui.allocate_exact_size(card_size, egui::Sense::click());
+                    ui.painter().rect_filled(rect, card_rounding, card_fill);
+
+                    if is_head {
+                        let band_inset = outline_stroke.width;
+                        let band_rect = rect.shrink(band_inset);
+                        let inset_u8 = band_inset.round().clamp(0.0, u8::MAX as f32) as u8;
+                        let band_rounding = card_rounding - inset_u8;
+                        let line_height =
+                            f32::from(band_rounding.nw).min(band_rect.height()).max(1.0);
+                        let line_rect = egui::Rect::from_min_max(
+                            band_rect.min,
+                            egui::pos2(band_rect.max.x, band_rect.min.y + line_height),
+                        );
+                        ui.painter().with_clip_rect(line_rect).rect_filled(
+                            band_rect,
+                            band_rounding,
+                            branch_color,
+                        );
+                    }
+
+                    ui.painter().rect_stroke(
+                        rect,
+                        card_rounding,
+                        outline_stroke,
+                        egui::StrokeKind::Inside,
+                    );
+
+                    let content_rect = rect.shrink2(egui::vec2(4.0, 1.0));
+                    let mut card_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(content_rect)
+                            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                    );
+                    card_ui.spacing_mut().item_spacing = egui::vec2(2.0, 0.0);
+
+                    let size_text = blob
+                        .length
+                        .map(format_bytes_compact)
+                        .unwrap_or_else(|| "invalid".to_owned());
+                    let age_text = blob
+                        .timestamp_ms
+                        .map(|timestamp| format_age_compact(now_ms, timestamp))
+                        .unwrap_or_else(|| "--".to_owned());
+                    let line = format!("{size_text} {age_text}");
+                    card_ui.add(
+                        egui::Label::new(egui::RichText::new(line).monospace().small())
+                            .truncate()
+                            .wrap_mode(egui::TextWrapMode::Truncate),
+                    );
+
+                    let hash_text = hex_prefix(blob.hash, 32);
+                    let response = response.on_hover_ui(|ui| {
+                        ui.label(egui::RichText::new(format!("hash: {hash_text}")).monospace());
+                    });
+                    if response.clicked() {
+                        ui.ctx().copy_text(hash_text);
+                    }
+                };
+
+                let row_width = available_width;
+                for row in items.chunks(columns) {
+                    let row_layout = if ui.layout().prefer_right_to_left() {
+                        egui::Layout::right_to_left(egui::Align::Center)
+                    } else {
+                        egui::Layout::left_to_right(egui::Align::Center)
+                    };
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(row_width, card_height),
+                        row_layout,
+                        |ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(card_spacing.x, 0.0);
+                            for blob in row {
+                                render_blob_card(ui, blob);
+                            }
+                        },
                     );
                 }
             });
 
             if total_pages > 0 {
-                let mut page_select = page_display;
-                ui.scope(|ui| {
-                    ui.spacing_mut().slider_width = ui.available_width();
-                    ui.add(
-                        widgets::Slider::new(&mut page_select, 1..=total_pages)
-                            .show_value(false),
-                    );
-                });
-                page_next = page_select.saturating_sub(1);
+                state.blob_page = page_next.min(total_pages.saturating_sub(1));
+            } else {
+                state.blob_page = 0;
             }
-
-            let now_ms = now_ms();
-            let branch_heads: HashSet<RawValue> = snapshot
-                .branches
-                .iter()
-                .filter_map(|branch| branch.head)
-                .collect();
-            let card_spacing = egui::vec2(4.0, 4.0);
-            let card_height = ui.text_style_height(&egui::TextStyle::Small) + 6.0;
-            let min_card_width = 56.0;
-            let card_fill = ui.visuals().widgets.noninteractive.bg_fill;
-            let outline_stroke = egui::Stroke::new(
-                1.0,
-                ui.visuals().widgets.noninteractive.bg_stroke.color,
-            );
-            let card_rounding = egui::CornerRadius::same(4);
-            let branch_color = egui::Color32::from_rgb(95, 210, 85);
-            let items: Vec<BlobInfo> = snapshot
-                .blob_order
-                .iter()
-                .skip(start)
-                .take(page_size)
-                .map(|&hash| blob_info(&snapshot.reader, hash))
-                .collect();
-            let available_width = ui.available_width();
-            let columns = ((available_width + card_spacing.x) / (min_card_width + card_spacing.x))
-                .floor()
-                .max(1.0) as usize;
-            let columns_f = columns as f32;
-            let card_width =
-                ((available_width - card_spacing.x * (columns_f - 1.0)) / columns_f)
-                    .floor()
-                    .max(1.0);
-            let card_size = egui::vec2(card_width, card_height);
-
-            ui.add_space(2.0);
-            ui.spacing_mut().item_spacing = card_spacing;
-
-            let render_blob_card = |ui: &mut egui::Ui, blob: &BlobInfo| {
-                let is_head = branch_heads.contains(&blob.hash);
-                let (rect, response) = ui.allocate_exact_size(card_size, egui::Sense::click());
-                ui.painter()
-                    .rect_filled(rect, card_rounding, card_fill);
-
-                if is_head {
-                    let band_inset = outline_stroke.width;
-                    let band_rect = rect.shrink(band_inset);
-                    let inset_u8 =
-                        band_inset.round().clamp(0.0, u8::MAX as f32) as u8;
-                    let band_rounding = card_rounding - inset_u8;
-                    let line_height = f32::from(band_rounding.nw)
-                        .min(band_rect.height())
-                        .max(1.0);
-                    let line_rect = egui::Rect::from_min_max(
-                        band_rect.min,
-                        egui::pos2(band_rect.max.x, band_rect.min.y + line_height),
-                    );
-                    ui.painter()
-                        .with_clip_rect(line_rect)
-                        .rect_filled(band_rect, band_rounding, branch_color);
-                }
-
-                ui.painter().rect_stroke(
-                    rect,
-                    card_rounding,
-                    outline_stroke,
-                    egui::StrokeKind::Inside,
-                );
-
-                let content_rect = rect.shrink2(egui::vec2(4.0, 1.0));
-                let mut card_ui = ui.new_child(
-                    egui::UiBuilder::new()
-                        .max_rect(content_rect)
-                        .layout(egui::Layout::left_to_right(egui::Align::Center)),
-                );
-                card_ui.spacing_mut().item_spacing = egui::vec2(2.0, 0.0);
-
-                let size_text = blob
-                    .length
-                    .map(format_bytes_compact)
-                    .unwrap_or_else(|| "invalid".to_owned());
-                let age_text = blob
-                    .timestamp_ms
-                    .map(|timestamp| format_age_compact(now_ms, timestamp))
-                    .unwrap_or_else(|| "--".to_owned());
-                let line = format!("{size_text} {age_text}");
-                card_ui.add(
-                    egui::Label::new(egui::RichText::new(line).monospace().small())
-                        .truncate()
-                        .wrap_mode(egui::TextWrapMode::Truncate),
-                );
-
-                let hash_text = hex_prefix(blob.hash, 32);
-                let response = response.on_hover_ui(|ui| {
-                    ui.label(
-                        egui::RichText::new(format!("hash: {hash_text}"))
-                            .monospace(),
-                    );
-                });
-                if response.clicked() {
-                    ui.ctx().copy_text(hash_text);
-                }
-            };
-
-            let row_width = available_width;
-            for row in items.chunks(columns) {
-                let row_layout = if ui.layout().prefer_right_to_left() {
-                    egui::Layout::right_to_left(egui::Align::Center)
-                } else {
-                    egui::Layout::left_to_right(egui::Align::Center)
-                };
-                ui.allocate_ui_with_layout(
-                    egui::vec2(row_width, card_height),
-                    row_layout,
-                    |ui| {
-                        ui.spacing_mut().item_spacing =
-                            egui::vec2(card_spacing.x, 0.0);
-                        for blob in row {
-                            render_blob_card(ui, blob);
-                        }
-                    },
-                );
-            }
-        });
-
-        if total_pages > 0 {
-            state.blob_page = page_next.min(total_pages.saturating_sub(1));
-        } else {
-            state.blob_page = 0;
-        }
         });
     });
 }

@@ -138,13 +138,8 @@ fn singleline_margin(ui: &Ui, row_height: f32) -> Margin {
     let padding = ui.spacing().button_padding;
     let target_height = ui.spacing().interact_size.y;
     let vertical = ((target_height - row_height) * 0.5).at_least(0.0);
-    let pad_x = padding
-        .x
-        .round()
-        .clamp(0.0, i8::MAX as f32) as i8;
-    let pad_y = vertical
-        .round()
-        .clamp(0.0, i8::MAX as f32) as i8;
+    let pad_x = padding.x.round().clamp(0.0, i8::MAX as f32) as i8;
+    let pad_y = vertical.round().clamp(0.0, i8::MAX as f32) as i8;
     Margin::symmetric(pad_x, pad_y)
 }
 

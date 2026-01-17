@@ -23,23 +23,24 @@ fn main(nb: &mut Notebook) {
         "dataframe",
         ComputedState::<Option<DataFrame>>::default(),
         move |ui, value| {
-        with_padding(ui, padding, |ui| {
-            md!(
-                ui,
-                "# Polars
+            with_padding(ui, padding, |ui| {
+                md!(
+                    ui,
+                    "# Polars
 In this notebook we're going to use the `polars` crate to create a simple dataframe."
-            );
-            let df = load_auto(ui, value, Option::is_none, || {
-                let df = CsvReadOptions::default()
-                    .try_into_reader_with_file_path(Some("./assets/datasets/iris.csv".into()))
-                    .unwrap()
-                    .finish()
-                    .unwrap();
-                Some(df)
+                );
+                let df = load_auto(ui, value, Option::is_none, || {
+                    let df = CsvReadOptions::default()
+                        .try_into_reader_with_file_path(Some("./assets/datasets/iris.csv".into()))
+                        .unwrap()
+                        .finish()
+                        .unwrap();
+                    Some(df)
+                });
+                if let Some(df) = df.as_ref() {
+                    dataframe(ui, df);
+                }
             });
-            if let Some(df) = df.as_ref() {
-                dataframe(ui, df);
-            }
-        });
-    });
+        },
+    );
 }

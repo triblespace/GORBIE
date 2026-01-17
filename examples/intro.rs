@@ -76,19 +76,23 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         });
     });
 
-    let _progress = nb.state("progress", ComputedState::<f32>::default(), move |ui, value| {
-        with_padding(ui, padding, |ui| {
-            let slider = slider.read(ui).map(|value| *value).unwrap_or_default();
-            let progress = *widgets::load_button(ui, value, "Compute", move || {
-                std::thread::sleep(std::time::Duration::from_secs(10));
-                slider * 0.5
+    let _progress = nb.state(
+        "progress",
+        ComputedState::<f32>::default(),
+        move |ui, value| {
+            with_padding(ui, padding, |ui| {
+                let slider = slider.read(ui).map(|value| *value).unwrap_or_default();
+                let progress = *widgets::load_button(ui, value, "Compute", move || {
+                    std::thread::sleep(std::time::Duration::from_secs(10));
+                    slider * 0.5
+                });
+                md!(ui, "Progress: {:.2}%", progress * 100.0);
+                ui.add(
+                    widgets::ProgressBar::new(progress)
+                        .text("output")
+                        .scale_percent(),
+                );
             });
-            md!(ui, "Progress: {:.2}%", progress * 100.0);
-            ui.add(
-                widgets::ProgressBar::new(progress)
-                    .text("output")
-                    .scale_percent(),
-            );
-        });
-    });
+        },
+    );
 }
