@@ -24,10 +24,9 @@ pub fn note_frame<R>(
     add_contents: impl FnOnce(&mut egui::Ui) -> R,
 ) -> egui::InnerResponse<R> {
     let fill = crate::themes::ral(1003);
-    let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
     egui::Frame::new()
         .fill(fill)
-        .stroke(stroke)
+        .stroke(egui::Stroke::NONE)
         .corner_radius(0.0)
         .inner_margin(DEFAULT_CARD_PADDING)
         .show(ui, |ui| {
