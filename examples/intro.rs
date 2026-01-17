@@ -23,7 +23,7 @@ into your existing projects and workflows.
 
 Development is part of the [trible.space](https://trible.space) project.
 
-![an image of 'GORBIE!' the cute alien blob and mascot of this project](./assets/gorbie.png)
+![GORBIE!, our living Lissajous curve mascot](./assets/gorbie.png)
 
 # Intro
 
