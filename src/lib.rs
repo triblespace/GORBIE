@@ -397,6 +397,12 @@ impl eframe::App for NotebookApp {
 
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 let mut floating_elements: Vec<FloatingElement> = Vec::new();
+                                let mut card_rects: Vec<egui::Rect> = Vec::new();
+                                struct TabEntry {
+                                    index: usize,
+                                    rect: egui::Rect,
+                                }
+                                let mut tab_entries: Vec<TabEntry> = Vec::new();
                                 let mut dragged_layer_ids: Vec<egui::LayerId> = Vec::new();
                                 for (i, entry) in notebook.cards.iter_mut().enumerate() {
                                     let card_detached = runtime.card_detached
@@ -483,101 +489,141 @@ impl eframe::App for NotebookApp {
                                             inner.response.rect
                                         };
                                         divider_ys.push(card_rect.top());
+                                        card_rects.push(card_rect);
+                                        if !*card_detached {
+                                            tab_entries.push(TabEntry {
+                                                index: i,
+                                                rect: card_rect,
+                                            });
+                                        }
 
-                                        let button_size = egui::vec2(18.0, 18.0);
-                                        let button_gap = 6.0;
-                                        let button_x = (card_rect.right() + 8.0).round();
-                                        let show_detach_button = !*card_detached;
-                                        let show_open_button = show_detach_button
-                                            && entry.source.is_some()
-                                            && config.editor.is_some();
-                                        let button_count =
-                                            usize::from(show_open_button) + 1;
-                                        let total_height = button_size.y
-                                            * button_count as f32
-                                            + button_gap * (button_count.saturating_sub(1) as f32);
-                                        let top_y = (card_rect.center().y
-                                            - total_height / 2.0)
-                                            .round();
+                                    });
+                                }
+
+                                if !tab_entries.is_empty() {
+                                    let tab_size = egui::vec2(20.0, 32.0);
+                                    let tab_pull = 4.0;
+                                    let base_tab_gap = 4.0;
+                                    let base_top_offset = 8.0;
+                                    let min_top_offset = 0.0;
+                                    let min_visible = tab_size.y * 0.4;
+                                    let tab_fill = crate::themes::GorbieButtonStyle::from(
+                                        ui.style().as_ref(),
+                                    )
+                                    .fill;
+
+                                    for entry in tab_entries {
+                                        let Some(card_detached) =
+                                            runtime.card_detached.get_mut(entry.index)
+                                        else {
+                                            continue;
+                                        };
+                                        if *card_detached {
+                                            continue;
+                                        }
+
+                                        let source =
+                                            notebook.cards.get(entry.index).and_then(|entry| {
+                                                entry.source.clone()
+                                            });
+                                        let show_open_button =
+                                            source.is_some() && config.editor.is_some();
+                                        let tab_count =
+                                            1 + usize::from(show_open_button);
+
+                                        let available = card_rects
+                                            .get(entry.index + 1)
+                                            .map(|next| (next.top() - entry.rect.top()).max(0.0))
+                                            .unwrap_or(f32::INFINITY);
+
+                                        let mut top_offset = base_top_offset;
+                                        let mut gap = base_tab_gap;
+                                        let required = top_offset
+                                            + tab_size.y * tab_count as f32
+                                            + gap * (tab_count.saturating_sub(1) as f32);
+
+                                        if required > available {
+                                            let extra = required - available;
+                                            let max_top_reduce =
+                                                (top_offset - min_top_offset).max(0.0);
+                                            let top_reduce = extra.min(max_top_reduce);
+                                            top_offset -= top_reduce;
+                                            let remaining = extra - top_reduce;
+
+                                            if remaining > 0.0 && tab_count > 1 {
+                                                let min_gap = -(tab_size.y - min_visible);
+                                                let max_gap_reduce =
+                                                    (gap - min_gap).max(0.0);
+                                                let gap_reduce = remaining.min(max_gap_reduce);
+                                                gap -= gap_reduce;
+                                            }
+                                        }
+
+                                        let tab_x = entry.rect.right().round();
+                                        let top_y =
+                                            (entry.rect.top() + top_offset).round();
+                                        let detach_pos = egui::pos2(tab_x, top_y);
                                         let open_pos = show_open_button.then(|| {
-                                            egui::pos2(button_x, top_y)
+                                            egui::pos2(
+                                                tab_x,
+                                                (top_y + tab_size.y + gap).round(),
+                                            )
                                         });
-                                        let detach_pos = Some(egui::pos2(
-                                            button_x,
-                                            (top_y
-                                                + if show_open_button {
-                                                    button_size.y + button_gap
-                                                } else {
-                                                    0.0
-                                                })
-                                            .round(),
-                                        ));
 
-                                        if let Some(open_pos) = open_pos {
-                                            let open_id = ui.id().with("open_button");
-                                            let open_area = egui::Area::new(open_id)
-                                                .order(egui::Order::Middle)
-                                                .fixed_pos(open_pos)
-                                                .movable(false)
-                                                .constrain_to(egui::Rect::EVERYTHING);
-                                            let open_resp = open_area.show(ui.ctx(), |ui| {
-                                                let (rect, resp) = ui.allocate_exact_size(
-                                                    button_size,
-                                                    egui::Sense::click(),
-                                                );
-                                                let fill = ui.visuals().window_fill;
-                                                let outline = ui
-                                                    .visuals()
-                                                    .widgets
-                                                    .noninteractive
-                                                    .bg_stroke
-                                                    .color;
-                                                let accent =
-                                                    ui.visuals().selection.stroke.color;
-                                                let stroke_color =
-                                                    if resp.hovered() || resp.has_focus() {
-                                                        accent
-                                                    } else {
-                                                        outline
-                                                    };
-                                                let stroke =
-                                                    egui::Stroke::new(1.0, stroke_color);
-
-                                                ui.painter().rect_filled(rect, 0.0, fill);
-                                                ui.painter().rect_stroke(
-                                                    rect,
-                                                    0.0,
-                                                    stroke,
-                                                    egui::StrokeKind::Inside,
-                                                );
-                                                ui.painter().text(
-                                                    rect.center(),
-                                                    egui::Align2::CENTER_CENTER,
-                                                    "<>",
-                                                    egui::FontId::monospace(10.0),
-                                                    ui.visuals().text_color(),
-                                                );
-
-                                                if let Some(source) = entry.source.as_ref() {
-                                                    let file = &source.file;
-                                                    let line = source.line;
-                                                    let tooltip =
-                                                        format!("Open in editor\n{file}:{line}");
-                                                    show_postit_tooltip(ui, &resp, &tooltip);
-                                                } else {
-                                                    show_postit_tooltip(
+                                        ui.push_id(entry.index, |ui| {
+                                            if let Some(open_pos) = open_pos {
+                                                let open_id = ui.id().with("open_button");
+                                                let open_area = egui::Area::new(open_id)
+                                                    .order(egui::Order::Middle)
+                                                    .fixed_pos(open_pos)
+                                                    .movable(false)
+                                                    .constrain_to(egui::Rect::EVERYTHING);
+                                                let open_resp = open_area.show(ui.ctx(), |ui| {
+                                                    let (rect, resp) =
+                                                        ui.allocate_exact_size(
+                                                            egui::vec2(
+                                                                tab_size.x + tab_pull,
+                                                                tab_size.y,
+                                                            ),
+                                                            egui::Sense::click(),
+                                                        );
+                                                    let tab_rect = egui::Rect::from_min_size(
+                                                        rect.min,
+                                                        tab_size,
+                                                    );
+                                                    paint_card_tab_button(
                                                         ui,
                                                         &resp,
-                                                        "Open in editor",
+                                                        tab_rect,
+                                                        "<>",
+                                                        tab_fill,
+                                                        tab_pull,
                                                     );
-                                                }
-                                                resp
-                                            });
 
-                                            if open_resp.inner.clicked() {
-                                                if let Some(source) = entry.source.as_ref() {
-                                                    if let Some(editor) =
-                                                        config.editor.as_ref()
+                                                    if let Some(source) = source.as_ref() {
+                                                        let file = &source.file;
+                                                        let line = source.line;
+                                                        let tooltip = format!(
+                                                            "Open in editor\n{file}:{line}"
+                                                        );
+                                                        show_postit_tooltip(
+                                                            ui,
+                                                            &resp,
+                                                            &tooltip,
+                                                        );
+                                                    } else {
+                                                        show_postit_tooltip(
+                                                            ui,
+                                                            &resp,
+                                                            "Open in editor",
+                                                        );
+                                                    }
+                                                    resp
+                                                });
+
+                                                if open_resp.inner.clicked() {
+                                                    if let (Some(source), Some(editor)) =
+                                                        (source.as_ref(), config.editor.as_ref())
                                                     {
                                                         if let Err(err) = editor.open(source) {
                                                             log::warn!(
@@ -587,93 +633,75 @@ impl eframe::App for NotebookApp {
                                                     }
                                                 }
                                             }
-                                        }
 
-                                        if let Some(detach_pos) = detach_pos {
                                             let detach_id = ui.id().with("detach_button");
                                             let detach_area = egui::Area::new(detach_id)
                                                 .order(egui::Order::Middle)
                                                 .fixed_pos(detach_pos)
                                                 .movable(false)
                                                 .constrain_to(egui::Rect::EVERYTHING);
-                                            if show_detach_button {
-                                                let detach_resp = detach_area.show(ui.ctx(), |ui| {
-                                                    let (rect, resp) = ui.allocate_exact_size(
-                                                        button_size,
-                                                        egui::Sense::click(),
-                                                    );
-                                                    let fill = ui.visuals().window_fill;
-                                                    let outline = ui
-                                                        .visuals()
-                                                        .widgets
-                                                        .noninteractive
-                                                        .bg_stroke
-                                                        .color;
-                                                    let accent =
-                                                        ui.visuals().selection.stroke.color;
-                                                    let stroke_color =
-                                                        if resp.hovered() || resp.has_focus() {
-                                                            accent
-                                                        } else {
-                                                            outline
-                                                        };
-                                                    let stroke =
-                                                        egui::Stroke::new(1.0, stroke_color);
+                                            let detach_resp = detach_area.show(ui.ctx(), |ui| {
+                                                let (rect, resp) = ui.allocate_exact_size(
+                                                    egui::vec2(
+                                                        tab_size.x + tab_pull,
+                                                        tab_size.y,
+                                                    ),
+                                                    egui::Sense::click(),
+                                                );
+                                                let tab_rect = egui::Rect::from_min_size(
+                                                    rect.min,
+                                                    tab_size,
+                                                );
+                                                paint_card_tab_button(
+                                                    ui,
+                                                    &resp,
+                                                    tab_rect,
+                                                    "[]",
+                                                    tab_fill,
+                                                    tab_pull,
+                                                );
 
-                                                    ui.painter().rect_filled(rect, 0.0, fill);
-                                                    ui.painter().rect_stroke(
-                                                        rect,
-                                                        0.0,
-                                                        stroke,
-                                                        egui::StrokeKind::Inside,
-                                                    );
-                                                    ui.painter().text(
-                                                        rect.center(),
-                                                        egui::Align2::CENTER_CENTER,
-                                                        "[]",
-                                                        egui::FontId::monospace(10.0),
-                                                        ui.visuals().text_color(),
-                                                    );
+                                                let tooltip = if *card_detached {
+                                                    "Dock card"
+                                                } else {
+                                                    "Detach card"
+                                                };
+                                                show_postit_tooltip(ui, &resp, tooltip);
+                                                resp
+                                            });
 
-                                                    let tooltip = if *card_detached {
-                                                        "Dock card"
-                                                    } else {
-                                                        "Detach card"
-                                                    };
-                                                    show_postit_tooltip(ui, &resp, tooltip);
-                                                    resp
-                                                });
-
-                                                if detach_resp.inner.clicked() {
-                                                    if *card_detached {
-                                                        *card_detached = false;
-                                                    } else {
-                                                        *card_detached = true;
-                                                        *card_detached_anchor =
-                                                            FloatingAnchor::Content;
-                                                        let initial_screen_pos = egui::pos2(
-                                                            right_margin.min.x + 12.0,
-                                                            card_rect.top(),
+                                            if detach_resp.inner.clicked() {
+                                                if *card_detached {
+                                                    *card_detached = false;
+                                                } else {
+                                                    *card_detached = true;
+                                                    let card_detached_anchor = runtime
+                                                        .card_detached_anchors
+                                                        .get_mut(entry.index)
+                                                        .expect(
+                                                            "card_detached_anchors synced to cards",
                                                         );
-                                                        *card_detached_position =
-                                                            screen_to_content_pos(
-                                                                initial_screen_pos,
-                                                                scroll_y,
-                                                                clip_rect.min.y,
-                                                            );
-                                                    }
-                                                }
-                                            } else {
-                                                detach_area.show(ui.ctx(), |ui| {
-                                                    ui.allocate_exact_size(
-                                                        button_size,
-                                                        egui::Sense::hover(),
-                                                    );
-                                                });
-                                            }
-                                        }
+                                                    let card_detached_position = runtime
+                                                        .card_detached_positions
+                                                        .get_mut(entry.index)
+                                                        .expect(
+                                                            "card_detached_positions synced to cards",
+                                                        );
 
-                                    });
+                                                    *card_detached_anchor = FloatingAnchor::Content;
+                                                    let initial_screen_pos = egui::pos2(
+                                                        right_margin.min.x + 12.0,
+                                                        entry.rect.top(),
+                                                    );
+                                                    *card_detached_position = screen_to_content_pos(
+                                                        initial_screen_pos,
+                                                        scroll_y,
+                                                        clip_rect.min.y,
+                                                    );
+                                                }
+                                            }
+                                        });
+                                    }
                                 }
 
                                 for pass_anchor in
@@ -1024,6 +1052,40 @@ fn show_postit_tooltip(ui: &egui::Ui, response: &egui::Response, text: &str) {
             .wrap_mode(egui::TextWrapMode::Extend),
         );
     });
+}
+
+fn paint_card_tab_button(
+    ui: &egui::Ui,
+    response: &egui::Response,
+    rect: egui::Rect,
+    label: &str,
+    fill: egui::Color32,
+    pull_out: f32,
+) {
+    let outline = ui.visuals().widgets.noninteractive.bg_stroke.color;
+    let stroke = egui::Stroke::new(1.0, outline);
+    let rounding = egui::CornerRadius {
+        nw: 0,
+        ne: 4,
+        sw: 0,
+        se: 4,
+    };
+    let rect = if response.hovered() || response.has_focus() {
+        egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x + pull_out, rect.max.y))
+    } else {
+        rect
+    };
+
+    ui.painter().rect_filled(rect, rounding, fill);
+    ui.painter()
+        .rect_stroke(rect, rounding, stroke, egui::StrokeKind::Inside);
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::monospace(10.0),
+        ui.visuals().text_color(),
+    );
 }
 
 // notebook initialization is handled by the #[notebook] attribute macro.
