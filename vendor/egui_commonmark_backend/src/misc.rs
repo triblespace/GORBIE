@@ -241,9 +241,8 @@ impl Image {
     }
 
     pub fn end(self, ui: &mut Ui, options: &CommonMarkOptions) {
-        let visuals = &ui.visuals().widgets.noninteractive;
-        let corner_radius = visuals.corner_radius;
-        let stroke = visuals.bg_stroke;
+        let corner_radius = egui::CornerRadius::same(16);
+        let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
 
         let response = ui.add(
             egui::Image::from_uri(&self.uri)
