@@ -107,15 +107,17 @@ pub fn code_block<'t>(
         .desired_width(max_width)
         // prevent trailing lines
         .desired_rows(1)
+        .frame(false)
         .show(ui);
 
     // Background color + frame (This is lost when TextEdit it not editable)
     let frame_rect = output.response.rect;
+    let rounding = ui.visuals().widgets.inactive.corner_radius;
     ui.painter().set(
         where_to_put_background,
         epaint::RectShape::new(
             frame_rect,
-            ui.style().noninteractive().corner_radius,
+            rounding,
             ui.visuals().extreme_bg_color,
             ui.visuals().widgets.noninteractive.bg_stroke,
             egui::StrokeKind::Outside,
