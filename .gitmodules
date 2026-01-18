@@ -1,0 +1,3 @@
+[submodule "gorbie_commonmark"]
+	path = gorbie_commonmark
+	url = git@github.com:triblespace/gorbie_commonmark.git

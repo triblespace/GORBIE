@@ -86,6 +86,29 @@ fn width_body_space(ui: &Ui) -> f32 {
     ui.fonts(|f| f.glyph_width(&id, ' '))
 }
 
+fn paint_copy_icon(painter: &egui::Painter, rect: egui::Rect, stroke: egui::Stroke) {
+    let inset = (rect.width() * 0.18).max(2.0);
+    let front = rect.shrink(inset);
+    let back = front.translate(egui::vec2(-inset * 0.6, -inset * 0.6));
+    let rounding = egui::CornerRadius::same((inset * 0.4).round() as u8);
+    painter.rect_stroke(back, rounding, stroke, egui::StrokeKind::Inside);
+    painter.rect_stroke(front, rounding, stroke, egui::StrokeKind::Inside);
+}
+
+fn paint_check_icon(painter: &egui::Painter, rect: egui::Rect, stroke: egui::Stroke) {
+    let start = egui::pos2(rect.left() + rect.width() * 0.2, rect.center().y);
+    let mid = egui::pos2(
+        rect.center().x - rect.width() * 0.05,
+        rect.bottom() - rect.height() * 0.2,
+    );
+    let end = egui::pos2(
+        rect.right() - rect.width() * 0.18,
+        rect.top() + rect.height() * 0.2,
+    );
+    painter.line_segment([start, mid], stroke);
+    painter.line_segment([mid, end], stroke);
+}
+
 /// Enhanced/specialized version of egui's code blocks. This one features copy button and borders
 pub fn code_block<'t>(
     ui: &mut Ui,
@@ -126,34 +149,32 @@ pub fn code_block<'t>(
 
     // Copy icon
     let spacing = &ui.style().spacing;
-    let position = egui::pos2(
-        frame_rect.right_top().x - spacing.icon_width * 0.5 - spacing.button_padding.x,
-        frame_rect.right_top().y + spacing.button_padding.y * 2.0,
+    let icon_size = spacing.icon_width;
+    let icon_rect = egui::Rect::from_min_size(
+        egui::pos2(
+            frame_rect.right_top().x - icon_size - spacing.button_padding.x,
+            frame_rect.right_top().y + spacing.button_padding.y,
+        ),
+        egui::vec2(icon_size, icon_size),
     );
 
     // Check if we should show ✔ instead of 🗐 if the text was copied and the mouse is hovered
-    let persistent_id = ui.make_persistent_id(output.response.id);
+    let persistent_id = ui.make_persistent_id((output.response.id, "copy_button"));
     let copied_icon = ui.memory_mut(|m| *m.data.get_temp_mut_or_default::<bool>(persistent_id));
 
     let copy_button = ui
-        .put(
-            egui::Rect {
-                min: position,
-                max: position,
-            },
-            egui::Button::new(if copied_icon { "✔" } else { "🗐" })
-                .small()
-                .frame(false)
-                .fill(egui::Color32::TRANSPARENT),
-        )
-        // workaround for a regression after egui 0.27 where the edit cursor was shown even when
-        // hovering over the button. We try interact_cursor first to allow the cursor to be
-        // overriden
+        .interact(icon_rect, persistent_id, egui::Sense::click())
         .on_hover_cursor(
             ui.visuals()
                 .interact_cursor
                 .unwrap_or(egui::CursorIcon::Default),
         );
+    let icon_stroke = egui::Stroke::new(1.2, ui.visuals().strong_text_color());
+    if copied_icon {
+        paint_check_icon(ui.painter(), icon_rect, icon_stroke);
+    } else {
+        paint_copy_icon(ui.painter(), icon_rect, icon_stroke);
+    }
 
     // Update icon state in persistent memory
     if copied_icon && !copy_button.hovered() {

@@ -17,7 +17,7 @@ fn main(nb: &mut Notebook) {
                 "# GORBIE!
 This is **GORBIE!**, a _minimalist_ notebook environment for **Rust**!
 
-It's much closer to a library and a shell script than the heavy environemnts
+It's much closer to a library and a shell script than the heavy environments
 that notebooks typically provide. Which makes it much easier to integrate
 into your existing projects and workflows.
 
