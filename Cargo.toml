@@ -8,7 +8,22 @@ license = "MIT OR Apache-2.0"
 documentation = "https://docs.rs/gorbie"
 homepage = "https://github.com/triblespace/GORBIE"
 repository = "https://github.com/triblespace/GORBIE"
-exclude = ["gorbie_commonmark"]
+include = [
+    "Cargo.toml",
+    "README.md",
+    "CHANGELOG.md",
+    "INVENTORY.md",
+    "src/**/*.rs",
+    "examples/*.rs",
+    "assets/icon_dark.png",
+    "assets/icon_light.png",
+    "assets/gorbie.png",
+    "assets/datasets/iris.csv",
+    "assets/fonts/IosevkaGorbie/IosevkaGorbie-Regular.ttf",
+    "assets/fonts/IosevkaGorbie/IosevkaGorbie-Bold.ttf",
+    "assets/fonts/Jersey_15/Jersey15-Regular.ttf",
+    "assets/fonts/Jersey_15/OFL.txt",
+]
 
 [dependencies]
 gorbie-macros = { version = "0.2.1", path = "gorbie-macros" }
