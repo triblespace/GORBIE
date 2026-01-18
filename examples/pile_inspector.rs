@@ -2,7 +2,7 @@
 //! ```cargo
 //! [dependencies]
 //! GORBIE = { path = ".." }
-//! egui = "0.32"
+//! egui = "0.33"
 //! hifitime = "4.2.3"
 //! rapier2d = "0.18"
 //! triblespace = "0.7.0"

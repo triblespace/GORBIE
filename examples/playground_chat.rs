@@ -2,7 +2,7 @@
 //! ```cargo
 //! [dependencies]
 //! GORBIE = { path = ".." }
-//! egui = "0.32"
+//! egui = "0.33"
 //! triblespace = "0.7.0"
 //! ed25519-dalek = "2.1.1"
 //! rand = "0.8.5"

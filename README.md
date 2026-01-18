@@ -17,12 +17,11 @@ In such a setup, the `notebook.rs` script would look something like this:
 #!/usr/bin/env -S watchexec -r rust-script
 //! ```cargo
 //! [dependencies]
-//! GORBIE = "0.1.0"
-//! egui = "0.31"
+//! GORBIE = "0.3.0"
 //! ```
 
-use GORBIE::cards::{with_padding, DEFAULT_CARD_PADDING};
-use GORBIE::{md, notebook, Notebook};
+use GORBIE::prelude::*;
+use GORBIE::cards::DEFAULT_CARD_PADDING;
 
 #[notebook]
 fn main(nb: &mut Notebook) {
@@ -35,7 +34,7 @@ This is **GORBIE!**, a _minimalist_ notebook environment for **Rust**!
 
 Development is part of the [trible.space](https://trible.space) project.
 
-![an image of 'GORBIE!' the cute alien blob and mascot of this project](./assets/gorbie.png)
+![an image of 'GORBIE!' the cute alien blob and mascot of this project](https://github.com/triblespace/GORBIE/blob/main/assets/gorbie.png?raw=true)
 "
             );
         });
@@ -43,7 +42,7 @@ Development is part of the [trible.space](https://trible.space) project.
 
     let slider = nb.state("slider", 0.5, |ui, value| {
         with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
-            ui.add(egui::Slider::new(value, 0.0..=1.0).text("input"));
+            ui.add(widgets::Slider::new(value, 0.0..=1.0).text("input"));
         });
     });
 
@@ -52,7 +51,7 @@ Development is part of the [trible.space](https://trible.space) project.
             let Some(value) = slider.read(ui) else {
                 return;
             };
-            ui.add(egui::ProgressBar::new(*value).text("output"));
+            ui.add(widgets::ProgressBar::new(*value).text("output"));
         });
     });
 }

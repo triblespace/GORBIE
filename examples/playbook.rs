@@ -2,7 +2,7 @@
 //! ```cargo
 //! [dependencies]
 //! GORBIE = { path = ".." }
-//! egui = "0.32"
+//! egui = "0.33"
 //! egui-theme-switch = "0.4"
 //! ```
 

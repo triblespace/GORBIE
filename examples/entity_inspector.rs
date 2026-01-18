@@ -2,8 +2,8 @@
 //! ```cargo
 //! [dependencies]
 //! GORBIE = { path = ".." }
-//! egui = "0.32"
-//! eframe = "0.32"
+//! egui = "0.33"
+//! eframe = "0.33"
 //! triblespace = { version = "0.7.0", features = ["wasm"] }
 //! ```
 
