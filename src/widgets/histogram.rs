@@ -217,7 +217,7 @@ impl Widget for Histogram<'_> {
         let font_id = TextStyle::Small.resolve(ui.style());
         let tick_len = 4.0;
         let tick_pad = 2.0;
-        let text_height = ui.fonts(|fonts| fonts.row_height(&font_id));
+        let text_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
         let label_row_h = tick_len + tick_pad + text_height;
 
         let total_h = plot_height + label_row_h;
@@ -244,7 +244,7 @@ impl Widget for Histogram<'_> {
         let bytes_scale = matches!(y_axis, HistogramYAxis::Bytes).then(|| BytesScale::pick(y_step));
         let count_scale = matches!(y_axis, HistogramYAxis::Count).then(|| CountScale::pick(y_max));
 
-        let y_label_width = ui.fonts(|fonts| {
+        let y_label_width = ui.fonts_mut(|fonts| {
             y_ticks
                 .iter()
                 .map(|&value| {

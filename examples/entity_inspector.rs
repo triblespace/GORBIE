@@ -4,7 +4,7 @@
 //! GORBIE = { path = ".." }
 //! egui = "0.32"
 //! eframe = "0.32"
-//! triblespace = { path = "../../triblespace-rs", features = ["wasm"] }
+//! triblespace = { version = "0.7.0", features = ["wasm"] }
 //! ```
 
 use std::collections::{HashMap, HashSet, VecDeque};

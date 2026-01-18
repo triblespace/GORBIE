@@ -3,7 +3,7 @@
 //! [dependencies]
 //! GORBIE = { path = ".." }
 //! egui = "0.32"
-//! triblespace = { path = "../../triblespace-rs" }
+//! triblespace = "0.7.0"
 //! ```
 
 use triblespace::core::blob::schemas::longstring::LongString;

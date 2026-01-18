@@ -5,7 +5,7 @@
 //! egui = "0.32"
 //! hifitime = "4.2.3"
 //! rapier2d = "0.18"
-//! triblespace = { path = "../../triblespace-rs" }
+//! triblespace = "0.7.0"
 //! ```
 
 use std::collections::hash_map::DefaultHasher;

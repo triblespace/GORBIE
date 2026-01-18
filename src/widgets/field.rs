@@ -229,7 +229,7 @@ fn lcd_text_edit(
     let event_filter = default_event_filter();
 
     let font_id = egui::TextStyle::Name("LCD".into()).resolve(ui.style());
-    let row_height = ui.fonts(|fonts| fonts.row_height(&font_id));
+    let row_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
 
     const MIN_WIDTH: f32 = 24.0;
     let available_width = (ui.available_width() - margin.sum().x).at_least(MIN_WIDTH);
@@ -239,7 +239,7 @@ fn lcd_text_edit(
         desired_width.min(available_width)
     };
 
-    let mut galley = ui.fonts(|fonts| {
+    let mut galley = ui.fonts_mut(|fonts| {
         fonts.layout_job(layout_lcd_job(
             text.as_str(),
             font_id.clone(),
@@ -436,7 +436,7 @@ fn lcd_text_edit(
                 changed = true;
                 selection_changed = true;
 
-                galley = ui.fonts(|fonts| {
+                galley = ui.fonts_mut(|fonts| {
                     fonts.layout_job(layout_lcd_job(
                         text.as_str(),
                         font_id.clone(),
@@ -533,7 +533,7 @@ fn lcd_text_edit(
                 let cursor = cursor_range.primary;
                 let char_count = text.as_str().chars().count();
                 let cursor_rect = cursor_rect_in_galley(&galley, cursor);
-                let glyph_width = ui.fonts(|fonts| fonts.glyph_width(&font_id, '0'));
+                let glyph_width = ui.fonts_mut(|fonts| fonts.glyph_width(&font_id, '0'));
 
                 let cursor_width = if cursor.index < char_count {
                     let next = cursor_rect_in_galley(&galley, cursor + 1);
@@ -713,7 +713,7 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
         };
 
         let font_id = egui::TextStyle::Name("LCD".into()).resolve(ui.style());
-        let row_height = ui.fonts(|fonts| fonts.row_height(&font_id));
+        let row_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
         let margin = singleline_margin(ui, row_height);
         let mut desired_width = (ui.spacing().interact_size.x - margin.sum().x).at_least(24.0);
 
@@ -783,7 +783,7 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
                 .format(value_f64, auto_decimals..=max_decimals),
         };
         let display_text = format!("{prefix}{value_text}{suffix}");
-        let display_galley = ui.fonts(|fonts| {
+        let display_galley = ui.fonts_mut(|fonts| {
             fonts.layout_job(layout_lcd_job(
                 &display_text,
                 font_id.clone(),
@@ -990,7 +990,7 @@ impl Widget for TextField<'_> {
         };
 
         let font_id = egui::TextStyle::Name("LCD".into()).resolve(ui.style());
-        let row_height = ui.fonts(|fonts| fonts.row_height(&font_id));
+        let row_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
         let margin = if multiline {
             ui.spacing().button_padding.into()
         } else {

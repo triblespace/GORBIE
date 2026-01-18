@@ -3,7 +3,7 @@
 //! [dependencies]
 //! GORBIE = { path = ".." }
 //! egui = "0.32"
-//! triblespace = { path = "../../triblespace-rs" }
+//! triblespace = "0.7.0"
 //! ed25519-dalek = "2.1.1"
 //! rand = "0.8.5"
 //! hifitime = "4.2.3"

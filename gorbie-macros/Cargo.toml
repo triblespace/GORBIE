@@ -4,6 +4,10 @@ version = "0.2.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Procedural macros for GORBIE."
+authors = ["Jan-Paul Bultmann <jp@bultmann.eu>"]
+documentation = "https://docs.rs/gorbie-macros"
+homepage = "https://github.com/triblespace/GORBIE"
+repository = "https://github.com/triblespace/GORBIE"
 
 [lib]
 proc-macro = true

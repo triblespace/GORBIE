@@ -147,7 +147,7 @@ impl Widget for ProgressBar {
         let scale_row_height = if has_scale {
             let tick_len = 4.0;
             let tick_pad = 2.0;
-            let text_height = ui.fonts(|fonts| fonts.row_height(&font_id));
+            let text_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
             tick_len + tick_pad + text_height
         } else {
             0.0
