@@ -733,10 +733,10 @@ fn main(nb: &mut NotebookCtx) {
     );
 
     nb.view(move |ui| {
+        let mut state = widget_state.read_mut(ui);
         with_padding(ui, padding, |ui| {
             ui.label(egui::RichText::new("SLIDER + METERS").monospace().strong());
 
-            let mut state = widget_state.read_mut(ui);
             let slider_response =
                 ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).text("LEVEL"));
             if slider_response.changed() {
@@ -768,12 +768,11 @@ fn main(nb: &mut NotebookCtx) {
     });
 
     nb.view(move |ui| {
+        let state = widget_state.read(ui);
+        let (progress, metric_bytes) = (state.progress, state.metric_bytes);
         with_padding(ui, padding, |ui| {
             ui.label(egui::RichText::new("HISTOGRAM").monospace().strong());
             ui.monospace("Uses COUNT/BYTES + slider to shift the synthetic distribution.");
-
-            let state = widget_state.read(ui);
-            let (progress, metric_bytes) = (state.progress, state.metric_bytes);
 
             let y_axis = if metric_bytes {
                 widgets::HistogramYAxis::Bytes

@@ -2135,10 +2135,8 @@ _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • 
     );
 
     nb.view(move |ui| {
+        let selected = inspector.read(ui).selected;
         with_padding(ui, padding, |ui| {
-            let selected = inspector
-                .read(ui)
-                .selected;
             md!(ui, "Selected entity: `{}`", id_short(selected));
         });
     });

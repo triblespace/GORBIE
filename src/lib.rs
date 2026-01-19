@@ -286,19 +286,14 @@ fn load_app_icons() -> Option<AppIcons> {
 }
 
 fn editor_from_env() -> Option<EditorCommand> {
-    let editor = std::env::var("GORBIE_EDITOR")
+    let gorbie_editor = std::env::var("GORBIE_EDITOR")
         .ok()
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| {
-            std::env::var("VISUAL")
-                .ok()
-                .filter(|value| !value.trim().is_empty())
-        })
-        .or_else(|| {
-            std::env::var("EDITOR")
-                .ok()
-                .filter(|value| !value.trim().is_empty())
-        })?;
+        .filter(|value| !value.trim().is_empty());
+    if gorbie_editor.is_none() {
+        log_missing_editor_hint();
+        return None;
+    }
+    let editor = gorbie_editor?;
 
     let mut parts = editor.split_whitespace();
     let program = parts.next()?.to_string();
@@ -308,6 +303,15 @@ fn editor_from_env() -> Option<EditorCommand> {
         command = command.arg(arg);
     }
     Some(command)
+}
+
+fn log_missing_editor_hint() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        log::info!(
+            "GORBIE_EDITOR is not set. Set it to an editor command with placeholders {{file}} {{line}} {{column}} to enable open-in-editor. Example: GORBIE_EDITOR='code -g {{file}}:{{line}}:{{column}}'."
+        );
+    });
 }
 
 impl NotebookCtx {

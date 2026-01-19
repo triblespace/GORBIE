@@ -139,8 +139,8 @@ fn main(nb: &mut NotebookCtx) {
     });
 
     nb.view(move |ui| {
+        let value = apples.read(ui);
         with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
-            let value = apples.read(ui);
             md!(
                 ui,
                 "## What just happened\n\
@@ -173,7 +173,7 @@ fn main(nb: &mut NotebookCtx) {
                 Some(4) => ui.label("Correct!"),
                 Some(_) => ui.label("Not quite. Try again."),
                 None => ui.label("Pick an answer."),
-            }
+            };
 
             ui.add_space(12.0);
             ui.label("2) Start with apples = 10. Subtract ___ to get 6.");
