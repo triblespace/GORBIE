@@ -74,39 +74,25 @@ impl<T> StateId<T> {
 }
 
 impl<T: Send + Sync + 'static> StateId<T> {
-    pub fn read(self, store: &StateStore) -> Option<ArcReadGuard<T>> {
-        let state = self.state_arc(store)?;
-        Some(state.read_arc())
+    pub fn read(self, store: &StateStore) -> ArcReadGuard<T> {
+        self.state_arc_or_panic(store).read_arc()
     }
 
     pub fn try_read(self, store: &StateStore) -> Option<ArcReadGuard<T>> {
-        let state = self.state_arc(store)?;
-        state.try_read_arc()
+        store.get(self.id()).and_then(|state| state.try_read_arc())
     }
 
-    pub fn read_mut(self, store: &StateStore) -> Option<ArcWriteGuard<T>> {
-        let state = self.state_arc(store)?;
-        Some(state.write_arc())
+    pub fn read_mut(self, store: &StateStore) -> ArcWriteGuard<T> {
+        self.state_arc_or_panic(store).write_arc()
     }
 
     pub fn try_read_mut(self, store: &StateStore) -> Option<ArcWriteGuard<T>> {
-        let state = self.state_arc(store)?;
-        state.try_write_arc()
+        store.get(self.id()).and_then(|state| state.try_write_arc())
     }
 
-    pub(crate) fn state_or_init(
-        self,
-        store: &StateStore,
-        init: &mut Option<T>,
-    ) -> Option<Arc<RwLock<T>>> {
-        if let Some(state) = store.get(self.id()) {
-            return Some(state);
-        }
-        let init = init.take()?;
-        Some(store.get_or_insert(self.id(), init))
-    }
-
-    fn state_arc(self, store: &StateStore) -> Option<Arc<RwLock<T>>> {
-        store.get(self.id())
+    fn state_arc_or_panic(self, store: &StateStore) -> Arc<RwLock<T>> {
+        store
+            .get(self.id())
+            .unwrap_or_else(|| panic!("state missing for id {:?}", self.id))
     }
 }

@@ -2138,7 +2138,6 @@ _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • 
         with_padding(ui, padding, |ui| {
             let selected = inspector
                 .read(ui.store())
-                .expect("inspector state missing")
                 .selected;
             md!(ui, "Selected entity: `{}`", id_short(selected));
         });

@@ -340,13 +340,18 @@ impl NotebookCtx {
         let source = SourceLocation::from_location(std::panic::Location::caller());
         let state = state::StateId::new(self.state_id_for(key));
         let handle = state;
-        let card = cards::StatefulCard::new(state, init, function);
+        self.state_store.get_or_insert(state.id(), init);
+        let card = cards::StatefulCard::new(state, function);
         self.push_with_source(Box::new(card), Some(source));
         handle
     }
 
     pub fn push(&mut self, card: Box<dyn cards::Card>) {
         self.push_with_source(card, None);
+    }
+
+    pub(crate) fn state_store(&self) -> &state::StateStore {
+        self.state_store.as_ref()
     }
 
     pub(crate) fn state_id_for<K: std::hash::Hash + ?Sized>(&self, key: &K) -> egui::Id {

@@ -81,7 +81,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         ComputedState::<f32>::default(),
         move |ui, value| {
             with_padding(ui, padding, |ui| {
-                let slider = slider.read(ui.store()).map(|value| *value).unwrap_or_default();
+                let slider = *slider.read(ui.store());
                 let progress = *widgets::load_button(ui, value, "Compute", move || {
                     std::thread::sleep(std::time::Duration::from_secs(10));
                     slider * 0.5

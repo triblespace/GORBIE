@@ -1,3 +1,5 @@
+![Discord Shield](https://discordapp.com/api/guilds/795317845181464651/widget.png?style=shield)
+
 # GORBIE! (Introduction)
 Every other notebook environment tries to make notebooks easier, we try to make them simpler.
 
@@ -48,9 +50,7 @@ Development is part of the [trible.space](https://trible.space) project.
 
     nb.view(move |ui| {
         with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
-            let Some(value) = slider.read(ui.store()) else {
-                return;
-            };
+            let value = slider.read(ui.store());
             ui.add(widgets::ProgressBar::new(*value).text("output"));
         });
     });
@@ -63,3 +63,7 @@ You can install them both with `cargo install watchexec-cli rust-script`.
 Then you can run the script with `./notebook.rs` and it will automatically
 load all dependencies, start the notebook and reload it whenever you make a
 change to the script.
+
+# Community
+
+If you have any questions or want to chat about graph databases hop into our [discord](https://discord.gg/UWZ35yHzz3).
