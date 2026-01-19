@@ -7,6 +7,8 @@ use eframe::egui;
 use parking_lot::RawRwLock;
 use parking_lot::RwLock;
 
+use crate::CardCtx;
+
 pub type ArcReadGuard<T> = parking_lot::lock_api::ArcRwLockReadGuard<RawRwLock, T>;
 pub type ArcWriteGuard<T> = parking_lot::lock_api::ArcRwLockWriteGuard<RawRwLock, T>;
 
@@ -16,12 +18,12 @@ pub struct StateStore {
 }
 
 impl StateStore {
-    pub(crate) fn get<T: Send + Sync + 'static>(&self, id: egui::Id) -> Option<Arc<RwLock<T>>> {
+    fn get_raw<T: Send + Sync + 'static>(&self, id: egui::Id) -> Option<Arc<RwLock<T>>> {
         let entry = self.states.read().get(&id).cloned()?;
         entry.downcast::<RwLock<T>>().ok()
     }
 
-    pub(crate) fn get_or_insert<T: Send + Sync + 'static>(
+    fn get_or_insert_raw<T: Send + Sync + 'static>(
         &self,
         id: egui::Id,
         init: T,
@@ -43,6 +45,57 @@ impl StateStore {
             .clone()
             .downcast::<RwLock<T>>()
             .expect("state store type mismatch")
+    }
+
+    pub(crate) fn get_or_insert<T: Send + Sync + 'static>(
+        &self,
+        id: StateId<T>,
+        init: T,
+    ) -> Arc<RwLock<T>> {
+        self.get_or_insert_raw(id.id(), init)
+    }
+
+    /// Returns the state for the given handle or panics when it is missing.
+    /// Use `try_get` when the state may be absent (e.g., handle from another store).
+    pub fn get<T: Send + Sync + 'static>(&self, id: StateId<T>) -> Arc<RwLock<T>> {
+        self.get_raw(id.id()).unwrap_or_else(|| {
+            let type_name = std::any::type_name::<T>();
+            panic!(
+                "state missing for id {:?} ({type_name}); this usually means the handle was created in a different StateStore. Use try_read/try_read_mut when the state may be absent.",
+                id.id()
+            )
+        })
+    }
+
+    /// Returns the state for the given handle if it exists.
+    pub fn try_get<T: Send + Sync + 'static>(&self, id: StateId<T>) -> Option<Arc<RwLock<T>>> {
+        self.get_raw(id.id())
+    }
+
+    /// Returns a read guard for the given handle or panics when missing.
+    pub fn read<T: Send + Sync + 'static>(&self, id: StateId<T>) -> ArcReadGuard<T> {
+        self.get(id).read_arc()
+    }
+
+    /// Returns a read guard for the given handle if it exists and can be read.
+    pub fn try_read<T: Send + Sync + 'static>(
+        &self,
+        id: StateId<T>,
+    ) -> Option<ArcReadGuard<T>> {
+        self.try_get(id).and_then(|state| state.try_read_arc())
+    }
+
+    /// Returns a write guard for the given handle or panics when missing.
+    pub fn read_mut<T: Send + Sync + 'static>(&self, id: StateId<T>) -> ArcWriteGuard<T> {
+        self.get(id).write_arc()
+    }
+
+    /// Returns a write guard for the given handle if it exists and can be written.
+    pub fn try_read_mut<T: Send + Sync + 'static>(
+        &self,
+        id: StateId<T>,
+    ) -> Option<ArcWriteGuard<T>> {
+        self.try_get(id).and_then(|state| state.try_write_arc())
     }
 }
 
@@ -74,25 +127,19 @@ impl<T> StateId<T> {
 }
 
 impl<T: Send + Sync + 'static> StateId<T> {
-    pub fn read(self, store: &StateStore) -> ArcReadGuard<T> {
-        self.state_arc_or_panic(store).read_arc()
+    pub fn read(self, ctx: &CardCtx<'_>) -> ArcReadGuard<T> {
+        ctx.store().read(self)
     }
 
-    pub fn try_read(self, store: &StateStore) -> Option<ArcReadGuard<T>> {
-        store.get(self.id()).and_then(|state| state.try_read_arc())
+    pub fn try_read(self, ctx: &CardCtx<'_>) -> Option<ArcReadGuard<T>> {
+        ctx.store().try_read(self)
     }
 
-    pub fn read_mut(self, store: &StateStore) -> ArcWriteGuard<T> {
-        self.state_arc_or_panic(store).write_arc()
+    pub fn read_mut(self, ctx: &CardCtx<'_>) -> ArcWriteGuard<T> {
+        ctx.store().read_mut(self)
     }
 
-    pub fn try_read_mut(self, store: &StateStore) -> Option<ArcWriteGuard<T>> {
-        store.get(self.id()).and_then(|state| state.try_write_arc())
-    }
-
-    fn state_arc_or_panic(self, store: &StateStore) -> Arc<RwLock<T>> {
-        store
-            .get(self.id())
-            .unwrap_or_else(|| panic!("state missing for id {:?}", self.id))
+    pub fn try_read_mut(self, ctx: &CardCtx<'_>) -> Option<ArcWriteGuard<T>> {
+        ctx.store().try_read_mut(self)
     }
 }

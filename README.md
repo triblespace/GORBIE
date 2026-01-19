@@ -50,7 +50,7 @@ Development is part of the [trible.space](https://trible.space) project.
 
     nb.view(move |ui| {
         with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
-            let value = slider.read(ui.store());
+            let value = slider.read(ui);
             ui.add(widgets::ProgressBar::new(*value).text("output"));
         });
     });

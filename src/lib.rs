@@ -340,7 +340,7 @@ impl NotebookCtx {
         let source = SourceLocation::from_location(std::panic::Location::caller());
         let state = state::StateId::new(self.state_id_for(key));
         let handle = state;
-        self.state_store.get_or_insert(state.id(), init);
+        self.state_store.get_or_insert(state, init);
         let card = cards::StatefulCard::new(state, function);
         self.push_with_source(Box::new(card), Some(source));
         handle

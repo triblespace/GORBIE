@@ -26,7 +26,7 @@ impl<T> StatefulCard<T> {
 
 impl<T: Send + Sync + 'static> Card for StatefulCard<T> {
     fn draw(&mut self, ctx: &mut CardCtx<'_>) {
-        let mut current = self.state.read_mut(ctx.store());
+        let mut current = self.state.read_mut(ctx);
         (self.function)(ctx, &mut current);
     }
 }
@@ -43,7 +43,7 @@ where
 {
     let state = StateId::new(nb.state_id_for(key));
     let handle = state;
-    nb.state_store().get_or_insert(state.id(), init);
+    nb.state_store().get_or_insert(state, init);
     nb.push(Box::new(StatefulCard::new(state, function)));
     handle
 }

@@ -140,7 +140,7 @@ fn main(nb: &mut NotebookCtx) {
 
     nb.view(move |ui| {
         with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
-            let value = apples.read(ui.store());
+            let value = apples.read(ui);
             md!(
                 ui,
                 "## What just happened\n\

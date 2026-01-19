@@ -1822,7 +1822,7 @@ fn main(nb: &mut NotebookCtx) {
 
     nb.view(move |ui| {
         with_padding(ui, padding, |ui| {
-            let mut state = inspector.read_mut(ui.store());
+            let mut state = inspector.read_mut(ui);
             md!(ui, "## Blob size distribution");
 
             ui.horizontal(|ui| {
@@ -1968,8 +1968,8 @@ fn main(nb: &mut NotebookCtx) {
     nb.view(move |ui| {
         let summary_padding = egui::Margin::ZERO;
         with_padding(ui, summary_padding, |ui| {
-            let mut state = inspector.read_mut(ui.store());
-            let tuning = summary_tuning.read(ui.store());
+            let mut state = inspector.read_mut(ui);
+            let tuning = summary_tuning.read(ui);
             let now_ms = now_ms();
             let bg_color = egui::Color32::from_rgb(8, 8, 8);
             let label_color = egui::Color32::from_rgb(245, 140, 45);
@@ -2148,7 +2148,7 @@ fn main(nb: &mut NotebookCtx) {
 
     nb.view(move |ui| {
         with_padding(ui, padding, |ui| {
-            let mut state = inspector.read_mut(ui.store());
+            let mut state = inspector.read_mut(ui);
             md!(ui, "## Commit graph");
 
             state.snapshot.poll();
@@ -2173,7 +2173,7 @@ fn main(nb: &mut NotebookCtx) {
 
     nb.view(move |ui| {
         with_padding(ui, padding, |ui| {
-            let mut state = inspector.read_mut(ui.store());
+            let mut state = inspector.read_mut(ui);
             md!(ui, "## Blobs");
 
             state.snapshot.poll();
