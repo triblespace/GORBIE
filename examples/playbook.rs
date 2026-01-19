@@ -12,7 +12,7 @@ use GORBIE::cards::with_padding;
 use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::widgets;
-use GORBIE::Notebook;
+use GORBIE::NotebookCtx;
 
 fn to_hex(c: Color32) -> String {
     let r = c.r();
@@ -457,7 +457,7 @@ impl Default for FocusTarget {
 }
 
 #[notebook]
-fn main(nb: &mut Notebook) {
+fn main(nb: &mut NotebookCtx) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
     nb.view(move |ui| {
         with_padding(ui, padding, |ui| {
@@ -736,7 +736,7 @@ fn main(nb: &mut Notebook) {
         with_padding(ui, padding, |ui| {
             ui.label(egui::RichText::new("SLIDER + METERS").monospace().strong());
 
-            let mut state = widget_state.read_mut(ui).expect("widget state missing");
+            let mut state = widget_state.read_mut(ui.store()).expect("widget state missing");
             let slider_response =
                 ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).text("LEVEL"));
             if slider_response.changed() {
@@ -772,7 +772,7 @@ fn main(nb: &mut Notebook) {
             ui.label(egui::RichText::new("HISTOGRAM").monospace().strong());
             ui.monospace("Uses COUNT/BYTES + slider to shift the synthetic distribution.");
 
-            let state = widget_state.read(ui).expect("widget state missing");
+            let state = widget_state.read(ui.store()).expect("widget state missing");
             let (progress, metric_bytes) = (state.progress, state.metric_bytes);
 
             let y_axis = if metric_bytes {

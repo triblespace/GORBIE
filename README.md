@@ -17,14 +17,14 @@ In such a setup, the `notebook.rs` script would look something like this:
 #!/usr/bin/env -S watchexec -r rust-script
 //! ```cargo
 //! [dependencies]
-//! GORBIE = "0.3.0"
+//! GORBIE = "0.3.1"
 //! ```
 
 use GORBIE::prelude::*;
 use GORBIE::cards::DEFAULT_CARD_PADDING;
 
 #[notebook]
-fn main(nb: &mut Notebook) {
+fn main(nb: &mut NotebookCtx) {
     nb.view(|ui| {
         with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
             md!(
@@ -48,7 +48,7 @@ Development is part of the [trible.space](https://trible.space) project.
 
     nb.view(move |ui| {
         with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
-            let Some(value) = slider.read(ui) else {
+            let Some(value) = slider.read(ui.store()) else {
                 return;
             };
             ui.add(widgets::ProgressBar::new(*value).text("output"));

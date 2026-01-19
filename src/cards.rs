@@ -4,6 +4,7 @@ pub mod stateless_card;
 pub use stateful_card::*;
 pub use stateless_card::*;
 
+use crate::CardCtx;
 pub const DEFAULT_CARD_PADDING: egui::Margin = egui::Margin::symmetric(16, 12);
 
 pub fn with_padding<R>(
@@ -43,5 +44,5 @@ macro_rules! note {
 }
 
 pub trait Card {
-    fn draw(&mut self, ui: &mut egui::Ui);
+    fn draw(&mut self, ctx: &mut CardCtx<'_>);
 }

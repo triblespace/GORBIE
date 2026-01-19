@@ -9,7 +9,7 @@ use GORBIE::cards::{with_padding, DEFAULT_CARD_PADDING};
 use GORBIE::prelude::*;
 
 #[notebook]
-fn main(nb: &mut Notebook) {
+fn main(nb: &mut NotebookCtx) {
     nb.view(|ui| {
         with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
             md!(

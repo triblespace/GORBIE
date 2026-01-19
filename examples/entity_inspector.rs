@@ -2027,7 +2027,7 @@ impl Default for InspectorState {
 }
 
 #[notebook]
-fn main(nb: &mut Notebook) {
+fn main(nb: &mut NotebookCtx) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
     nb.view(move |ui| {
         with_padding(ui, padding, |ui| {
@@ -2137,7 +2137,7 @@ _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • 
     nb.view(move |ui| {
         with_padding(ui, padding, |ui| {
             let selected = inspector
-                .read(ui)
+                .read(ui.store())
                 .expect("inspector state missing")
                 .selected;
             md!(ui, "Selected entity: `{}`", id_short(selected));

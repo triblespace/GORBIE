@@ -1,13 +1,15 @@
 use crate::cards::Card;
-use crate::Notebook;
-use eframe::egui;
+use crate::CardCtx;
+use crate::NotebookCtx;
 
 pub struct StatelessCard {
-    function: Box<dyn FnMut(&mut egui::Ui)>,
+    function: Box<dyn for<'a, 'b> FnMut(&'a mut CardCtx<'b>)>,
 }
 
 impl StatelessCard {
-    pub(crate) fn new(function: impl FnMut(&mut egui::Ui) + 'static) -> Self {
+    pub(crate) fn new(
+        function: impl for<'a, 'b> FnMut(&'a mut CardCtx<'b>) + 'static,
+    ) -> Self {
         Self {
             function: Box::new(function),
         }
@@ -15,11 +17,14 @@ impl StatelessCard {
 }
 
 impl Card for StatelessCard {
-    fn draw(&mut self, ui: &mut egui::Ui) {
-        (self.function)(ui);
+    fn draw(&mut self, ctx: &mut CardCtx<'_>) {
+        (self.function)(ctx);
     }
 }
 
-pub fn stateless_card(nb: &mut Notebook, function: impl FnMut(&mut egui::Ui) + 'static) {
+pub fn stateless_card(
+    nb: &mut NotebookCtx,
+    function: impl for<'a, 'b> FnMut(&'a mut CardCtx<'b>) + 'static,
+) {
     nb.push(Box::new(StatelessCard::new(function)));
 }

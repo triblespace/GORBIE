@@ -9,7 +9,7 @@
 //! value. Use `Option<T>` when a value may be absent while a computation runs.
 //!
 //! But sometimes that isn't enough, e.g. when you want to display some application
-//! global state. This is why `Notebook::state` and `Notebook::view` are carefully
+//! global state. This is why `NotebookCtx::state` and `NotebookCtx::view` are carefully
 //! designed to stay independent from any dataflow runtime. Instead they can be used,
 //! like any other mutable rust type, via the typed `StateId` handle.
 //!
@@ -29,6 +29,7 @@ use crate::themes::industrial_dark;
 use crate::themes::industrial_fonts;
 use crate::themes::industrial_light;
 use eframe::egui::{self};
+use std::ops::{Deref, DerefMut};
 use std::process::Command;
 use std::sync::Arc;
 
@@ -152,17 +153,48 @@ struct AppIcons {
     dark: Arc<egui::IconData>,
 }
 
-struct NotebookApp {
+struct Notebook {
     config: NotebookConfig,
-    body: Box<dyn FnMut(&mut Notebook)>,
+    body: Box<dyn FnMut(&mut NotebookCtx)>,
     icons: Option<AppIcons>,
     icon_is_dark: Option<bool>,
+    state_store: Arc<state::StateStore>,
 }
 
 /// Frame-scoped notebook builder used to collect cards in immediate mode.
-pub struct Notebook {
+pub struct NotebookCtx {
     state_id: egui::Id,
     cards: Vec<CardEntry>,
+    state_store: Arc<state::StateStore>,
+}
+
+pub struct CardCtx<'a> {
+    ui: &'a mut egui::Ui,
+    store: &'a state::StateStore,
+}
+
+impl<'a> CardCtx<'a> {
+    fn new(ui: &'a mut egui::Ui, store: &'a state::StateStore) -> Self {
+        Self { ui, store }
+    }
+
+    pub fn store(&self) -> &state::StateStore {
+        self.store
+    }
+}
+
+impl<'a> Deref for CardCtx<'a> {
+    type Target = egui::Ui;
+
+    fn deref(&self) -> &Self::Target {
+        self.ui
+    }
+}
+
+impl<'a> DerefMut for CardCtx<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ui
+    }
 }
 
 const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
@@ -192,7 +224,7 @@ impl NotebookConfig {
         egui::Id::new(("gorbie_notebook_state", self.title.as_str()))
     }
 
-    pub fn run(self, body: impl FnMut(&mut Notebook) + 'static) -> eframe::Result {
+    pub fn run(self, body: impl FnMut(&mut NotebookCtx) + 'static) -> eframe::Result {
         let config = self;
         let window_title = if config.title.is_empty() {
             "GORBIE".to_owned()
@@ -231,11 +263,12 @@ impl NotebookConfig {
                 cc.egui_ctx
                     .set_style_of(egui::Theme::Dark, industrial_dark());
 
-                Ok(Box::new(NotebookApp {
+                Ok(Box::new(Notebook {
                     config,
                     body,
                     icons,
                     icon_is_dark: None,
+                    state_store: Arc::new(state::StateStore::default()),
                 }))
             }),
         )
@@ -277,16 +310,17 @@ fn editor_from_env() -> Option<EditorCommand> {
     Some(command)
 }
 
-impl Notebook {
-    fn new(config: &NotebookConfig) -> Self {
+impl NotebookCtx {
+    fn new(config: &NotebookConfig, state_store: Arc<state::StateStore>) -> Self {
         Self {
             state_id: config.state_id(),
             cards: Vec::new(),
+            state_store,
         }
     }
 
     #[track_caller]
-    pub fn view(&mut self, function: impl FnMut(&mut egui::Ui) + 'static) {
+    pub fn view(&mut self, function: impl for<'a, 'b> FnMut(&'a mut CardCtx<'b>) + 'static) {
         let source = SourceLocation::from_location(std::panic::Location::caller());
         let card = cards::StatelessCard::new(function);
         self.push_with_source(Box::new(card), Some(source));
@@ -297,11 +331,11 @@ impl Notebook {
         &mut self,
         key: &K,
         init: T,
-        function: impl FnMut(&mut egui::Ui, &mut T) + 'static,
+        function: impl for<'a, 'b> FnMut(&'a mut CardCtx<'b>, &mut T) + 'static,
     ) -> state::StateId<T>
     where
         K: std::hash::Hash + ?Sized,
-        T: std::fmt::Debug + std::default::Default + Send + Sync + 'static,
+        T: Send + Sync + 'static,
     {
         let source = SourceLocation::from_location(std::panic::Location::caller());
         let state = state::StateId::new(self.state_id_for(key));
@@ -324,7 +358,7 @@ impl Notebook {
     }
 }
 
-impl NotebookApp {
+impl Notebook {
     fn update_app_icon(&mut self, ctx: &egui::Context) {
         let Some(icons) = self.icons.as_ref() else {
             return;
@@ -344,12 +378,12 @@ impl NotebookApp {
     }
 }
 
-impl eframe::App for NotebookApp {
+impl eframe::App for Notebook {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.update_app_icon(ctx);
 
         let config = &self.config;
-        let mut notebook = Notebook::new(config);
+        let mut notebook = NotebookCtx::new(config, self.state_store.clone());
         (self.body)(&mut notebook);
 
         let state_id = config.state_id();
@@ -445,6 +479,7 @@ impl eframe::App for NotebookApp {
                                 ui.add_space(12.0);
 
                                 runtime.sync_len(notebook.cards.len());
+                                let store = notebook.state_store.clone();
 
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 let mut floating_elements: Vec<FloatingElement> = Vec::new();
@@ -525,7 +560,9 @@ impl eframe::App for NotebookApp {
                                                 .show(ui, |ui| {
                                                     ui.reset_style();
                                                     ui.set_width(card_width);
-                                                    card.draw(ui);
+                                                    let mut ctx =
+                                                        CardCtx::new(ui, store.as_ref());
+                                                    card.draw(&mut ctx);
                                                 });
                                             *card_placeholder_size = egui::vec2(
                                                 card_width,
@@ -821,7 +858,9 @@ impl eframe::App for NotebookApp {
                                                         let inner = frame.show(ui, |ui| {
                                                             ui.reset_style();
                                                             ui.set_width(card_width);
-                                                            card.draw(ui);
+                                                            let mut ctx =
+                                                                CardCtx::new(ui, store.as_ref());
+                                                            card.draw(&mut ctx);
                                                         });
 
                                                         let handle_height = 18.0;

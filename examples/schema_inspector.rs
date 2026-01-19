@@ -164,7 +164,7 @@ fn render_schema_sections(
 }
 
 #[notebook]
-fn main(nb: &mut Notebook) {
+fn main(nb: &mut NotebookCtx) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
     let mut blobs = MemoryBlobStore::<Blake3>::new();
     let metadata_set = build_schema_metadata(&mut blobs);

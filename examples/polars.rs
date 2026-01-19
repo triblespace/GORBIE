@@ -14,10 +14,10 @@ use GORBIE::dataflow::ComputedState;
 use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::widgets::{dataframe, load_auto};
-use GORBIE::Notebook;
+use GORBIE::NotebookCtx;
 
 #[notebook]
-fn main(nb: &mut Notebook) {
+fn main(nb: &mut NotebookCtx) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
     let _df = nb.state(
         "dataframe",

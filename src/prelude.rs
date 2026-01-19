@@ -8,5 +8,6 @@ pub use crate::md;
 pub use crate::note;
 pub use crate::notebook;
 pub use crate::state::StateId;
-pub use crate::Notebook;
+pub use crate::CardCtx;
+pub use crate::NotebookCtx;
 pub use crate::NotebookConfig;

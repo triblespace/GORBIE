@@ -40,7 +40,7 @@ use GORBIE::dataflow::ComputedState;
 use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::widgets;
-use GORBIE::Notebook;
+use GORBIE::NotebookCtx;
 
 const HISTOGRAM_MIN_BUCKET_EXP: u32 = 6; // 64B (pile record alignment).
 const HISTOGRAM_MAX_BUCKET_EXP: u32 = 36; // 64 GiB and above go into the last bucket.
@@ -1686,7 +1686,7 @@ impl Default for InspectorState {
 }
 
 #[notebook]
-fn main(nb: &mut Notebook) {
+fn main(nb: &mut NotebookCtx) {
     let default_path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "./repo.pile".to_owned());
@@ -1822,7 +1822,7 @@ fn main(nb: &mut Notebook) {
 
     nb.view(move |ui| {
         with_padding(ui, padding, |ui| {
-            let mut state = inspector.read_mut(ui).expect("inspector state missing");
+            let mut state = inspector.read_mut(ui.store()).expect("inspector state missing");
             md!(ui, "## Blob size distribution");
 
             ui.horizontal(|ui| {
@@ -1968,8 +1968,8 @@ fn main(nb: &mut Notebook) {
     nb.view(move |ui| {
         let summary_padding = egui::Margin::ZERO;
         with_padding(ui, summary_padding, |ui| {
-            let mut state = inspector.read_mut(ui).expect("inspector state missing");
-            let tuning = summary_tuning.read(ui).expect("summary tuning missing");
+            let mut state = inspector.read_mut(ui.store()).expect("inspector state missing");
+            let tuning = summary_tuning.read(ui.store()).expect("summary tuning missing");
             let now_ms = now_ms();
             let bg_color = egui::Color32::from_rgb(8, 8, 8);
             let label_color = egui::Color32::from_rgb(245, 140, 45);
@@ -2148,7 +2148,7 @@ fn main(nb: &mut Notebook) {
 
     nb.view(move |ui| {
         with_padding(ui, padding, |ui| {
-            let mut state = inspector.read_mut(ui).expect("inspector state missing");
+            let mut state = inspector.read_mut(ui.store()).expect("inspector state missing");
             md!(ui, "## Commit graph");
 
             state.snapshot.poll();
@@ -2173,7 +2173,7 @@ fn main(nb: &mut Notebook) {
 
     nb.view(move |ui| {
         with_padding(ui, padding, |ui| {
-            let mut state = inspector.read_mut(ui).expect("inspector state missing");
+            let mut state = inspector.read_mut(ui.store()).expect("inspector state missing");
             md!(ui, "## Blobs");
 
             state.snapshot.poll();

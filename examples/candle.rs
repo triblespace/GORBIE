@@ -9,10 +9,10 @@ use GORBIE::cards::with_padding;
 use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::widgets;
-use GORBIE::Notebook;
+use GORBIE::NotebookCtx;
 
 #[notebook]
-fn main(nb: &mut Notebook) {
+fn main(nb: &mut NotebookCtx) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
     let _prompt = nb.state("prompt", "", move |ui, value| {
         with_padding(ui, padding, |ui| {

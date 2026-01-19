@@ -2,10 +2,10 @@ use std::hash::Hash;
 
 use crate::cards::Card;
 use crate::state::StateId;
-use crate::Notebook;
-use eframe::egui;
+use crate::CardCtx;
+use crate::NotebookCtx;
 
-type StatefulCardFn<T> = dyn FnMut(&mut egui::Ui, &mut T);
+type StatefulCardFn<T> = dyn for<'a, 'b> FnMut(&'a mut CardCtx<'b>, &mut T);
 
 pub struct StatefulCard<T> {
     state: StateId<T>,
@@ -17,7 +17,7 @@ impl<T> StatefulCard<T> {
     pub(crate) fn new(
         state: StateId<T>,
         init: T,
-        function: impl FnMut(&mut egui::Ui, &mut T) + 'static,
+        function: impl for<'a, 'b> FnMut(&'a mut CardCtx<'b>, &mut T) + 'static,
     ) -> Self {
         Self {
             state,
@@ -27,23 +27,26 @@ impl<T> StatefulCard<T> {
     }
 }
 
-impl<T: std::fmt::Debug + std::default::Default + Send + Sync + 'static> Card for StatefulCard<T> {
-    fn draw(&mut self, ui: &mut egui::Ui) {
+impl<T: Send + Sync + 'static> Card for StatefulCard<T> {
+    fn draw(&mut self, ctx: &mut CardCtx<'_>) {
         let state = self.state;
-        let mut current = state.state_or_init(ui, &mut self.init).write_arc();
-        (self.function)(ui, &mut current);
+        let Some(state) = state.state_or_init(ctx.store(), &mut self.init) else {
+            return;
+        };
+        let mut current = state.write_arc();
+        (self.function)(ctx, &mut current);
     }
 }
 
 pub fn stateful_card<K, T>(
-    nb: &mut Notebook,
+    nb: &mut NotebookCtx,
     key: &K,
     init: T,
-    function: impl FnMut(&mut egui::Ui, &mut T) + 'static,
+    function: impl for<'a, 'b> FnMut(&'a mut CardCtx<'b>, &mut T) + 'static,
 ) -> StateId<T>
 where
     K: Hash + ?Sized,
-    T: std::fmt::Debug + std::default::Default + Send + Sync + 'static,
+    T: Send + Sync + 'static,
 {
     let state = StateId::new(nb.state_id_for(key));
     let handle = state;
