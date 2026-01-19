@@ -12,6 +12,16 @@ use crate::themes::{GorbieNumberFieldStyle, GorbieTextFieldStyle};
 type NumFormatter<'a> = dyn Fn(f64, RangeInclusive<usize>) -> String + 'a;
 type NumParser<'a> = dyn Fn(&str) -> Option<f64> + 'a;
 
+fn lcd_font_id(ui: &Ui) -> FontId {
+    let style = ui.style();
+    let lcd_style = egui::TextStyle::Name("LCD".into());
+    style
+        .text_styles
+        .get(&lcd_style)
+        .cloned()
+        .unwrap_or_else(|| egui::TextStyle::Monospace.resolve(style))
+}
+
 fn paint_scanline(painter: &egui::Painter, rect: Rect, color: Color32, height: f32) {
     let inset = 2.0;
     let available_h = (rect.height() - inset * 2.0).max(0.0);
@@ -228,7 +238,7 @@ fn lcd_text_edit(
     let interactive = ui.is_enabled() && text.is_mutable();
     let event_filter = default_event_filter();
 
-    let font_id = egui::TextStyle::Name("LCD".into()).resolve(ui.style());
+    let font_id = lcd_font_id(ui);
     let row_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
 
     const MIN_WIDTH: f32 = 24.0;
@@ -712,7 +722,7 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
             crate::themes::blend(ink, fill, 0.55)
         };
 
-        let font_id = egui::TextStyle::Name("LCD".into()).resolve(ui.style());
+        let font_id = lcd_font_id(ui);
         let row_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
         let margin = singleline_margin(ui, row_height);
         let mut desired_width = (ui.spacing().interact_size.x - margin.sum().x).at_least(24.0);
@@ -989,7 +999,7 @@ impl Widget for TextField<'_> {
             crate::themes::blend(ink, fill, 0.55)
         };
 
-        let font_id = egui::TextStyle::Name("LCD".into()).resolve(ui.style());
+        let font_id = lcd_font_id(ui);
         let row_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
         let margin = if multiline {
             ui.spacing().button_padding.into()

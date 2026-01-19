@@ -1375,7 +1375,7 @@ fn commit_lane_color(index: usize) -> egui::Color32 {
 
 fn text_width(ui: &egui::Ui, text: &str, style: &egui::TextStyle) -> f32 {
     let font_id = style.resolve(ui.style());
-    ui.fonts(|fonts| {
+    ui.fonts_mut(|fonts| {
         fonts
             .layout_no_wrap(text.to_owned(), font_id, ui.visuals().text_color())
             .size()

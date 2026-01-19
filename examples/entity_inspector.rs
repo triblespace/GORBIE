@@ -632,8 +632,8 @@ fn compute_graph_layout(
     let tile_padding = 8.0;
     let title_font = TextStyle::Monospace.resolve(ui.style());
     let row_font = TextStyle::Small.resolve(ui.style());
-    let header_height = ui.fonts(|fonts| fonts.row_height(&title_font)).ceil() + 6.0;
-    let text_row_height = ui.fonts(|fonts| fonts.row_height(&row_font)).ceil() + 4.0;
+    let header_height = ui.fonts_mut(|fonts| fonts.row_height(&title_font)).ceil() + 6.0;
+    let text_row_height = ui.fonts_mut(|fonts| fonts.row_height(&row_font)).ceil() + 4.0;
 
     let mut tile_heights = vec![0.0f32; graph.nodes.len()];
     for (idx, node) in graph.nodes.iter().enumerate() {

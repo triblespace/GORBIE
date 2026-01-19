@@ -199,7 +199,7 @@ fn rgb_histogram_editor_size(ui: &egui::Ui) -> egui::Vec2 {
     let font_id = egui::TextStyle::Small.resolve(ui.style());
     let tick_len = 4.0;
     let tick_pad = 2.0;
-    let text_height = ui.fonts(|fonts| fonts.row_height(&font_id));
+    let text_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
     let label_row_h = tick_len + tick_pad + text_height;
     egui::vec2(desired_width, plot_height + label_row_h)
 }
@@ -220,7 +220,7 @@ fn rgb_histogram_editor(ui: &mut egui::Ui, rgb: &mut [u8; 3]) -> RgbHistogramEdi
     let font_id = egui::TextStyle::Small.resolve(ui.style());
     let tick_len = 4.0;
     let tick_pad = 2.0;
-    let text_height = ui.fonts(|fonts| fonts.row_height(&font_id));
+    let text_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
     let label_row_h = tick_len + tick_pad + text_height;
 
     let total_h = plot_height + label_row_h;
@@ -241,7 +241,7 @@ fn rgb_histogram_editor(ui: &mut egui::Ui, rgb: &mut [u8; 3]) -> RgbHistogramEdi
         .map(|i| (y_max / y_segments).saturating_mul(i))
         .collect();
 
-    let y_label_width = ui.fonts(|fonts| {
+    let y_label_width = ui.fonts_mut(|fonts| {
         y_ticks
             .iter()
             .map(|value| {

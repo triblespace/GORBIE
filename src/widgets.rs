@@ -34,3 +34,4 @@ pub use marginalia::pinned_note;
 pub use markdown::markdown;
 pub use progress::ProgressBar;
 pub use slider::Slider;
+pub use slider::SliderClamping;

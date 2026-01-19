@@ -19,7 +19,7 @@ In such a setup, the `notebook.rs` script would look something like this:
 #!/usr/bin/env -S watchexec -r rust-script
 //! ```cargo
 //! [dependencies]
-//! GORBIE = "0.3.1"
+//! GORBIE = "0.4.0"
 //! ```
 
 use GORBIE::prelude::*;

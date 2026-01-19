@@ -128,7 +128,7 @@ pub enum SliderClamping {
 /// ```
 /// # egui::__run_test_ui(|ui| {
 /// # let mut my_f32: f32 = 0.0;
-/// ui.add(crate::widgets::Slider::new(&mut my_f32, 0.0..=100.0).text("My value"));
+/// ui.add(GORBIE::widgets::Slider::new(&mut my_f32, 0.0..=100.0).text("My value"));
 /// # });
 /// ```
 ///
@@ -297,7 +297,7 @@ impl<'a> Slider<'a> {
 /// ```
 /// # egui::__run_test_ui(|ui| {
 /// let mut my_value: f32 = 1337.0;
-/// ui.add(crate::widgets::Slider::new(&mut my_value, 0.0..=1.0));
+/// ui.add(GORBIE::widgets::Slider::new(&mut my_value, 0.0..=1.0));
 /// assert!(0.0 <= my_value && my_value <= 1.0, "Existing value should be clamped");
 /// # });
 /// ```
@@ -307,13 +307,13 @@ impl<'a> Slider<'a> {
 /// # egui::__run_test_ui(|ui| {
 /// let mut my_value: f32 = 1337.0;
 /// let response = ui.add(
-///     crate::widgets::Slider::new(&mut my_value, 0.0..=1.0)
-///         .clamping(crate::widgets::slider::SliderClamping::Edits)
+///     GORBIE::widgets::Slider::new(&mut my_value, 0.0..=1.0)
+///         .clamping(GORBIE::widgets::SliderClamping::Edits)
 /// );
 /// if response.dragged() {
-    ///     // The user edited the value, so it should now be clamped to the range
-    ///     assert!(0.0 <= my_value && my_value <= 1.0);
-    /// }
+///     // The user edited the value, so it should now be clamped to the range
+///     assert!(0.0 <= my_value && my_value <= 1.0);
+/// }
     /// # });
     /// ```
     ///
@@ -322,12 +322,12 @@ impl<'a> Slider<'a> {
 /// # egui::__run_test_ui(|ui| {
 /// let mut my_value: f32 = 1337.0;
 /// let response = ui.add(
-///     crate::widgets::Slider::new(&mut my_value, 0.0..=1.0)
-///         .clamping(crate::widgets::slider::SliderClamping::Never)
+///     GORBIE::widgets::Slider::new(&mut my_value, 0.0..=1.0)
+///         .clamping(GORBIE::widgets::SliderClamping::Never)
 /// );
 /// // The user could have set the value to anything
 /// # });
-    /// ```
+/// ```
     #[inline]
     pub fn clamping(mut self, clamping: SliderClamping) -> Self {
         self.clamping = clamping;
@@ -450,7 +450,7 @@ impl<'a> Slider<'a> {
 /// ```
 /// # egui::__run_test_ui(|ui| {
 /// # let mut my_i32: i32 = 0;
-/// ui.add(crate::widgets::Slider::new(&mut my_i32, 0..=((60 * 60 * 24) - 1))
+/// ui.add(GORBIE::widgets::Slider::new(&mut my_i32, 0..=((60 * 60 * 24) - 1))
 ///     .custom_formatter(|n, _| {
 ///         let n = n as i32;
     ///         let hours = n / (60 * 60);
@@ -493,7 +493,7 @@ impl<'a> Slider<'a> {
 /// ```
 /// # egui::__run_test_ui(|ui| {
 /// # let mut my_i32: i32 = 0;
-/// ui.add(crate::widgets::Slider::new(&mut my_i32, 0..=((60 * 60 * 24) - 1))
+/// ui.add(GORBIE::widgets::Slider::new(&mut my_i32, 0..=((60 * 60 * 24) - 1))
 ///     .custom_formatter(|n, _| {
 ///         let n = n as i32;
     ///         let hours = n / (60 * 60);
@@ -540,7 +540,7 @@ impl<'a> Slider<'a> {
 /// ```
 /// # egui::__run_test_ui(|ui| {
 /// # let mut my_i32: i32 = 0;
-/// ui.add(crate::widgets::Slider::new(&mut my_i32, -100..=100).binary(64, false));
+/// ui.add(GORBIE::widgets::Slider::new(&mut my_i32, -100..=100).binary(64, false));
 /// # });
 /// ```
     pub fn binary(self, min_width: usize, twos_complement: bool) -> Self {
@@ -575,7 +575,7 @@ impl<'a> Slider<'a> {
 /// ```
 /// # egui::__run_test_ui(|ui| {
 /// # let mut my_i32: i32 = 0;
-/// ui.add(crate::widgets::Slider::new(&mut my_i32, -100..=100).octal(22, false));
+/// ui.add(GORBIE::widgets::Slider::new(&mut my_i32, -100..=100).octal(22, false));
 /// # });
 /// ```
     pub fn octal(self, min_width: usize, twos_complement: bool) -> Self {
@@ -610,7 +610,7 @@ impl<'a> Slider<'a> {
 /// ```
 /// # egui::__run_test_ui(|ui| {
 /// # let mut my_i32: i32 = 0;
-/// ui.add(crate::widgets::Slider::new(&mut my_i32, -100..=100).hexadecimal(16, false, true));
+/// ui.add(GORBIE::widgets::Slider::new(&mut my_i32, -100..=100).hexadecimal(16, false, true));
 /// # });
 /// ```
     pub fn hexadecimal(self, min_width: usize, twos_complement: bool, upper: bool) -> Self {
