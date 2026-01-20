@@ -13,6 +13,7 @@ use GORBIE::prelude::*;
 struct QuizState {
     add_result: Option<i32>,
     subtract_amount: i32,
+    double_result: Option<i32>,
 }
 
 #[notebook]
@@ -23,9 +24,11 @@ fn main(nb: &mut NotebookCtx) {
                 ui,
                 "# Hello, state\n\
                  A **variable** is a named box that holds a value.\n\n\
+                 If expressions are new, start with **Hello, expressions** first.\n\n\
                  - The *name* tells us which box we mean.\n\
                  - The *value* is what is inside the box.\n\
-                 - We can change the value over time."
+                 - We can change the value over time.\n\n\
+                 We will use a left arrow (←) to mean **update**."
             );
         });
     });
@@ -43,6 +46,21 @@ fn main(nb: &mut NotebookCtx) {
         });
     });
 
+    nb.view(|ui| {
+        with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
+            let arrow = "\u{2190}";
+            md!(
+                ui,
+                "## The first assignment\n\
+                 We *introduce* a variable by giving it a name and a starting value.\n\n\
+                 ```text\n\
+                 apples {arrow} 3\n\
+                 ```\n\n\
+                 Read this as: “put 3 into the apples box.”"
+            );
+        });
+    });
+
     let apples = nb.state("apples", 3_i32, |ui, value| {
         with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
             ui.label(RichText::new("Try changing the value.").heading());
@@ -55,7 +73,10 @@ fn main(nb: &mut NotebookCtx) {
                 if ui.add(widgets::Button::new("+1")).clicked() {
                     *value = value.saturating_add(1);
                 }
-                if ui.add(widgets::Button::new("-1")).clicked() {
+                if ui
+                    .add_enabled(*value > 0, widgets::Button::new("-1"))
+                    .clicked()
+                {
                     *value = value.saturating_sub(1);
                 }
                 if ui.add(widgets::Button::new("double")).clicked() {
@@ -129,9 +150,12 @@ fn main(nb: &mut NotebookCtx) {
                     code.push('\n');
                 }
             }
+            let results = [3, 4, 3, 6];
+            let result = results[*step];
             md!(
                 ui,
                 "```text\n{code}\n```\n\n\
+                 Result after this line: **{result}**\n\n\
                  The arrow ({arrow}) means \"update the box\".\n\
                  The name stays the same. The value changes."
             );
@@ -195,6 +219,23 @@ fn main(nb: &mut NotebookCtx) {
             } else {
                 ui.label("Try a different number.");
             }
+
+            ui.add_space(12.0);
+            ui.label("3) Start with apples = 5. Then: apples \u{2190} apples * 2.");
+            ui.add_space(4.0);
+            ui.add(
+                widgets::ChoiceToggle::new(&mut state.double_result)
+                    .choice(Some(5), "5")
+                    .choice(Some(7), "7")
+                    .choice(Some(10), "10")
+                    .small(),
+            );
+            ui.add_space(4.0);
+            match state.double_result {
+                Some(10) => ui.label("Correct!"),
+                Some(_) => ui.label("Not quite. Doubling means times two."),
+                None => ui.label("Pick an answer."),
+            };
         });
     });
 }

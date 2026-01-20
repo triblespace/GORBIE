@@ -41,16 +41,17 @@ fn main(nb: &mut NotebookCtx) {
             md!(
                 ui,
                 "## Track A - Programming foundations (10-12 notebooks)\n\
-                 1. Hello, state (variables and change)\n\
-                 2. If/else and decisions\n\
-                 3. Loops and counting\n\
-                 4. Functions as reusable steps\n\
-                 5. Lists and indexing\n\
-                 6. Maps and lookup tables\n\
-                 7. Debugging as a method\n\
-                 8. Sorting and searching basics\n\
-                 9. Complexity intuition (fast vs slow)\n\
-                 10. Mini project: a tiny text game"
+                 1. Hello, expressions (values and math)\n\
+                 2. Hello, state (variables and change)\n\
+                 3. If/else and decisions\n\
+                 4. Loops and counting\n\
+                 5. Functions as reusable steps\n\
+                 6. Lists and indexing\n\
+                 7. Maps and lookup tables\n\
+                 8. Debugging as a method\n\
+                 9. Sorting and searching basics\n\
+                 10. Complexity intuition (fast vs slow)\n\
+                 11. Mini project: a tiny text game"
             );
         });
     });
@@ -141,7 +142,8 @@ fn main(nb: &mut NotebookCtx) {
     nb.view(|ui| {
         note!(
             ui,
-            "Start with three pilot notebooks:\n\
+            "Start with four pilot notebooks:\n\
+             - **Hello, expressions** (programming)\n\
              - **Hello, state** (programming)\n\
              - **DFA basics** (theory)\n\
              - **Ownership 101** (Rust)\n\n\

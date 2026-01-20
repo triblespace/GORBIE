@@ -765,19 +765,18 @@ where
             }
         };
 
-        let active_index = choices
-            .iter()
-            .position(|choice| choice.value == *value)
-            .unwrap_or(0);
+        let active_index = choices.iter().position(|choice| choice.value == *value);
 
         let mut draw_order: Vec<usize> = if shadow_offset.x >= 0.0 {
             (0..segment_count).collect()
         } else {
             (0..segment_count).rev().collect()
         };
-        if let Some(pos) = draw_order.iter().position(|&idx| idx == active_index) {
-            let active = draw_order.remove(pos);
-            draw_order.push(active);
+        if let Some(active_index) = active_index {
+            if let Some(pos) = draw_order.iter().position(|&idx| idx == active_index) {
+                let active = draw_order.remove(pos);
+                draw_order.push(active);
+            }
         }
 
         for idx in draw_order {
@@ -816,7 +815,7 @@ where
             let is_down = enabled
                 && (segment_responses[idx].is_pointer_button_down_on()
                     || (segment_responses[idx].has_focus() && keyboard_down));
-            let is_active = idx == active_index;
+            let is_active = active_index == Some(idx);
 
             let mask_stroke = MaskStroke {
                 left: idx > 0,
