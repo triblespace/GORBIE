@@ -1,7 +1,7 @@
 #!/usr/bin/env -S watchexec -r rust-script
 //! ```cargo
 //! [dependencies]
-//! GORBIE = { path = ".." }
+//! GORBIE = { path = "..", features = ["polars"] }
 //! egui = "0.33"
 //! egui_extras = "0.33"
 //! polars = "0.50.0"
@@ -19,16 +19,18 @@ use GORBIE::NotebookCtx;
 #[notebook]
 fn main(nb: &mut NotebookCtx) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
+    nb.view(|ui| {
+        md!(
+            ui,
+            "# Polars
+In this notebook we're going to use the `polars` crate to create a simple dataframe."
+        );
+    });
     let _df = nb.state(
         "dataframe",
         ComputedState::<Option<DataFrame>>::default(),
         move |ui, value| {
             with_padding(ui, padding, |ui| {
-                md!(
-                    ui,
-                    "# Polars
-In this notebook we're going to use the `polars` crate to create a simple dataframe."
-                );
                 let df = load_auto(ui, value, Option::is_none, || {
                     let df = CsvReadOptions::default()
                         .try_into_reader_with_file_path(Some("./assets/datasets/iris.csv".into()))

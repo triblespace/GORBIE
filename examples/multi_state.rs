@@ -5,7 +5,6 @@
 //! egui = "0.33"
 //! ```
 
-
 use GORBIE::cards::DEFAULT_CARD_PADDING;
 use GORBIE::prelude::*;
 
@@ -22,7 +21,7 @@ fn main(nb: &mut NotebookCtx) {
                     *value += 1;
                 }
             });
-            md!(ui, "Value: `{value}`");
+            widgets::markdown(ui, &format!("Value: `{value}`"));
         });
     });
 
@@ -37,7 +36,7 @@ fn main(nb: &mut NotebookCtx) {
                     *value += 1;
                 }
             });
-            md!(ui, "Value: `{value}`");
+            widgets::markdown(ui, &format!("Value: `{value}`"));
         });
     });
 
@@ -46,12 +45,14 @@ fn main(nb: &mut NotebookCtx) {
         let right = right.read(ui);
         with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
             ui.label("Combined view (reads both states together)");
-            md!(
+            widgets::markdown(
                 ui,
-                "Left: `{}`\nRight: `{}`\nSum: `{}`",
-                *left,
-                *right,
-                *left + *right
+                &format!(
+                    "Left: `{}`\nRight: `{}`\nSum: `{}`",
+                    *left,
+                    *right,
+                    *left + *right
+                ),
             );
         });
     });
@@ -70,7 +71,7 @@ fn main(nb: &mut NotebookCtx) {
                 std::mem::swap(&mut *left, &mut *right);
             }
 
-            md!(ui, "Left: `{}`\nRight: `{}`", *left, *right);
+            widgets::markdown(ui, &format!("Left: `{}`\nRight: `{}`", *left, *right));
         });
     });
 }

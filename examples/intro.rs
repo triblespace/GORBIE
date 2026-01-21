@@ -11,10 +11,9 @@ use GORBIE::prelude::*;
 fn main(nb: &mut NotebookCtx) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
     nb.view(move |ui| {
-        with_padding(ui, padding, |ui| {
-            md!(
-                ui,
-                "# GORBIE!
+        md!(
+            ui,
+            "# GORBIE!
 This is **GORBIE!**, a _minimalist_ notebook environment for **Rust**!
 
 It's much closer to a library and a shell script than the heavy environments
@@ -59,8 +58,7 @@ Proin tincidunt felis metus, sit amet tempus eros semper at.\
 Aenean in turpis tortor. Integer ut nibh a massa maximus bibendum.\
 Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
 "
-            );
-        });
+        );
     });
 
     nb.view(|ui| {
@@ -86,7 +84,7 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
                     std::thread::sleep(std::time::Duration::from_secs(10));
                     slider * 0.5
                 });
-                md!(ui, "Progress: {:.2}%", progress * 100.0);
+                widgets::markdown(ui, &format!("Progress: {:.2}%", progress * 100.0));
                 ui.add(
                     widgets::ProgressBar::new(progress)
                         .text("output")

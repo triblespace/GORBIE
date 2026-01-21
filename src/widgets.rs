@@ -5,22 +5,24 @@
 
 pub mod button;
 pub mod code;
-pub mod collapsing_divider;
+#[cfg(feature = "polars")]
 pub mod dataframe;
 pub mod field;
 pub mod histogram;
 pub mod label;
 pub mod load;
-pub mod marginalia;
+#[cfg(feature = "markdown")]
 pub mod markdown;
 pub mod progress;
 pub mod slider;
+#[cfg(feature = "triblespace")]
+pub mod triblespace;
 
 pub use button::Button;
 pub use button::ChoiceToggle;
 pub use button::ToggleButton;
 pub use code::code_view;
-pub use collapsing_divider::collapsing_divider;
+#[cfg(feature = "polars")]
 pub use dataframe::dataframe;
 pub use field::NumberField;
 pub use field::TextField;
@@ -30,7 +32,7 @@ pub use histogram::HistogramYAxis;
 pub use label::row_label;
 pub use load::load_auto;
 pub use load::load_button;
-pub use marginalia::pinned_note;
+#[cfg(feature = "markdown")]
 pub use markdown::markdown;
 pub use progress::ProgressBar;
 pub use slider::Slider;

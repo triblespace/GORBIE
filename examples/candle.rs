@@ -14,13 +14,15 @@ use GORBIE::NotebookCtx;
 #[notebook]
 fn main(nb: &mut NotebookCtx) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
+    nb.view(|ui| {
+        md!(
+            ui,
+            "# Candle
+In this notebook we're going to use huggingfaces `candle` crate, to create a simple prompt based chatbot."
+        );
+    });
     let _prompt = nb.state("prompt", "", move |ui, value| {
         with_padding(ui, padding, |ui| {
-            md!(ui,
-            "# Candle
-In this notebook we're going to use huggingfaces `candle` crate, to create a simple prompt based chatbot.
-");
-
             ui.horizontal(|ui| {
                 ui.label("Prompt:");
                 ui.add(widgets::TextField::singleline(value));

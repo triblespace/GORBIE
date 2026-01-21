@@ -1,7 +1,7 @@
 #!/usr/bin/env -S watchexec -r rust-script
 //! ```cargo
 //! [dependencies]
-//! GORBIE = { path = ".." }
+//! GORBIE = { path = "..", features = ["triblespace"] }
 //! egui = "0.33"
 //! triblespace = "0.7.0"
 //! ```

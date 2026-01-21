@@ -7,9 +7,7 @@ pub struct StatelessCard {
 }
 
 impl StatelessCard {
-    pub(crate) fn new(
-        function: impl for<'a, 'b> FnMut(&'a mut CardCtx<'b>) + 'static,
-    ) -> Self {
+    pub(crate) fn new(function: impl for<'a, 'b> FnMut(&'a mut CardCtx<'b>) + 'static) -> Self {
         Self {
             function: Box::new(function),
         }

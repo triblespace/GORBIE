@@ -460,13 +460,11 @@ impl Default for FocusTarget {
 fn main(nb: &mut NotebookCtx) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
     nb.view(move |ui| {
-        with_padding(ui, padding, |ui| {
-            // Introduction
-            md!(
-                ui,
-                "# Palette Playbook\n\nBase tokens map semantic roles → RAL paint chips. Derived colors are small blends on top."
-            );
-        });
+        // Introduction
+        md!(
+            ui,
+            "# Palette Playbook\n\nBase tokens map semantic roles → RAL paint chips. Derived colors are small blends on top."
+        );
     });
 
     nb.view(move |ui| {
@@ -640,12 +638,10 @@ fn main(nb: &mut NotebookCtx) {
     );
 
     nb.view(move |ui| {
-        with_padding(ui, padding, |ui| {
-            md!(
-                ui,
-                "## Widget Playbook\n\nA quick showcase of our custom widgets. The value is normalized to `[0, 1]`."
-            );
-        });
+        md!(
+            ui,
+            "## Widget Playbook\n\nA quick showcase of our custom widgets. The value is normalized to `[0, 1]`."
+        );
     });
 
     let widget_state = nb.state(

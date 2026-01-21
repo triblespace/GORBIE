@@ -23,11 +23,7 @@ impl StateStore {
         entry.downcast::<RwLock<T>>().ok()
     }
 
-    fn get_or_insert_raw<T: Send + Sync + 'static>(
-        &self,
-        id: egui::Id,
-        init: T,
-    ) -> Arc<RwLock<T>> {
+    fn get_or_insert_raw<T: Send + Sync + 'static>(&self, id: egui::Id, init: T) -> Arc<RwLock<T>> {
         {
             let states = self.states.read();
             if let Some(existing) = states.get(&id) {
@@ -78,10 +74,7 @@ impl StateStore {
     }
 
     /// Returns a read guard for the given handle if it exists and can be read.
-    pub fn try_read<T: Send + Sync + 'static>(
-        &self,
-        id: StateId<T>,
-    ) -> Option<ArcReadGuard<T>> {
+    pub fn try_read<T: Send + Sync + 'static>(&self, id: StateId<T>) -> Option<ArcReadGuard<T>> {
         self.try_get(id).and_then(|state| state.try_read_arc())
     }
 

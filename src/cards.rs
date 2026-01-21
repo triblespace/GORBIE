@@ -34,11 +34,13 @@ pub fn note_frame<R>(
         })
 }
 
+#[cfg(feature = "markdown")]
 #[macro_export]
 macro_rules! note {
     ($ui:expr, $fmt:expr $(, $args:expr)*) => {{
+        let text = format!($fmt $(, $args)*);
         $crate::cards::note_frame($ui, |ui| {
-            $crate::md!(ui, $fmt $(, $args)*);
+            $crate::widgets::markdown(ui, &text);
         });
     }};
 }

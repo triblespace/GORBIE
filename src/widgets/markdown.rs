@@ -20,7 +20,13 @@ macro_rules! md {
     ($ui:expr, $fmt:expr $(, $args:expr)*) => {
         {
             let text = format!($fmt $(, $args)*);
-            $crate::widgets::markdown($ui, &text);
+            $crate::cards::with_padding(
+                $ui,
+                $crate::cards::DEFAULT_CARD_PADDING,
+                |ui| {
+                    $crate::widgets::markdown(ui, &text);
+                },
+            );
         }
     };
 }
