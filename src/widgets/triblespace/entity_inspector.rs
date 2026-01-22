@@ -4,17 +4,18 @@ use std::sync::Arc;
 use eframe::egui;
 use eframe::egui::{pos2, vec2, Align2, Rect, Response, Sense, Stroke, TextStyle, Ui};
 
+use triblespace::core::blob::schemas::longstring::LongString;
 use triblespace::core::blob::schemas::wasmcode::WasmCode;
 use triblespace::core::blob::BlobCache;
 use triblespace::core::id::Id;
-use triblespace::core::query::{ContainsConstraint, TriblePattern};
+use triblespace::core::query::TriblePattern;
 use triblespace::core::repo::BlobStoreGet;
 use triblespace::core::value::schemas::hash::{Blake3, Handle};
 use triblespace::core::value::schemas::UnknownValue;
 use triblespace::core::value::Value;
 use triblespace::core::value_formatter::{WasmLimits, WasmValueFormatter};
 use triblespace::prelude::valueschemas::GenId;
-use triblespace::prelude::{and, find, pattern, ConstMetadata, TribleSet, TribleSetFingerprint};
+use triblespace::prelude::{find, pattern, ConstMetadata, TribleSet, TribleSetFingerprint, View};
 
 use crate::themes;
 
@@ -94,30 +95,40 @@ struct AttrInfo {
     formatter: Value<Handle<Blake3, WasmCode>>,
 }
 
-fn build_attr_info(space: &TribleSet) -> HashMap<Id, AttrInfo> {
+fn build_attr_info<B>(
+    metadata: &TribleSet,
+    name_cache: &BlobCache<B, Blake3, LongString, View<str>>,
+) -> HashMap<Id, AttrInfo>
+where
+    B: BlobStoreGet<Blake3>,
+{
     let mut out = HashMap::<Id, AttrInfo>::new();
-    for (attr, shortname, schema, formatter) in find!(
+    for (attr, name_handle, schema, formatter) in find!(
         (
             attr: Id,
-            shortname: String,
+            name_handle: Value<Handle<Blake3, LongString>>,
             schema: Id,
             formatter: Value<Handle<Blake3, WasmCode>>
         ),
         pattern!(
-            space,
+            metadata,
             [
                 {
-                    ?attr @ triblespace::core::metadata::shortname: ?shortname,
+                    ?attr @ triblespace::core::metadata::name: ?name_handle,
                     triblespace::core::metadata::value_schema: ?schema
                 },
                 { ?schema @ triblespace::core::metadata::value_formatter: ?formatter }
             ]
         )
     ) {
+        let label = match name_cache.get(name_handle) {
+            Ok(name) => name.as_ref().to_string(),
+            Err(_) => continue,
+        };
         out.insert(
             attr,
             AttrInfo {
-                label: shortname,
+                label,
                 schema,
                 formatter,
             },
@@ -127,31 +138,28 @@ fn build_attr_info(space: &TribleSet) -> HashMap<Id, AttrInfo> {
 }
 
 fn build_entity_graph<B>(
-    space: &TribleSet,
+    data: &TribleSet,
+    metadata: &TribleSet,
+    name_cache: &BlobCache<B, Blake3, LongString, View<str>>,
     formatter_cache: &BlobCache<B, Blake3, WasmCode, WasmValueFormatter>,
 ) -> EntityGraph
 where
     B: BlobStoreGet<Blake3>,
 {
-    let attr_info = build_attr_info(space);
+    let attr_info = build_attr_info(metadata, name_cache);
     let limits = WasmLimits::default();
 
     let schema_genid = GenId::id();
     let mut entity_ids = HashSet::<Id>::new();
     let mut tribles = Vec::<(Id, Id, [u8; 32])>::new();
 
-    for (e, a, v) in find!(
-        (e: Id, a: Id, v: Value<UnknownValue>),
-        and!((&attr_info).has(a), space.pattern(e, a, v))
-    ) {
+    for (e, a, v) in find!((e: Id, a: Id, v: Value<UnknownValue>), data.pattern(e, a, v)) {
         entity_ids.insert(e);
-
-        if attr_info
-            .get(&a)
-            .is_some_and(|info| info.schema == schema_genid)
-        {
-            if let Some(target) = try_decode_genid(&v.raw) {
-                entity_ids.insert(target);
+        if let Some(info) = attr_info.get(&a) {
+            if info.schema == schema_genid {
+                if let Some(target) = try_decode_genid(&v.raw) {
+                    entity_ids.insert(target);
+                }
             }
         }
 
@@ -176,25 +184,25 @@ where
             continue;
         };
 
-        let Some(attr_info) = attr_info.get(&attr) else {
-            continue;
-        };
-        let attr_text = attr_info.label.clone();
+        let info = attr_info.get(&attr);
+        let attr_text = info.map(|info| info.label.clone()).unwrap_or_default();
 
-        let (value_text, target, hatched) = if attr_info.schema == schema_genid {
-            if let Some(target) = try_decode_genid(&raw) {
-                (format!("id:{}", id_short(target)), Some(target), false)
-            } else {
-                (format!("id:0x{}", hex_prefix(raw, 6)), None, false)
+        let (value_text, target, hatched) = match info {
+            Some(info) if info.schema == schema_genid => {
+                if let Some(target) = try_decode_genid(&raw) {
+                    (format!("id:{}", id_short(target)), Some(target), false)
+                } else {
+                    (format!("id:0x{}", hex_prefix(raw, 6)), None, false)
+                }
             }
-        } else {
-            match formatter_cache.get(attr_info.formatter) {
+            Some(info) => match formatter_cache.get(info.formatter) {
                 Ok(formatter) => match formatter.format_value_with_limits(&raw, limits) {
                     Ok(text) => (text, None, false),
                     Err(_) => (format!("0x{}", hex_prefix(raw, 6)), None, true),
                 },
                 Err(_) => (format!("0x{}", hex_prefix(raw, 6)), None, true),
-            }
+            },
+            None => (format!("0x{}", hex_prefix(raw, 6)), None, true),
         };
 
         raw_rows[entity_index].push(EntityRow {
@@ -261,14 +269,16 @@ where
 
 #[derive(Clone)]
 struct EntityGraphCache {
-    fingerprint: TribleSetFingerprint,
+    data_fingerprint: TribleSetFingerprint,
+    metadata_fingerprint: TribleSetFingerprint,
     graph: Option<Arc<EntityGraph>>,
 }
 
 impl Default for EntityGraphCache {
     fn default() -> Self {
         Self {
-            fingerprint: TribleSetFingerprint::EMPTY,
+            data_fingerprint: TribleSetFingerprint::EMPTY,
+            metadata_fingerprint: TribleSetFingerprint::EMPTY,
             graph: None,
         }
     }
@@ -277,19 +287,30 @@ impl Default for EntityGraphCache {
 fn cached_entity_graph<B>(
     ui: &mut Ui,
     cache_id: egui::Id,
-    space: &TribleSet,
+    data: &TribleSet,
+    metadata: &TribleSet,
+    name_cache: &BlobCache<B, Blake3, LongString, View<str>>,
     formatter_cache: &BlobCache<B, Blake3, WasmCode, WasmValueFormatter>,
 ) -> Arc<EntityGraph>
 where
     B: BlobStoreGet<Blake3>,
 {
-    let fingerprint = space.fingerprint();
-    ui.data_mut(|data| {
-        let cache = data.get_temp_mut_or_default::<EntityGraphCache>(cache_id);
-        let needs_rebuild = cache.graph.is_none() || cache.fingerprint != fingerprint;
+    let data_fingerprint = data.fingerprint();
+    let metadata_fingerprint = metadata.fingerprint();
+    ui.data_mut(|memory| {
+        let cache = memory.get_temp_mut_or_default::<EntityGraphCache>(cache_id);
+        let needs_rebuild = cache.graph.is_none()
+            || cache.data_fingerprint != data_fingerprint
+            || cache.metadata_fingerprint != metadata_fingerprint;
         if needs_rebuild {
-            cache.graph = Some(Arc::new(build_entity_graph(space, formatter_cache)));
-            cache.fingerprint = fingerprint;
+            cache.graph = Some(Arc::new(build_entity_graph(
+                data,
+                metadata,
+                name_cache,
+                formatter_cache,
+            )));
+            cache.data_fingerprint = data_fingerprint;
+            cache.metadata_fingerprint = metadata_fingerprint;
         }
         cache
             .graph
@@ -536,7 +557,9 @@ pub struct EntityInspectorWidget<'a, B>
 where
     B: BlobStoreGet<Blake3>,
 {
-    space: &'a TribleSet,
+    data: &'a TribleSet,
+    metadata: &'a TribleSet,
+    name_cache: &'a BlobCache<B, Blake3, LongString, View<str>>,
     formatter_cache: &'a BlobCache<B, Blake3, WasmCode, WasmValueFormatter>,
     selection: &'a mut Id,
     columns: usize,
@@ -549,12 +572,16 @@ where
     B: BlobStoreGet<Blake3>,
 {
     pub fn new(
-        space: &'a TribleSet,
+        data: &'a TribleSet,
+        metadata: &'a TribleSet,
+        name_cache: &'a BlobCache<B, Blake3, LongString, View<str>>,
         formatter_cache: &'a BlobCache<B, Blake3, WasmCode, WasmValueFormatter>,
         selection: &'a mut Id,
     ) -> Self {
         Self {
-            space,
+            data,
+            metadata,
+            name_cache,
             formatter_cache,
             selection,
             columns: 0,
@@ -582,9 +609,17 @@ where
         let cache_id = self.cache_id.unwrap_or_else(|| {
             ui.id()
                 .with("entity_inspector_graph")
+                .with(self.name_cache as *const _ as usize)
                 .with(self.formatter_cache as *const _ as usize)
         });
-        let graph = cached_entity_graph(ui, cache_id, self.space, self.formatter_cache);
+        let graph = cached_entity_graph(
+            ui,
+            cache_id,
+            self.data,
+            self.metadata,
+            self.name_cache,
+            self.formatter_cache,
+        );
         let selection_before = *self.selection;
         if let Some(first) = graph.nodes.first().map(|node| node.id) {
             if !graph.id_to_index.contains_key(self.selection) {

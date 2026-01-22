@@ -4,7 +4,7 @@
 //! GORBIE = { path = "..", features = ["triblespace"] }
 //! egui = "0.33"
 //! eframe = "0.33"
-//! triblespace = { version = "0.7.0", features = ["wasm"] }
+//! triblespace = { path = "../../triblespace-rs", features = ["wasm"] }
 //! ```
 
 use eframe::egui;
@@ -13,7 +13,6 @@ use triblespace::core::blob::BlobCache;
 use triblespace::core::examples::literature;
 use triblespace::core::id::ExclusiveId;
 use triblespace::core::id::Id;
-use triblespace::core::metadata::ConstMetadata;
 use triblespace::core::repo::memoryrepo::MemoryRepo;
 use triblespace::core::repo::BlobStore;
 use triblespace::core::repo::BlobStorePut;
@@ -22,7 +21,7 @@ use triblespace::core::value::schemas::hash::Handle;
 use triblespace::core::value_formatter::WasmValueFormatter;
 use triblespace::prelude::blobschemas::LongString;
 use triblespace::prelude::valueschemas::{GenId, ShortString, R256};
-use triblespace::prelude::{entity, TribleSet};
+use triblespace::prelude::{entity, TribleSet, View};
 
 use GORBIE::prelude::*;
 use GORBIE::widgets::triblespace::{id_short, EntityInspectorWidget, EntityOrder};
@@ -37,8 +36,9 @@ mod demo {
     }
 }
 
-fn build_demo_space() -> (TribleSet, MemoryRepo, Id) {
-    let mut kb = TribleSet::new();
+fn build_demo_space() -> (TribleSet, TribleSet, MemoryRepo, Id) {
+    let mut data = TribleSet::new();
+    let mut metadata = TribleSet::new();
     let mut storage = MemoryRepo::default();
 
     let name = demo::name.id();
@@ -64,16 +64,20 @@ fn build_demo_space() -> (TribleSet, MemoryRepo, Id) {
         (lit_quote, "quote", schema_handle),
         (lit_page_count, "page_count", schema_r256),
     ] {
-        kb += entity! { ExclusiveId::force_ref(&attr) @
+        let name_handle = storage
+            .put::<LongString, _>(shortname.to_string())
+            .expect("name handle");
+        metadata += entity! { ExclusiveId::force_ref(&attr) @
             triblespace::core::metadata::shortname: shortname,
+            triblespace::core::metadata::name: name_handle,
             triblespace::core::metadata::value_schema: schema,
         };
     }
 
-    kb += GenId::describe(&mut storage).expect("genid metadata");
-    kb += Handle::<Blake3, LongString>::describe(&mut storage).expect("handle metadata");
-    kb += R256::describe(&mut storage).expect("r256 metadata");
-    kb += ShortString::describe(&mut storage).expect("shortstring metadata");
+    metadata += GenId::describe(&mut storage).expect("genid metadata");
+    metadata += Handle::<Blake3, LongString>::describe(&mut storage).expect("handle metadata");
+    metadata += R256::describe(&mut storage).expect("r256 metadata");
+    metadata += ShortString::describe(&mut storage).expect("shortstring metadata");
 
     fn demo_id(seed: u16) -> Id {
         let mut raw = [0u8; 16];
@@ -83,8 +87,8 @@ fn build_demo_space() -> (TribleSet, MemoryRepo, Id) {
 
     let e_author_kind = demo_id(0xC001);
     let e_book_kind = demo_id(0xC002);
-    kb += entity! { ExclusiveId::force_ref(&e_author_kind) @ demo::name: "Author" };
-    kb += entity! { ExclusiveId::force_ref(&e_book_kind) @ demo::name: "Book" };
+    data += entity! { ExclusiveId::force_ref(&e_author_kind) @ demo::name: "Author" };
+    data += entity! { ExclusiveId::force_ref(&e_book_kind) @ demo::name: "Book" };
 
     let authors = [
         ("Frank", "Herbert"),
@@ -124,7 +128,7 @@ fn build_demo_space() -> (TribleSet, MemoryRepo, Id) {
                 literature::lastname: *last,
             };
         }
-        kb += author;
+        data += author;
     }
 
     let books = [
@@ -271,7 +275,7 @@ fn build_demo_space() -> (TribleSet, MemoryRepo, Id) {
         let author_id = author_ids.get(*author_idx).copied().expect("author index");
         let quote_handle = storage.put::<LongString, _>(*quote).expect("quote handle");
 
-        kb += entity! { ExclusiveId::force_ref(&id) @
+        data += entity! { ExclusiveId::force_ref(&id) @
             demo::name: *title,
             demo::isa: e_book_kind,
             literature::title: *title,
@@ -281,7 +285,7 @@ fn build_demo_space() -> (TribleSet, MemoryRepo, Id) {
         };
     }
 
-    (kb, storage, demo_id(0xB000))
+    (data, metadata, storage, demo_id(0xB000))
 }
 
 #[derive(Debug)]
@@ -314,10 +318,11 @@ fn main(nb: &mut NotebookCtx) {
         );
     });
 
-    let (space, mut storage, default_selected) = build_demo_space();
+    let (data, metadata, mut storage, default_selected) = build_demo_space();
     let reader = storage.reader().expect("demo blob store reader");
     let formatter_cache: BlobCache<_, Blake3, WasmCode, WasmValueFormatter> =
-        BlobCache::new(reader);
+        BlobCache::new(reader.clone());
+    let name_cache: BlobCache<_, Blake3, LongString, View<str>> = BlobCache::new(reader);
     let inspector = nb.state(
         "inspector",
         InspectorState {
@@ -369,11 +374,16 @@ fn main(nb: &mut NotebookCtx) {
                 });
                 ui.add_space(8.0);
 
-                let response =
-                    EntityInspectorWidget::new(&space, &formatter_cache, &mut state.selected)
-                        .columns(state.columns)
-                        .order(state.order)
-                        .show(ui);
+                let response = EntityInspectorWidget::new(
+                    &data,
+                    &metadata,
+                    &name_cache,
+                    &formatter_cache,
+                    &mut state.selected,
+                )
+                .columns(state.columns)
+                .order(state.order)
+                .show(ui);
 
                 let stats = response.stats;
                 state.node_count = stats.nodes;

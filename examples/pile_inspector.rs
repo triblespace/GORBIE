@@ -6,7 +6,7 @@
 //! egui = "0.33"
 //! hifitime = "4.2.3"
 //! rand = "0.8.5"
-//! triblespace = "0.7.0"
+//! triblespace = { path = "../../triblespace-rs", features = ["wasm"] }
 //! ```
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -92,9 +92,15 @@ struct PileSnapshot {
 }
 
 #[derive(Clone, Debug)]
+struct CheckoutData {
+    data: TribleSet,
+    metadata: TribleSet,
+}
+
+#[derive(Clone, Debug)]
 struct CommitCheckout {
     selection: CommitSelection,
-    result: Result<TribleSet, String>,
+    result: Result<CheckoutData, String>,
 }
 
 fn hex_prefix(bytes: impl AsRef<[u8]>, prefix_len: usize) -> String {
@@ -338,14 +344,18 @@ fn checkout_space(
     pile: Pile,
     branch_id: Id,
     selection: CommitSelection,
-) -> (Pile, Result<TribleSet, String>) {
+) -> (Pile, Result<CheckoutData, String>) {
     let mut rng = OsRng;
     let signing_key = SigningKey::generate(&mut rng);
     let mut repo = Repository::new(pile, signing_key);
     let space_result = repo
         .pull(branch_id)
         .map_err(|err| format!("{err:?}"))
-        .and_then(|mut ws| ws.checkout(selection).map_err(|err| err.to_string()));
+        .and_then(|mut ws| {
+            ws.checkout_with_metadata(selection)
+                .map(|(data, metadata)| CheckoutData { data, metadata })
+                .map_err(|err| err.to_string())
+        });
     let pile = repo.into_storage();
     (pile, space_result)
 }
@@ -970,7 +980,7 @@ fn main(nb: &mut NotebookCtx) {
                 };
 
                 state.entity_selection = match result.as_ref() {
-                    Ok(space) => seed_entity_selection(space),
+                    Ok(checkout) => seed_entity_selection(&checkout.data),
                     Err(_) => default_entity_selection(),
                 };
                 state.commit_checkout = Some(CommitCheckout { selection, result });
@@ -981,8 +991,8 @@ fn main(nb: &mut NotebookCtx) {
                 return;
             };
 
-            let space = match checkout.result.as_ref() {
-                Ok(space) => space,
+            let checkout_data = match checkout.result.as_ref() {
+                Ok(checkout_data) => checkout_data,
                 Err(err) => {
                     widgets::markdown(ui, &format!("_Checkout failed: {err}_"));
                     state.commit_checkout = Some(checkout);
@@ -992,10 +1002,17 @@ fn main(nb: &mut NotebookCtx) {
 
             let formatter_cache: BlobCache<_, Blake3, WasmCode, WasmValueFormatter> =
                 BlobCache::new(snapshot.reader.clone());
-            let response =
-                EntityInspectorWidget::new(space, &formatter_cache, &mut state.entity_selection)
-                    .cache_id(ui.id().with("commit_checkout_graph"))
-                    .show(ui);
+            let name_cache: BlobCache<_, Blake3, LongString, View<str>> =
+                BlobCache::new(snapshot.reader.clone());
+            let response = EntityInspectorWidget::new(
+                &checkout_data.data,
+                &checkout_data.metadata,
+                &name_cache,
+                &formatter_cache,
+                &mut state.entity_selection,
+            )
+            .cache_id(ui.id().with("commit_checkout_graph"))
+            .show(ui);
             state.commit_checkout = Some(checkout);
             let stats = response.stats;
             if stats.nodes == 0 {
@@ -1066,18 +1083,6 @@ fn main(nb: &mut NotebookCtx) {
                         );
                     }
                 });
-
-                if total_pages > 0 {
-                    let mut page_select = page_display;
-                    ui.scope(|ui| {
-                        ui.spacing_mut().slider_width = ui.available_width();
-                        ui.add(
-                            widgets::Slider::new(&mut page_select, 1..=total_pages)
-                                .show_value(false),
-                        );
-                    });
-                    page_next = page_select.saturating_sub(1);
-                }
 
                 let now_ms = now_ms();
                 let branch_heads: HashSet<RawValue> = snapshot
@@ -1194,6 +1199,19 @@ fn main(nb: &mut NotebookCtx) {
                             }
                         },
                     );
+                }
+
+                if total_pages > 1 {
+                    ui.add_space(6.0);
+                    let mut page_select = page_display;
+                    ui.scope(|ui| {
+                        ui.spacing_mut().slider_width = ui.available_width();
+                        ui.add(
+                            widgets::Slider::new(&mut page_select, 1..=total_pages)
+                                .show_value(false),
+                        );
+                    });
+                    page_next = page_select.saturating_sub(1);
                 }
             });
 

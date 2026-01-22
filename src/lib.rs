@@ -449,7 +449,7 @@ impl eframe::App for Notebook {
 
                         let column_frame = egui::Frame::new()
                             .fill(fill)
-                            .stroke(stroke)
+                            .stroke(egui::Stroke::NONE)
                             .corner_radius(0.0)
                             .inner_margin(column_inner_margin)
                             .show(ui, |ui| {
@@ -507,6 +507,7 @@ impl eframe::App for Notebook {
                                         .get_mut(i)
                                         .expect("card_placeholder_sizes synced to cards");
                                     ui.push_id(i, |ui| {
+                                        let card_left = column_rect.min.x;
                                         let card: &mut dyn cards::Card = entry.card.as_mut();
                                         let card_rect = if *card_detached {
                                             let placeholder_height =
@@ -535,8 +536,7 @@ impl eframe::App for Notebook {
                                             }
 
                                             if *card_detached {
-                                                let detached_card_width =
-                                                    card_width.max(240.0);
+                                                let detached_card_width = card_width;
                                                 if *card_detached_position == egui::Pos2::ZERO {
                                                     let initial_screen_pos = egui::pos2(
                                                         right_margin.min.x + 12.0,
@@ -569,15 +569,32 @@ impl eframe::App for Notebook {
                                                 .show(ui, |ui| {
                                                     ui.reset_style();
                                                     ui.set_width(card_width);
+                                                    let restore_clip_rect = ui.clip_rect();
+                                                    let card_clip_rect = egui::Rect::from_min_max(
+                                                        egui::pos2(
+                                                            column_rect.min.x,
+                                                            restore_clip_rect.min.y,
+                                                        ),
+                                                        egui::pos2(
+                                                            column_rect.max.x,
+                                                            restore_clip_rect.max.y,
+                                                        ),
+                                                    );
+                                                    ui.set_clip_rect(card_clip_rect);
                                                     let mut ctx =
                                                         CardCtx::new(ui, store.as_ref());
                                                     card.draw(&mut ctx);
+                                                    ui.set_clip_rect(restore_clip_rect);
                                                 });
                                             *card_placeholder_size = egui::vec2(
                                                 card_width,
                                                 inner.response.rect.height(),
                                             );
-                                            inner.response.rect
+                                            let inner_rect = inner.response.rect;
+                                            egui::Rect::from_min_size(
+                                                egui::pos2(card_left, inner_rect.min.y),
+                                                egui::vec2(card_width, inner_rect.height()),
+                                            )
                                         };
                                         divider_ys.push(card_rect.top());
 
@@ -854,7 +871,6 @@ impl eframe::App for Notebook {
                                                             color: shadow_color,
                                                         };
 
-                                                        ui.set_width(card_width);
                                                         let frame = egui::Frame::new()
                                                             .fill(ui.visuals().window_fill)
                                                             .stroke(egui::Stroke::new(
@@ -863,20 +879,72 @@ impl eframe::App for Notebook {
                                                             .shadow(shadow)
                                                             .corner_radius(0.0)
                                                             .inner_margin(egui::Margin::ZERO);
-
-                                                        let inner = frame.show(ui, |ui| {
-                                                            ui.reset_style();
-                                                            ui.set_width(card_width);
-                                                            let mut ctx =
-                                                                CardCtx::new(ui, store.as_ref());
-                                                            card.draw(&mut ctx);
-                                                        });
+                                                        let background_idx =
+                                                            ui.painter().add(egui::Shape::Noop);
+                                                        let max_rect =
+                                                            egui::Rect::from_min_max(
+                                                                ui.min_rect().min,
+                                                                egui::pos2(
+                                                                    ui.min_rect().min.x
+                                                                        + card_width,
+                                                                    ui.max_rect().max.y,
+                                                                ),
+                                                            );
+                                                        let inner = ui.scope_builder(
+                                                            egui::UiBuilder::new()
+                                                                .max_rect(max_rect),
+                                                            |ui| {
+                                                                ui.reset_style();
+                                                                ui.set_width(card_width);
+                                                                let restore_clip_rect =
+                                                                    ui.clip_rect();
+                                                                let card_clip_rect =
+                                                                    egui::Rect::from_min_max(
+                                                                        egui::pos2(
+                                                                            ui.min_rect().left(),
+                                                                            restore_clip_rect
+                                                                                .min
+                                                                                .y,
+                                                                        ),
+                                                                        egui::pos2(
+                                                                            ui.min_rect().left()
+                                                                                + card_width,
+                                                                            restore_clip_rect
+                                                                                .max
+                                                                                .y,
+                                                                        ),
+                                                                    );
+                                                                ui.set_clip_rect(card_clip_rect);
+                                                                let mut ctx =
+                                                                    CardCtx::new(ui, store.as_ref());
+                                                                card.draw(&mut ctx);
+                                                                ui.set_clip_rect(
+                                                                    restore_clip_rect,
+                                                                );
+                                                            },
+                                                        );
+                                                        let content_min =
+                                                            inner.response.rect.min;
+                                                        let card_rect = egui::Rect::from_min_size(
+                                                            content_min,
+                                                            egui::vec2(
+                                                                card_width,
+                                                                inner.response.rect.height(),
+                                                            ),
+                                                        );
+                                                        let content_rect = card_rect.shrink(
+                                                            frame.stroke.width,
+                                                        );
+                                                        ui.painter().set(
+                                                            background_idx,
+                                                            frame.paint(content_rect),
+                                                        );
 
                                                         let handle_height = 18.0;
                                                         let handle_rect = egui::Rect::from_min_size(
-                                                            inner.response.rect.min,
+                                                            card_rect.min,
                                                             egui::vec2(
-                                                                inner.response.rect.width(),
+                                                                card_rect.width(),
                                                                 handle_height,
                                                             ),
                                                         );
@@ -999,9 +1067,15 @@ impl eframe::App for Notebook {
 
                             });
                         let frame_rect = column_frame.response.rect;
+                        let frame_rect = egui::Rect::from_min_max(
+                            egui::pos2(column_rect.min.x, frame_rect.min.y),
+                            egui::pos2(column_rect.max.x, frame_rect.max.y),
+                        );
                         let divider_x_range = frame_rect.x_range();
                         let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
                         let height = stroke.width.max(1.0);
+                        ui.painter()
+                            .rect_stroke(frame_rect, 0.0, stroke, egui::StrokeKind::Inside);
                         let restore_clip_rect = ui.clip_rect();
                         let divider_clip_rect = egui::Rect::from_min_max(
                             egui::pos2(frame_rect.min.x, restore_clip_rect.min.y),
