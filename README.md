@@ -4,6 +4,8 @@
 
 Every other notebook environment tries to make notebooks easier, we try to make them simpler.
 
+![GORBIE screenshot](https://github.com/triblespace/GORBIE/blob/main/assets/screenshot.png?raw=true)
+
 ## Core Ideas
 A notebook is just Rust. By being fully native you can visualize huge datasets,
 build complex UIs, and leverage the entire Rust ecosystem without being forced to
@@ -35,7 +37,7 @@ Add the dependency and drop in a `main`:
 ```toml
 # Cargo.toml
 [dependencies]
-GORBIE = "0.4.0"
+GORBIE = "0.5.0"
 ```
 
 ```rust
@@ -92,7 +94,7 @@ header to `notebook.rs` and paste the same `main` function below it:
 #!/usr/bin/env -S watchexec -r rust-script
 //! ```cargo
 //! [dependencies]
-//! GORBIE = "0.4.0"
+//! GORBIE = "0.5.0"
 //! ```
 ```
 
