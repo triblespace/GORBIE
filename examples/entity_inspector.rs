@@ -21,7 +21,7 @@ use triblespace::core::value::schemas::hash::Handle;
 use triblespace::core::value_formatter::WasmValueFormatter;
 use triblespace::prelude::blobschemas::LongString;
 use triblespace::prelude::valueschemas::{GenId, ShortString, R256};
-use triblespace::prelude::{entity, TribleSet, View};
+use triblespace::prelude::{entity, ConstMetadata, TribleSet, View};
 
 use GORBIE::prelude::*;
 use GORBIE::widgets::triblespace::{id_short, EntityInspectorWidget, EntityOrder};
@@ -351,14 +351,22 @@ fn main(nb: &mut NotebookCtx) {
                         | EntityOrder::BarycentricSwap { passes } => passes,
                         _ => 4,
                     };
-                    ui.add(
-                        widgets::ChoiceToggle::new(&mut state.order)
-                            .choice(EntityOrder::Id, "ID")
-                            .choice(EntityOrder::CuthillMckee, "CM")
-                            .choice(EntityOrder::Barycentric { passes }, "BC")
-                            .choice(EntityOrder::BarycentricSwap { passes }, "BS")
-                            .small(),
-                    );
+                    #[cfg(feature = "minla")]
+                    let minla_max_nodes = match state.order {
+                        EntityOrder::Minla { max_nodes } => max_nodes,
+                        _ => 48,
+                    };
+                    let mut order_choice = widgets::ChoiceToggle::new(&mut state.order)
+                        .choice(EntityOrder::Id, "ID")
+                        .choice(EntityOrder::CuthillMckee, "CM")
+                        .choice(EntityOrder::Barycentric { passes }, "BC")
+                        .choice(EntityOrder::BarycentricSwap { passes }, "BS");
+                    #[cfg(feature = "minla")]
+                    {
+                        order_choice =
+                            order_choice.choice(EntityOrder::Minla { max_nodes: minla_max_nodes }, "ML");
+                    }
+                    ui.add(order_choice.small());
                     if let EntityOrder::Barycentric { passes }
                     | EntityOrder::BarycentricSwap { passes } = &mut state.order
                     {
@@ -370,6 +378,24 @@ fn main(nb: &mut NotebookCtx) {
                                 .speed(0.25)
                                 .constrain_value(&constrain),
                         );
+                    }
+                    #[cfg(feature = "minla")]
+                    if let EntityOrder::Minla { max_nodes } = &mut state.order {
+                        ui.add_space(8.0);
+                        ui.label(egui::RichText::new("ML NODES").monospace().weak());
+                        let constrain = |_: usize, next: usize| {
+                            if next == 0 {
+                                0
+                            } else {
+                                next.clamp(4, 256)
+                            }
+                        };
+                        ui.add(
+                            widgets::NumberField::new(max_nodes)
+                                .speed(0.25)
+                                .constrain_value(&constrain),
+                        );
+                        ui.label(egui::RichText::new("(0 = no cap)").monospace().weak());
                     }
                 });
                 ui.add_space(8.0);

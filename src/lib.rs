@@ -22,6 +22,7 @@ pub mod prelude;
 pub mod state;
 pub mod themes;
 pub mod widgets;
+mod headless;
 
 pub use gorbie_macros::notebook;
 
@@ -29,6 +30,8 @@ use crate::themes::industrial_dark;
 use crate::themes::industrial_fonts;
 use crate::themes::industrial_light;
 use eframe::egui::{self};
+use std::any::TypeId;
+use std::path::PathBuf;
 use std::ops::{Deref, DerefMut};
 use std::process::Command;
 use std::sync::Arc;
@@ -51,7 +54,7 @@ struct DetachedCardDraw {
     width: f32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct SourceLocation {
     file: String,
     line: u32,
@@ -83,6 +86,20 @@ impl SourceLocation {
         let column = self.column;
         format!("{file}:{line}:{column}")
     }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+enum CardIdentityKey {
+    Stateless {
+        source: Option<SourceLocation>,
+        function: TypeId,
+    },
+    Stateful {
+        source: Option<SourceLocation>,
+        state: egui::Id,
+        function: TypeId,
+    },
+    Custom,
 }
 
 #[derive(Clone, Debug)]
@@ -121,6 +138,7 @@ impl EditorCommand {
 struct CardEntry {
     card: Box<dyn cards::Card + 'static>,
     source: Option<SourceLocation>,
+    identity: egui::Id,
 }
 
 #[derive(Clone, Default)]
@@ -129,6 +147,7 @@ struct NotebookState {
     card_detached_positions: Vec<egui::Pos2>,
     card_detached_anchors: Vec<FloatingAnchor>,
     card_placeholder_sizes: Vec<egui::Vec2>,
+    card_identities: Vec<Option<egui::Id>>,
 }
 
 impl NotebookState {
@@ -138,6 +157,33 @@ impl NotebookState {
         self.card_detached_anchors
             .resize(len, FloatingAnchor::Content);
         self.card_placeholder_sizes.resize(len, egui::Vec2::ZERO);
+        self.card_identities.resize(len, None);
+    }
+
+    fn ensure_card_identity(&mut self, index: usize, identity: egui::Id) {
+        let slot = self
+            .card_identities
+            .get_mut(index)
+            .expect("card_identities synced to cards");
+        if slot.map_or(true, |prev| prev != identity) {
+            *slot = Some(identity);
+            *self
+                .card_detached
+                .get_mut(index)
+                .expect("card_detached synced to cards") = false;
+            *self
+                .card_detached_positions
+                .get_mut(index)
+                .expect("card_detached_positions synced to cards") = egui::Pos2::ZERO;
+            *self
+                .card_detached_anchors
+                .get_mut(index)
+                .expect("card_detached_anchors synced to cards") = FloatingAnchor::Content;
+            *self
+                .card_placeholder_sizes
+                .get_mut(index)
+                .expect("card_placeholder_sizes synced to cards") = egui::Vec2::ZERO;
+        }
     }
 }
 
@@ -145,6 +191,14 @@ impl NotebookState {
 pub struct NotebookConfig {
     title: String,
     editor: Option<EditorCommand>,
+    headless_capture: Option<HeadlessCaptureConfig>,
+}
+
+#[derive(Clone)]
+struct HeadlessCaptureConfig {
+    output_dir: PathBuf,
+    card_width: f32,
+    pixels_per_point: f32,
 }
 
 #[derive(Clone)]
@@ -153,12 +207,16 @@ struct AppIcons {
     dark: Arc<egui::IconData>,
 }
 
-struct Notebook {
+struct NotebookCore {
     config: NotebookConfig,
     body: Box<dyn FnMut(&mut NotebookCtx)>,
+    state_store: Arc<state::StateStore>,
+}
+
+struct Notebook {
+    core: NotebookCore,
     icons: Option<AppIcons>,
     icon_is_dark: Option<bool>,
-    state_store: Arc<state::StateStore>,
 }
 
 /// Frame-scoped notebook builder used to collect cards in immediate mode.
@@ -199,6 +257,7 @@ impl<'a> DerefMut for CardCtx<'a> {
 
 const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
 const NOTEBOOK_MIN_HEIGHT: f32 = 360.0;
+const HEADLESS_DEFAULT_PIXELS_PER_POINT: f32 = 2.0;
 
 impl Default for NotebookConfig {
     fn default() -> Self {
@@ -212,11 +271,39 @@ impl NotebookConfig {
         Self {
             title,
             editor: editor_from_env(),
+            headless_capture: None,
         }
     }
 
     pub fn with_editor(mut self, editor: EditorCommand) -> Self {
         self.editor = Some(editor);
+        self
+    }
+
+    pub fn with_headless_capture(mut self, output_dir: impl Into<PathBuf>) -> Self {
+        self.headless_capture = Some(HeadlessCaptureConfig {
+            output_dir: output_dir.into(),
+            card_width: NOTEBOOK_COLUMN_WIDTH,
+            pixels_per_point: HEADLESS_DEFAULT_PIXELS_PER_POINT,
+        });
+        self
+    }
+
+    pub fn with_headless_capture_scaled(
+        mut self,
+        output_dir: impl Into<PathBuf>,
+        pixels_per_point: f32,
+    ) -> Self {
+        let pixels_per_point = if pixels_per_point > 0.0 {
+            pixels_per_point
+        } else {
+            HEADLESS_DEFAULT_PIXELS_PER_POINT
+        };
+        self.headless_capture = Some(HeadlessCaptureConfig {
+            output_dir: output_dir.into(),
+            card_width: NOTEBOOK_COLUMN_WIDTH,
+            pixels_per_point,
+        });
         self
     }
 
@@ -226,6 +313,11 @@ impl NotebookConfig {
 
     pub fn run(self, body: impl FnMut(&mut NotebookCtx) + 'static) -> eframe::Result {
         let config = self;
+        if let Some(headless) = config.headless_capture.clone() {
+            return headless::run_headless(NotebookCore::new(config, Box::new(body)), headless)
+                .map_err(eframe::Error::AppCreation);
+        }
+
         let window_title = if config.title.is_empty() {
             "GORBIE".to_owned()
         } else {
@@ -239,10 +331,12 @@ impl NotebookConfig {
             .viewport
             .with_inner_size(egui::vec2(1200.0, 800.0))
             .with_min_inner_size(egui::vec2(NOTEBOOK_COLUMN_WIDTH, NOTEBOOK_MIN_HEIGHT));
+
         if let Some(icons) = icons.as_ref() {
             let icon = match dark_light::detect() {
-                Mode::Light => icons.light.clone(),
-                Mode::Dark | Mode::Default => icons.dark.clone(),
+                Ok(Mode::Light) => icons.light.clone(),
+                Ok(Mode::Dark) => icons.dark.clone(),
+                Ok(Mode::Unspecified) | Err(_) => icons.dark.clone(),
             };
             native_options.viewport = native_options.viewport.with_icon(icon);
         }
@@ -264,11 +358,9 @@ impl NotebookConfig {
                     .set_style_of(egui::Theme::Dark, industrial_dark());
 
                 Ok(Box::new(Notebook {
-                    config,
-                    body,
+                    core: NotebookCore::new(config, body),
                     icons,
                     icon_is_dark: None,
-                    state_store: Arc::new(state::StateStore::default()),
                 }))
             }),
         )
@@ -324,46 +416,114 @@ impl NotebookCtx {
     }
 
     #[track_caller]
-    pub fn view(&mut self, function: impl for<'a, 'b> FnMut(&'a mut CardCtx<'b>) + 'static) {
+    pub fn view<F>(&mut self, function: F)
+    where
+        F: for<'a, 'b> FnMut(&'a mut CardCtx<'b>) + 'static,
+    {
         let source = SourceLocation::from_location(std::panic::Location::caller());
+        let identity = self.card_identity(CardIdentityKey::Stateless {
+            source: Some(source.clone()),
+            function: TypeId::of::<F>(),
+        });
         let card = cards::StatelessCard::new(function);
-        self.push_with_source(Box::new(card), Some(source));
+        self.push_with_source(Box::new(card), Some(source), identity);
     }
 
     #[track_caller]
-    pub fn state<K, T>(
+    pub fn state<K, T, F>(
         &mut self,
         key: &K,
         init: T,
-        function: impl for<'a, 'b> FnMut(&'a mut CardCtx<'b>, &mut T) + 'static,
+        function: F,
     ) -> state::StateId<T>
     where
         K: std::hash::Hash + ?Sized,
         T: Send + Sync + 'static,
+        F: for<'a, 'b> FnMut(&'a mut CardCtx<'b>, &mut T) + 'static,
     {
         let source = SourceLocation::from_location(std::panic::Location::caller());
-        let state = state::StateId::new(self.state_id_for(key));
+        let state_id = self.state_id_for(key);
+        let identity = self.card_identity(CardIdentityKey::Stateful {
+            source: Some(source.clone()),
+            state: state_id,
+            function: TypeId::of::<F>(),
+        });
+        let state = state::StateId::new(state_id);
         let handle = state;
         self.state_store.get_or_insert(state, init);
         let card = cards::StatefulCard::new(state, function);
-        self.push_with_source(Box::new(card), Some(source));
+        self.push_with_source(Box::new(card), Some(source), identity);
         handle
     }
 
     pub fn push(&mut self, card: Box<dyn cards::Card>) {
-        self.push_with_source(card, None);
-    }
-
-    pub(crate) fn state_store(&self) -> &state::StateStore {
-        self.state_store.as_ref()
+        let identity = self.card_identity(CardIdentityKey::Custom);
+        self.push_with_source(card, None, identity);
     }
 
     pub(crate) fn state_id_for<K: std::hash::Hash + ?Sized>(&self, key: &K) -> egui::Id {
         self.state_id.with(("state", key))
     }
 
-    fn push_with_source(&mut self, card: Box<dyn cards::Card>, source: Option<SourceLocation>) {
-        self.cards.push(CardEntry { card, source });
+    fn card_identity(&self, key: CardIdentityKey) -> egui::Id {
+        self.state_id.with(("card", key))
+    }
+
+    fn push_with_source(
+        &mut self,
+        card: Box<dyn cards::Card>,
+        source: Option<SourceLocation>,
+        identity: egui::Id,
+    ) {
+        self.cards.push(CardEntry {
+            card,
+            source,
+            identity,
+        });
+    }
+}
+
+impl NotebookCore {
+    fn new(config: NotebookConfig, body: Box<dyn FnMut(&mut NotebookCtx)>) -> Self {
+        Self {
+            config,
+            body,
+            state_store: Arc::new(state::StateStore::default()),
+        }
+    }
+
+    fn build_notebook(&mut self) -> NotebookCtx {
+        let mut notebook = NotebookCtx::new(&self.config, self.state_store.clone());
+        (self.body)(&mut notebook);
+        notebook
+    }
+
+    fn draw_card(
+        &self,
+        ctx: &egui::Context,
+        notebook: &mut NotebookCtx,
+        index: usize,
+        card_width: f32,
+    ) -> Option<f32> {
+        if index >= notebook.cards.len() {
+            return None;
+        }
+
+        let store = notebook.state_store.clone();
+        let mut measured_height: Option<f32> = None;
+        let panel_fill = ctx.style().visuals.window_fill;
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(panel_fill))
+            .show(ctx, |ui| {
+                ui.set_min_size(egui::vec2(card_width, 0.0));
+                if let Some(entry) = notebook.cards.get_mut(index) {
+                    let card: &mut dyn cards::Card = entry.card.as_mut();
+                    let rect = draw_card_body(ui, card_width, card, store.as_ref(), None);
+                    measured_height = Some(rect.height());
+                }
+            });
+
+        measured_height
     }
 }
 
@@ -391,9 +551,8 @@ impl eframe::App for Notebook {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.update_app_icon(ctx);
 
-        let config = &self.config;
-        let mut notebook = NotebookCtx::new(config, self.state_store.clone());
-        (self.body)(&mut notebook);
+        let mut notebook = self.core.build_notebook();
+        let config = &self.core.config;
 
         let state_id = config.state_id();
         let mut runtime = ctx.data_mut(|data| {
@@ -498,6 +657,8 @@ impl eframe::App for Notebook {
                                     egui::Pos2,
                                 )> = Vec::new();
                                 for (i, entry) in notebook.cards.iter_mut().enumerate() {
+                                    let card_identity = entry.identity;
+                                    runtime.ensure_card_identity(i, card_identity);
                                     let card_detached = runtime.card_detached
                                         .get_mut(i)
                                         .expect("card_detached synced to cards");
@@ -510,7 +671,7 @@ impl eframe::App for Notebook {
                                     let card_placeholder_size = runtime.card_placeholder_sizes
                                         .get_mut(i)
                                         .expect("card_placeholder_sizes synced to cards");
-                                    ui.push_id(i, |ui| {
+                                    ui.push_id((i, card_identity), |ui| {
                                         let card_left = column_rect.min.x;
                                         let card: &mut dyn cards::Card = entry.card.as_mut();
                                         let card_rect = if *card_detached {
@@ -566,35 +727,26 @@ impl eframe::App for Notebook {
                                             }
                                             rect
                                         } else {
-                                            let inner = egui::Frame::group(ui.style())
-                                                .stroke(egui::Stroke::NONE)
-                                                .corner_radius(0.0)
-                                                .inner_margin(egui::Margin::ZERO)
-                                                .show(ui, |ui| {
-                                                    ui.reset_style();
-                                                    ui.set_width(card_width);
-                                                    let restore_clip_rect = ui.clip_rect();
-                                                    let card_clip_rect = egui::Rect::from_min_max(
-                                                        egui::pos2(
-                                                            column_rect.min.x,
-                                                            restore_clip_rect.min.y,
-                                                        ),
-                                                        egui::pos2(
-                                                            column_rect.max.x,
-                                                            restore_clip_rect.max.y,
-                                                        ),
-                                                    );
-                                                    ui.set_clip_rect(card_clip_rect);
-                                                    let mut ctx =
-                                                        CardCtx::new(ui, store.as_ref());
-                                                    card.draw(&mut ctx);
-                                                    ui.set_clip_rect(restore_clip_rect);
-                                                });
-                                            *card_placeholder_size = egui::vec2(
-                                                card_width,
-                                                inner.response.rect.height(),
+                                            let clip_rect = ui.clip_rect();
+                                            let card_clip_rect = egui::Rect::from_min_max(
+                                                egui::pos2(
+                                                    column_rect.min.x,
+                                                    clip_rect.min.y,
+                                                ),
+                                                egui::pos2(
+                                                    column_rect.max.x,
+                                                    clip_rect.max.y,
+                                                ),
                                             );
-                                            let inner_rect = inner.response.rect;
+                                            let inner_rect = draw_card_body(
+                                                ui,
+                                                card_width,
+                                                card,
+                                                store.as_ref(),
+                                                Some(card_clip_rect),
+                                            );
+                                            *card_placeholder_size =
+                                                egui::vec2(card_width, inner_rect.height());
                                             egui::Rect::from_min_size(
                                                 egui::pos2(card_left, inner_rect.min.y),
                                                 egui::vec2(card_width, inner_rect.height()),
@@ -655,7 +807,7 @@ impl eframe::App for Notebook {
                                                 )
                                             });
 
-                                            ui.push_id(i, |ui| {
+                                            ui.push_id((i, card_identity), |ui| {
                                                 if let Some(open_pos) = open_pos {
                                                     let open_id =
                                                         ui.id().with("open_button");
@@ -1133,6 +1285,34 @@ impl eframe::App for Notebook {
             data.insert_temp(state_id, runtime);
         });
     }
+}
+
+fn draw_card_body(
+    ui: &mut egui::Ui,
+    card_width: f32,
+    card: &mut dyn cards::Card,
+    store: &state::StateStore,
+    clip_rect: Option<egui::Rect>,
+) -> egui::Rect {
+    let inner = egui::Frame::group(ui.style())
+        .stroke(egui::Stroke::NONE)
+        .corner_radius(0.0)
+        .inner_margin(egui::Margin::ZERO)
+        .show(ui, |ui| {
+            ui.reset_style();
+            ui.set_width(card_width);
+            let restore_clip = clip_rect.map(|rect| {
+                let restore = ui.clip_rect();
+                ui.set_clip_rect(rect);
+                restore
+            });
+            let mut ctx = CardCtx::new(ui, store);
+            card.draw(&mut ctx);
+            if let Some(restore) = restore_clip {
+                ui.set_clip_rect(restore);
+            }
+        });
+    inner.response.rect
 }
 
 fn paint_dot_grid(ui: &egui::Ui, rect: egui::Rect, scroll_y: f32) {

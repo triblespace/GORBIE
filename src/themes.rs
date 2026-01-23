@@ -60,6 +60,20 @@ pub struct GorbieChoiceToggleStyle {
     pub led_off_towards_fill: f32,
 }
 
+/// Gorbie-specific semantic style for the `RadioButton` widget.
+#[derive(Clone, Debug)]
+pub struct GorbieRadioStyle {
+    pub fill: Color32,
+    pub outline: Color32,
+    pub accent: Color32,
+    pub shadow: Color32,
+    pub shadow_offset: Vec2,
+    pub rounding: f32,
+    pub rail_bg: Color32,
+    pub indicator_on: Color32,
+    pub indicator_off_towards_fill: f32,
+}
+
 /// Gorbie-specific semantic style for the `ProgressBar` widget.
 #[derive(Clone, Debug)]
 pub struct GorbieProgressBarStyle {
@@ -169,6 +183,23 @@ impl From<&Style> for GorbieChoiceToggleStyle {
             segment_gap: 2.0,
             led_on: button_light_on(),
             led_off_towards_fill: 0.25,
+        }
+    }
+}
+
+impl From<&Style> for GorbieRadioStyle {
+    fn from(style: &Style) -> Self {
+        let base = GorbieSliderStyle::from(style);
+        Self {
+            fill: base.knob,
+            outline: base.rail_fill,
+            accent: style.visuals.selection.stroke.color,
+            shadow: base.shadow,
+            shadow_offset: base.shadow_offset,
+            rounding: 2.0,
+            rail_bg: base.rail_bg,
+            indicator_on: button_light_on(),
+            indicator_off_towards_fill: 0.25,
         }
     }
 }

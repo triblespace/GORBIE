@@ -20,9 +20,10 @@ impl Card for StatelessCard {
     }
 }
 
+#[track_caller]
 pub fn stateless_card(
     nb: &mut NotebookCtx,
     function: impl for<'a, 'b> FnMut(&'a mut CardCtx<'b>) + 'static,
 ) {
-    nb.push(Box::new(StatelessCard::new(function)));
+    nb.view(function);
 }

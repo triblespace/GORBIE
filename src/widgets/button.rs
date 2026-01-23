@@ -3,7 +3,9 @@ use eframe::egui::{
     Widget, WidgetInfo, WidgetText, WidgetType,
 };
 
-use crate::themes::{GorbieButtonStyle, GorbieChoiceToggleStyle, GorbieToggleButtonStyle};
+use crate::themes::{
+    GorbieButtonStyle, GorbieChoiceToggleStyle, GorbieRadioStyle, GorbieToggleButtonStyle,
+};
 
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct Button {
@@ -408,6 +410,214 @@ impl Widget for ToggleButton<'_> {
 
 impl crate::themes::Styled for ToggleButton<'_> {
     type Style = GorbieToggleButtonStyle;
+
+    fn set_style(&mut self, style: Option<Self::Style>) {
+        self.gorbie_style = style;
+    }
+}
+
+#[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
+pub struct RadioButton<'a, T> {
+    value: &'a mut T,
+    option: T,
+    text: WidgetText,
+    small: bool,
+    fill: Option<Color32>,
+    light: Option<Color32>,
+    gorbie_style: Option<GorbieRadioStyle>,
+}
+
+impl<'a, T> RadioButton<'a, T> {
+    pub fn new(value: &'a mut T, option: T, text: impl Into<WidgetText>) -> Self {
+        Self {
+            value,
+            option,
+            text: text.into(),
+            small: false,
+            fill: None,
+            light: None,
+            gorbie_style: None,
+        }
+    }
+
+    pub fn small(mut self) -> Self {
+        self.small = true;
+        self
+    }
+
+    pub fn fill(mut self, fill: Color32) -> Self {
+        self.fill = Some(fill);
+        self
+    }
+
+    pub fn light(mut self, color: Color32) -> Self {
+        self.light = Some(color);
+        self
+    }
+}
+
+impl<T> Widget for RadioButton<'_, T>
+where
+    T: Clone + PartialEq,
+{
+    fn ui(self, ui: &mut Ui) -> Response {
+        let Self {
+            value,
+            option,
+            text,
+            small,
+            fill,
+            light,
+            gorbie_style,
+        } = self;
+
+        let selected = *value == option;
+        let enabled = ui.is_enabled();
+        let gstyle = gorbie_style.unwrap_or_else(|| GorbieRadioStyle::from(ui.style().as_ref()));
+        let shadow_offset = gstyle.shadow_offset;
+        let shadow_inset = vec2(shadow_offset.x.max(0.0), shadow_offset.y.max(0.0));
+
+        let padding = if small {
+            ui.spacing().button_padding * 0.7
+        } else {
+            ui.spacing().button_padding
+        };
+        let text_style = if small {
+            TextStyle::Small
+        } else {
+            TextStyle::Button
+        };
+
+        let label_text = text.text().to_string();
+        let indicator_size = if small {
+            (ui.spacing().interact_size.y - 10.0).at_least(12.0)
+        } else {
+            (ui.spacing().interact_size.y - 6.0).at_least(14.0)
+        };
+        let gap = (padding.x * 0.8).at_least(6.0);
+        let max_text_width = (ui.available_width()
+            - padding.x * 2.0
+            - indicator_size
+            - gap
+            - shadow_inset.x)
+            .at_least(0.0);
+        let galley = text.into_galley(
+            ui,
+            Some(egui::TextWrapMode::Truncate),
+            max_text_width,
+            text_style,
+        );
+
+        let content_height = galley.size().y.max(indicator_size);
+        let min_body_height = if small {
+            (ui.spacing().interact_size.y - 6.0).at_least(0.0)
+        } else {
+            ui.spacing().interact_size.y
+        };
+        let body_height = (content_height + padding.y * 2.0).at_least(min_body_height);
+        let body_width = padding.x + indicator_size + gap + galley.size().x + padding.x;
+        let desired_size = vec2(body_width, body_height) + shadow_inset;
+
+        let (outer_rect, mut response) = ui.allocate_exact_size(desired_size, Sense::click());
+        if response.clicked() && enabled && !selected {
+            *value = option;
+            response.mark_changed();
+        }
+
+        response.widget_info(move || {
+            WidgetInfo::labeled(WidgetType::RadioButton, enabled, label_text.as_str())
+        });
+
+        if !ui.is_rect_visible(outer_rect) {
+            return response;
+        }
+
+        let visuals = ui.visuals();
+        let outline = gstyle.outline;
+        let shadow_color = gstyle.shadow;
+
+        let base_fill = fill.unwrap_or(gstyle.fill);
+        let disabled_fill = crate::themes::blend(base_fill, visuals.window_fill, 0.65);
+
+        let keyboard_down = response.has_focus()
+            && ui.input(|input| input.key_down(Key::Space) || input.key_down(Key::Enter));
+        let is_down = enabled && (response.is_pointer_button_down_on() || keyboard_down);
+        let prepress = enabled && !is_down && (response.hovered() || response.has_focus());
+
+        let fill = if enabled { base_fill } else { disabled_fill };
+        let stroke_color = if enabled && selected { gstyle.accent } else { outline };
+
+        let body_rect_up =
+            Rect::from_min_max(outer_rect.min, outer_rect.max - shadow_inset).intersect(outer_rect);
+        let press_offset = if is_down {
+            shadow_offset
+        } else if prepress || selected {
+            shadow_offset * 0.5
+        } else {
+            vec2(0.0, 0.0)
+        };
+
+        let indicator_rect_up = Rect::from_min_size(
+            pos2(
+                body_rect_up.left() + padding.x,
+                body_rect_up.center().y - indicator_size / 2.0,
+            ),
+            vec2(indicator_size, indicator_size),
+        );
+        let indicator_rect = if press_offset != vec2(0.0, 0.0) {
+            indicator_rect_up.translate(press_offset)
+        } else {
+            indicator_rect_up
+        };
+        let shadow_drop = vec2(
+            (shadow_offset.x - press_offset.x).max(0.0),
+            (shadow_offset.y - press_offset.y).max(0.0),
+        );
+
+        let painter = ui.painter();
+        if enabled && shadow_drop != vec2(0.0, 0.0) {
+            painter.rect_filled(
+                indicator_rect.translate(shadow_drop),
+                gstyle.rounding,
+                shadow_color,
+            );
+        }
+
+        painter.rect_filled(indicator_rect, gstyle.rounding, fill);
+        painter.rect_stroke(
+            indicator_rect,
+            gstyle.rounding,
+            Stroke::new(1.0, stroke_color),
+            egui::StrokeKind::Inside,
+        );
+
+        let on_color = light.unwrap_or(gstyle.indicator_on);
+        let off_color =
+            crate::themes::blend(gstyle.rail_bg, fill, gstyle.indicator_off_towards_fill);
+        let mut dot_color = if selected { on_color } else { off_color };
+        if !enabled {
+            dot_color = crate::themes::blend(dot_color, visuals.window_fill, 0.6);
+        }
+        let dot_radius = (indicator_rect.height() * 0.22).at_least(2.0);
+        painter.circle_filled(indicator_rect.center(), dot_radius, dot_color);
+
+        let text_color = if enabled {
+            crate::themes::ral(9011)
+        } else {
+            crate::themes::blend(crate::themes::ral(9011), visuals.window_fill, 0.55)
+        };
+        let text_pos = pos2(
+            indicator_rect_up.right() + gap,
+            body_rect_up.center().y - galley.size().y / 2.0,
+        );
+        painter.galley(text_pos, galley, text_color);
+
+        response
+    }
+}
+
+impl<T> crate::themes::Styled for RadioButton<'_, T> {
+    type Style = GorbieRadioStyle;
 
     fn set_style(&mut self, style: Option<Self::Style>) {
         self.gorbie_style = style;

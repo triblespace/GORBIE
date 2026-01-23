@@ -48,7 +48,7 @@ pub fn notebook(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut setup_stmts: Vec<syn::Stmt> = Vec::new();
     if let Some(name) = name {
         setup_stmts.push(syn::parse_quote!(
-            let __gorbie_notebook_owner = #gorbie::NotebookConfig::new(#name);
+            let mut __gorbie_notebook_owner = #gorbie::NotebookConfig::new(#name);
         ));
     } else {
         setup_stmts.push(syn::parse_quote!(let __gorbie_notebook_file = file!();));
@@ -59,7 +59,7 @@ pub fn notebook(attr: TokenStream, item: TokenStream) -> TokenStream {
                 .unwrap_or(__gorbie_notebook_file);
         ));
         setup_stmts.push(syn::parse_quote!(
-            let __gorbie_notebook_owner =
+            let mut __gorbie_notebook_owner =
                 #gorbie::NotebookConfig::new(__gorbie_notebook_name);
         ));
     }
@@ -67,6 +67,51 @@ pub fn notebook(attr: TokenStream, item: TokenStream) -> TokenStream {
     let wrapper = quote! {
         #vis fn #original_ident() {
             #(#setup_stmts)*
+            let mut __gorbie_headless = false;
+            let mut __gorbie_headless_out_dir: Option<std::path::PathBuf> = None;
+            let mut __gorbie_headless_scale: Option<f32> = None;
+            let mut __gorbie_args = std::env::args().skip(1);
+            while let Some(arg) = __gorbie_args.next() {
+                match arg.as_str() {
+                    "--headless" => {
+                        __gorbie_headless = true;
+                    }
+                    "--out-dir" => {
+                        if let Some(dir) = __gorbie_args.next() {
+                            __gorbie_headless_out_dir = Some(std::path::PathBuf::from(dir));
+                        } else {
+                            eprintln!("--out-dir expects a path");
+                            return;
+                        }
+                    }
+                    "--scale" | "--pixels-per-point" => {
+                        if let Some(scale) = __gorbie_args.next() {
+                            match scale.parse::<f32>() {
+                                Ok(value) if value > 0.0 => {
+                                    __gorbie_headless_scale = Some(value);
+                                }
+                                _ => {
+                                    eprintln!("--scale expects a positive number");
+                                    return;
+                                }
+                            }
+                        } else {
+                            eprintln!("--scale expects a number");
+                            return;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if __gorbie_headless {
+                let out_dir = __gorbie_headless_out_dir
+                    .unwrap_or_else(|| std::path::PathBuf::from("gorbie_capture"));
+                __gorbie_notebook_owner = if let Some(scale) = __gorbie_headless_scale {
+                    __gorbie_notebook_owner.with_headless_capture_scaled(out_dir, scale)
+                } else {
+                    __gorbie_notebook_owner.with_headless_capture(out_dir)
+                };
+            }
             __gorbie_notebook_owner
                 .run(|__gorbie_notebook_ctx| {
                     #body_ident(__gorbie_notebook_ctx);

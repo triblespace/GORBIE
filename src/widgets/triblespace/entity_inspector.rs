@@ -1,5 +1,11 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
+#[cfg(feature = "minla")]
+use std::sync::mpsc;
+#[cfg(feature = "minla")]
+use std::sync::Mutex;
+#[cfg(feature = "minla")]
+use std::time::Instant;
 
 use eframe::egui;
 use eframe::egui::{pos2, vec2, Align2, Rect, Response, Sense, Stroke, TextStyle, Ui};
@@ -16,6 +22,13 @@ use triblespace::core::value::Value;
 use triblespace::core::value_formatter::{WasmLimits, WasmValueFormatter};
 use triblespace::prelude::valueschemas::GenId;
 use triblespace::prelude::{find, pattern, ConstMetadata, TribleSet, TribleSetFingerprint, View};
+
+#[cfg(feature = "minla")]
+use good_lp::constraint;
+#[cfg(feature = "minla")]
+use good_lp::solvers::highs::highs;
+#[cfg(feature = "minla")]
+use good_lp::{variable, variables, Expression, Solution, SolutionStatus, SolverModel};
 
 use crate::themes;
 
@@ -91,8 +104,8 @@ struct EntityGraph {
 #[derive(Clone, Debug)]
 struct AttrInfo {
     label: String,
-    schema: Id,
-    formatter: Value<Handle<Blake3, WasmCode>>,
+    schema: Option<Id>,
+    formatter: Option<Value<Handle<Blake3, WasmCode>>>,
 }
 
 fn build_attr_info<B>(
@@ -102,38 +115,62 @@ fn build_attr_info<B>(
 where
     B: BlobStoreGet<Blake3>,
 {
-    let mut out = HashMap::<Id, AttrInfo>::new();
-    for (attr, name_handle, schema, formatter) in find!(
-        (
-            attr: Id,
-            name_handle: Value<Handle<Blake3, LongString>>,
-            schema: Id,
-            formatter: Value<Handle<Blake3, WasmCode>>
-        ),
-        pattern!(
-            metadata,
-            [
-                {
-                    ?attr @ triblespace::core::metadata::name: ?name_handle,
-                    triblespace::core::metadata::value_schema: ?schema
-                },
-                { ?schema @ triblespace::core::metadata::value_formatter: ?formatter }
-            ]
-        )
+    let mut labels = HashMap::<Id, String>::new();
+    for (attr, name_handle) in find!(
+        (attr: Id, name_handle: Value<Handle<Blake3, LongString>>),
+        pattern!(metadata, [{ ?attr @ triblespace::core::metadata::name: ?name_handle }])
     ) {
-        let label = match name_cache.get(name_handle) {
-            Ok(name) => name.as_ref().to_string(),
-            Err(_) => continue,
-        };
+        if let Ok(name) = name_cache.get(name_handle) {
+            labels.insert(attr, name.as_ref().to_string());
+        }
+    }
+    for (attr, shortname) in find!(
+        (attr: Id, shortname: String),
+        pattern!(metadata, [{ ?attr @ triblespace::core::metadata::shortname: ?shortname }])
+    ) {
+        labels.entry(attr).or_insert(shortname);
+    }
+
+    let mut schema_by_attr = HashMap::<Id, Id>::new();
+    for (attr, schema) in find!(
+        (attr: Id, schema: Id),
+        pattern!(metadata, [{ ?attr @ triblespace::core::metadata::value_schema: ?schema }])
+    ) {
+        schema_by_attr.insert(attr, schema);
+    }
+
+    let mut formatter_by_schema = HashMap::<Id, Value<Handle<Blake3, WasmCode>>>::new();
+    for (schema, formatter) in find!(
+        (schema: Id, formatter: Value<Handle<Blake3, WasmCode>>),
+        pattern!(metadata, [{ ?schema @ triblespace::core::metadata::value_formatter: ?formatter }])
+    ) {
+        formatter_by_schema.insert(schema, formatter);
+    }
+
+    let mut out = HashMap::<Id, AttrInfo>::new();
+    for (attr, schema) in schema_by_attr {
+        let label = labels
+            .remove(&attr)
+            .unwrap_or_else(|| format!("attr:{}", id_short(attr)));
+        let formatter = formatter_by_schema.get(&schema).copied();
         out.insert(
             attr,
             AttrInfo {
                 label,
-                schema,
+                schema: Some(schema),
                 formatter,
             },
         );
     }
+
+    for (attr, label) in labels {
+        out.entry(attr).or_insert(AttrInfo {
+            label,
+            schema: None,
+            formatter: None,
+        });
+    }
+
     out
 }
 
@@ -156,7 +193,7 @@ where
     for (e, a, v) in find!((e: Id, a: Id, v: Value<UnknownValue>), data.pattern(e, a, v)) {
         entity_ids.insert(e);
         if let Some(info) = attr_info.get(&a) {
-            if info.schema == schema_genid {
+            if info.schema == Some(schema_genid) {
                 if let Some(target) = try_decode_genid(&v.raw) {
                     entity_ids.insert(target);
                 }
@@ -185,22 +222,27 @@ where
         };
 
         let info = attr_info.get(&attr);
-        let attr_text = info.map(|info| info.label.clone()).unwrap_or_default();
+        let attr_text = info
+            .map(|info| info.label.clone())
+            .unwrap_or_else(|| format!("attr:{}", id_short(attr)));
 
         let (value_text, target, hatched) = match info {
-            Some(info) if info.schema == schema_genid => {
+            Some(info) if info.schema == Some(schema_genid) => {
                 if let Some(target) = try_decode_genid(&raw) {
                     (format!("id:{}", id_short(target)), Some(target), false)
                 } else {
                     (format!("id:0x{}", hex_prefix(raw, 6)), None, false)
                 }
             }
-            Some(info) => match formatter_cache.get(info.formatter) {
-                Ok(formatter) => match formatter.format_value_with_limits(&raw, limits) {
+            Some(info) => match info
+                .formatter
+                .and_then(|handle| formatter_cache.get(handle).ok())
+            {
+                Some(formatter) => match formatter.format_value_with_limits(&raw, limits) {
                     Ok(text) => (text, None, false),
                     Err(_) => (format!("0x{}", hex_prefix(raw, 6)), None, true),
                 },
-                Err(_) => (format!("0x{}", hex_prefix(raw, 6)), None, true),
+                None => (format!("0x{}", hex_prefix(raw, 6)), None, true),
             },
             None => (format!("0x{}", hex_prefix(raw, 6)), None, true),
         };
@@ -544,6 +586,8 @@ pub enum EntityOrder {
     CuthillMckee,
     Barycentric { passes: usize },
     BarycentricSwap { passes: usize },
+    #[cfg(feature = "minla")]
+    Minla { max_nodes: usize },
 }
 
 pub struct EntityInspectorResponse {
@@ -627,7 +671,7 @@ where
             }
         }
         let (layout, routed_edges, stats) =
-            compute_inspector(ui, graph.as_ref(), self.columns, self.order);
+            compute_inspector(ui, cache_id, graph.as_ref(), self.columns, self.order);
         let response =
             paint_entity_inspector(ui, graph.as_ref(), self.selection, &layout, &routed_edges);
         let selection_changed = *self.selection != selection_before;
@@ -686,13 +730,393 @@ fn attribute_palette_index(attr: Id, palette_len: usize) -> usize {
     (hash as usize) % palette_len
 }
 
-fn entity_order(graph: &EntityGraph, order: EntityOrder) -> Vec<usize> {
+fn entity_order(ui: &mut Ui, cache_id: egui::Id, graph: &EntityGraph, order: EntityOrder) -> Vec<usize> {
+    #[cfg(not(feature = "minla"))]
+    let _ = (ui, cache_id);
     match order {
         EntityOrder::Id => (0..graph.nodes.len()).collect(),
         EntityOrder::CuthillMckee => cuthill_mckee_order(graph),
         EntityOrder::Barycentric { passes } => barycentric_order(graph, passes),
         EntityOrder::BarycentricSwap { passes } => barycentric_swap_order(graph, passes),
+        #[cfg(feature = "minla")]
+        EntityOrder::Minla { max_nodes } => {
+            minla_order(ui, cache_id, graph, max_nodes)
+                .unwrap_or_else(|| barycentric_swap_order(graph, 4))
+        }
     }
+}
+
+#[cfg(feature = "minla")]
+#[derive(Clone)]
+struct MinlaProblem {
+    node_count: usize,
+    edges: Vec<(usize, usize)>,
+}
+
+#[cfg(feature = "minla")]
+impl MinlaProblem {
+    fn from_graph(graph: &EntityGraph) -> Self {
+        let edges = graph
+            .edges
+            .iter()
+            .map(|edge| (edge.from_entity, edge.to_entity))
+            .collect();
+        Self {
+            node_count: graph.nodes.len(),
+            edges,
+        }
+    }
+}
+
+#[cfg(feature = "minla")]
+#[derive(Clone, Default)]
+struct MinlaCache {
+    graph_ptr: usize,
+    max_nodes: usize,
+    order: Option<Vec<usize>>,
+    best_objective: Option<f64>,
+    receiver: Option<Arc<Mutex<mpsc::Receiver<MinlaUpdate>>>>,
+    skipped: bool,
+}
+
+#[cfg(feature = "minla")]
+#[derive(Clone, Debug)]
+struct MinlaUpdate {
+    order: Vec<usize>,
+    objective: f64,
+}
+
+#[cfg(feature = "minla")]
+const MINLA_LOOP_SECONDS: f64 = 1.0;
+
+#[cfg(feature = "minla")]
+const MINLA_LOOP_COUNT: usize = 10;
+
+#[cfg(feature = "minla")]
+const MINLA_MIP_REL_GAP: f32 = 0.01;
+
+#[cfg(feature = "minla")]
+const MINLA_MIP_ABS_GAP_FRACTION: f64 = 0.01;
+
+#[cfg(feature = "minla")]
+fn minla_mip_abs_gap(best_objective: f64) -> Option<f32> {
+    if !best_objective.is_finite() || best_objective <= 0.0 {
+        return None;
+    }
+    let gap = best_objective * MINLA_MIP_ABS_GAP_FRACTION;
+    if gap.is_finite() && gap > 0.0 {
+        Some(gap as f32)
+    } else {
+        None
+    }
+}
+
+#[cfg(feature = "minla")]
+fn minla_order(
+    ui: &mut Ui,
+    cache_id: egui::Id,
+    graph: &EntityGraph,
+    max_nodes: usize,
+) -> Option<Vec<usize>> {
+    if graph.nodes.is_empty() {
+        return Some(Vec::new());
+    }
+
+    let max_nodes = if max_nodes == 0 { usize::MAX } else { max_nodes };
+    let graph_ptr = graph as *const _ as usize;
+    let verbose = minla_verbose_enabled();
+    let mut order_out = None;
+    let mut repaint = false;
+
+    ui.data_mut(|memory| {
+        let cache_id = cache_id.with("minla_order");
+        let cache = memory.get_temp_mut_or_default::<MinlaCache>(cache_id);
+        if cache.graph_ptr != graph_ptr || cache.max_nodes != max_nodes {
+            cache.graph_ptr = graph_ptr;
+            cache.max_nodes = max_nodes;
+            cache.order = None;
+            cache.best_objective = None;
+            cache.receiver = None;
+            cache.skipped = false;
+        }
+
+        if let Some(receiver) = cache.receiver.take() {
+            let mut latest = None;
+            let mut disconnected = false;
+            match receiver.lock() {
+                Ok(guard) => {
+                    loop {
+                        match guard.try_recv() {
+                            Ok(update) => latest = Some(update),
+                            Err(mpsc::TryRecvError::Empty) => break,
+                            Err(mpsc::TryRecvError::Disconnected) => {
+                                disconnected = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(_) => {
+                    disconnected = true;
+                }
+            }
+
+            if let Some(update) = latest {
+                let improved = cache
+                    .best_objective
+                    .map(|best| update.objective + 1e-6 < best)
+                    .unwrap_or(true);
+                if improved {
+                    cache.best_objective = Some(update.objective);
+                    cache.order = Some(update.order);
+                    repaint = true;
+                }
+            }
+
+            if disconnected {
+                cache.receiver = None;
+                cache.skipped = cache.order.is_none();
+            } else {
+                cache.receiver = Some(receiver);
+            }
+        }
+
+        if cache.order.is_none() && cache.receiver.is_none() && !cache.skipped {
+            if graph.nodes.len() > max_nodes {
+                if verbose && !cache.skipped {
+                    eprintln!(
+                        "minla: skipping solve (nodes {} > max_nodes {})",
+                        graph.nodes.len(),
+                        max_nodes
+                    );
+                }
+                cache.skipped = true;
+            } else if graph.edges.is_empty() {
+                cache.order = Some((0..graph.nodes.len()).collect());
+            } else {
+                let problem = MinlaProblem::from_graph(graph);
+                let (tx, rx) = mpsc::channel();
+                std::thread::spawn(move || {
+                    minla_solve_loop(problem, verbose, tx);
+                });
+                cache.receiver = Some(Arc::new(Mutex::new(rx)));
+            }
+        }
+
+        order_out = cache.order.clone();
+    });
+
+    if repaint {
+        ui.ctx().request_repaint();
+    }
+
+    order_out
+}
+
+#[cfg(feature = "minla")]
+fn minla_solve_loop(
+    problem: MinlaProblem,
+    verbose: bool,
+    sender: mpsc::Sender<MinlaUpdate>,
+) {
+    let mut best_objective = f64::INFINITY;
+    let mut current_order: Option<Vec<usize>> = None;
+    for _ in 0..MINLA_LOOP_COUNT {
+        let previous_best = if best_objective.is_finite() {
+            Some(best_objective)
+        } else {
+            None
+        };
+        let Some((order, objective, status)) = minla_solve_once(
+            &problem,
+            current_order.as_deref(),
+            verbose,
+            MINLA_LOOP_SECONDS,
+            previous_best,
+        ) else {
+            break;
+        };
+
+        if objective + 1e-6 < best_objective {
+            best_objective = objective;
+            if sender
+                .send(MinlaUpdate {
+                    order: order.clone(),
+                    objective,
+                })
+                .is_err()
+            {
+                break;
+            }
+        }
+
+        current_order = Some(order);
+        if matches!(status, SolutionStatus::Optimal) {
+            break;
+        }
+    }
+}
+
+#[cfg(feature = "minla")]
+fn minla_solve_once(
+    problem: &MinlaProblem,
+    initial_order: Option<&[usize]>,
+    verbose: bool,
+    time_limit_secs: f64,
+    previous_best: Option<f64>,
+) -> Option<(Vec<usize>, f64, SolutionStatus)> {
+    if problem.node_count == 0 {
+        return Some((Vec::new(), 0.0, SolutionStatus::Optimal));
+    }
+    if problem.edges.is_empty() {
+        let order: Vec<usize> = (0..problem.node_count).collect();
+        return Some((order, 0.0, SolutionStatus::Optimal));
+    }
+
+    let node_count = problem.node_count;
+    let initial_positions = initial_order
+        .filter(|order| order.len() == node_count)
+        .map(|order| {
+            let mut positions = vec![0usize; node_count];
+            for (pos, &node_idx) in order.iter().enumerate() {
+                positions[node_idx] = pos;
+            }
+            positions
+        });
+    let mut vars = variables!();
+    let mut assign = Vec::with_capacity(node_count);
+    for row_idx in 0..node_count {
+        let mut row = Vec::with_capacity(node_count);
+        for col_idx in 0..node_count {
+            let mut var = variable().binary();
+            if let Some(positions) = &initial_positions {
+                let value = if positions[row_idx] == col_idx { 1.0 } else { 0.0 };
+                var = var.initial(value);
+            }
+            row.push(vars.add(var));
+        }
+        assign.push(row);
+    }
+
+    let mut distances = Vec::with_capacity(problem.edges.len());
+    for (from, to) in &problem.edges {
+        let mut var = variable().min(0);
+        if let Some(positions) = &initial_positions {
+            let dist = positions[*from].abs_diff(positions[*to]) as f64;
+            var = var.initial(dist);
+        }
+        distances.push(vars.add(var));
+    }
+
+    let mut objective = Expression::from(0.0);
+    for &distance in &distances {
+        objective += distance;
+    }
+
+    let mut problem_model = vars
+        .minimise(objective)
+        .using(highs)
+        .set_time_limit(time_limit_secs);
+
+    if let Some(best_objective) = previous_best {
+        if let Some(abs_gap) = minla_mip_abs_gap(best_objective) {
+            problem_model = problem_model
+                .set_mip_abs_gap(abs_gap)
+                .expect("minla mip_abs_gap");
+        }
+        problem_model = problem_model
+            .set_mip_rel_gap(MINLA_MIP_REL_GAP)
+            .expect("minla mip_rel_gap");
+    }
+
+    for row in &assign {
+        let mut expr = Expression::from(0.0);
+        for &var in row {
+            expr += var;
+        }
+        problem_model = problem_model.with(constraint!(expr == 1));
+    }
+
+    for col in 0..node_count {
+        let mut expr = Expression::from(0.0);
+        for row in &assign {
+            expr += row[col];
+        }
+        problem_model = problem_model.with(constraint!(expr == 1));
+    }
+
+    let mut position_exprs = Vec::with_capacity(node_count);
+    for row in &assign {
+        let mut expr = Expression::from(0.0);
+        for (idx, &var) in row.iter().enumerate() {
+            expr += (idx as f64) * var;
+        }
+        position_exprs.push(expr);
+    }
+
+    for (edge_idx, (from, to)) in problem.edges.iter().enumerate() {
+        let distance = distances[edge_idx];
+        let from_expr = position_exprs[*from].clone();
+        let to_expr = position_exprs[*to].clone();
+        problem_model = problem_model
+            .with(constraint!(
+                distance - (from_expr.clone() - to_expr.clone()) >= 0
+            ))
+            .with(constraint!(distance - (to_expr - from_expr) >= 0));
+    }
+
+    if verbose {
+        problem_model.set_verbose(true);
+    }
+    let solve_start = if verbose { Some(Instant::now()) } else { None };
+    let solution = match problem_model.solve() {
+        Ok(solution) => solution,
+        Err(err) => {
+            if verbose {
+                eprintln!("minla: solve failed: {err}");
+            }
+            return None;
+        }
+    };
+    let status = solution.status();
+    let mut positions = vec![0usize; node_count];
+    for (node_idx, row) in assign.iter().enumerate() {
+        let mut best_pos = None;
+        let mut best_val = f64::NEG_INFINITY;
+        for (pos, &var) in row.iter().enumerate() {
+            let val = solution.value(var);
+            if val > best_val {
+                best_val = val;
+                best_pos = Some(pos);
+            }
+        }
+        positions[node_idx] = best_pos?;
+    }
+
+    let objective = distances
+        .iter()
+        .map(|&distance| solution.value(distance))
+        .sum::<f64>();
+    if let Some(start) = solve_start {
+        let elapsed_ms = start.elapsed().as_millis();
+        eprintln!(
+            "minla: solved nodes={} edges={} objective={:.1} in {}ms ({:?})",
+            node_count,
+            problem.edges.len(),
+            objective,
+            elapsed_ms,
+            status
+        );
+    }
+
+    let mut order: Vec<usize> = (0..node_count).collect();
+    order.sort_by_key(|&idx| positions[idx]);
+    Some((order, objective, status))
+}
+
+#[cfg(feature = "minla")]
+fn minla_verbose_enabled() -> bool {
+    std::env::var_os("GORBIE_MINLA_VERBOSE").is_some()
 }
 
 fn cuthill_mckee_order(graph: &EntityGraph) -> Vec<usize> {
@@ -1630,12 +2054,13 @@ fn paint_entity_table(
 }
 
 fn compute_inspector(
-    ui: &Ui,
+    ui: &mut Ui,
+    cache_id: egui::Id,
     graph: &EntityGraph,
     forced_columns: usize,
     order: EntityOrder,
 ) -> (GraphLayout, Vec<RoutedEdge>, EntityInspectorStats) {
-    let order = entity_order(graph, order);
+    let order = entity_order(ui, cache_id, graph, order);
     let mut positions = vec![0usize; graph.nodes.len()];
     for (pos, &idx) in order.iter().enumerate() {
         positions[idx] = pos;

@@ -31,6 +31,7 @@ impl<T: Send + Sync + 'static> Card for StatefulCard<T> {
     }
 }
 
+#[track_caller]
 pub fn stateful_card<K, T>(
     nb: &mut NotebookCtx,
     key: &K,
@@ -41,9 +42,5 @@ where
     K: Hash + ?Sized,
     T: Send + Sync + 'static,
 {
-    let state = StateId::new(nb.state_id_for(key));
-    let handle = state;
-    nb.state_store().get_or_insert(state, init);
-    nb.push(Box::new(StatefulCard::new(state, function)));
-    handle
+    nb.state(key, init, function)
 }

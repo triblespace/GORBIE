@@ -122,11 +122,19 @@ For cargo examples:
 `cargo run --example polars --features polars`
 `cargo run --example pile_inspector --features triblespace`
 
+# Headless capture
+To export cards without opening an interactive notebook, pass `--headless`. Each card
+is rendered to a PNG and saved as `card_0001.png`, `card_0002.png`, ... in the output
+directory (default: `./gorbie_capture`). You can override the directory with `--out-dir`.
+The renderer runs fully offscreen (no window is created). Use `--scale` to control the
+pixels-per-point (default: 2.0).
+
+`cargo run --example pile_inspector --features triblespace -- --headless --out-dir ./captures --scale 2`
+
 
 # Feature Flags
 GORBIE! defaults to a lean build with `markdown` enabled. Add extras as needed:
 - `markdown`: rich Markdown rendering with `md!` and `note!` (default).
-- `code`: syntax-highlighted `code_view`.
 - `polars`: dataframe widget (Polars + egui_extras).
 - `triblespace`: Triblespace widgets and visualizations.
 - `minla`: MinLA ordering for the entity inspector (HiGHS via good_lp). Implies `triblespace`.

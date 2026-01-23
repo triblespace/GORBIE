@@ -4,7 +4,6 @@
 //! be edited independently.
 
 pub mod button;
-pub mod code;
 #[cfg(feature = "polars")]
 pub mod dataframe;
 pub mod field;
@@ -20,8 +19,8 @@ pub mod triblespace;
 
 pub use button::Button;
 pub use button::ChoiceToggle;
+pub use button::RadioButton;
 pub use button::ToggleButton;
-pub use code::code_view;
 #[cfg(feature = "polars")]
 pub use dataframe::dataframe;
 pub use field::NumberField;

@@ -18,6 +18,7 @@ include = [
     "assets/icon_dark.png",
     "assets/icon_light.png",
     "assets/gorbie.png",
+    "assets/syntax/*.tmTheme",
     "assets/datasets/iris.csv",
     "assets/fonts/IosevkaGorbie/IosevkaGorbie-Regular.ttf",
     "assets/fonts/IosevkaGorbie/IosevkaGorbie-Bold.ttf",
@@ -29,27 +30,34 @@ include = [
 gorbie-macros = { version = "0.2.1", path = "gorbie-macros" }
 eframe = { version = "0.33", features = ["persistence", "wgpu"] }
 egui = { version = "0.33", features = ["color-hex"] }
+egui-wgpu = "0.33.3"
 ctrlc = {version="3.4", features=["termination"]}
-dark-light = "1"
+dark-light = "2"
 parking_lot = { version = "0.12.3", features = ["arc_lock"] }
 log = "0.4.26"
+png = "0.18"
+pollster = "0.4"
 egui_commonmark = { package = "gorbie-commonmark", version = "0.22.1", features = ["better_syntax_highlighting", "svg", "fetch"], optional = true }
 egui_extras = { version = "0.33.0", optional = true }
+egui_plot = { version = "0.34", optional = true }
 triblespace = { version = "0.8.0", path = "../triblespace-rs", optional = true }
-polars = { version = "0.50.0", optional = true }
-rapier2d = { version = "0.18", optional = true }
+polars = { version = "0.52.0", optional = true }
+rapier2d = { version = "0.32", optional = true }
 hifitime = { version = "4.2.3", optional = true }
 good_lp = { version = "1.7.0", default-features = false, features = ["highs"], optional = true }
+cubecl = { version = "0.9.0", default-features = false, features = ["wgpu", "std"], optional = true }
 
 [features]
 default = ["markdown"]
 serde = []
 accesskit = []
 markdown = ["dep:egui_commonmark"]
-code = ["dep:egui_extras"]
 polars = ["dep:polars", "dep:egui_extras"]
+plots = ["dep:egui_plot"]
 triblespace = ["dep:triblespace", "dep:hifitime", "dep:rapier2d"]
 minla = ["triblespace", "dep:good_lp"]
+cubecl = ["dep:cubecl"]
+cubecl-cpu = ["cubecl", "cubecl/cpu"]
 
 [workspace]
 members = ["gorbie-macros"]
@@ -57,7 +65,7 @@ exclude = ["gorbie_commonmark"]
 
 [dev-dependencies]
 ed25519-dalek = "2.1.1"
-rand = "0.8.5"
+rand = "0.9"
 
 [[example]]
 name = "polars"
@@ -74,3 +82,11 @@ required-features = ["triblespace"]
 [[example]]
 name = "schema_inspector"
 required-features = ["triblespace"]
+
+[[example]]
+name = "minla"
+required-features = ["cubecl", "plots"]
+
+[[example]]
+name = "cubecl_cpu_repro"
+required-features = ["cubecl-cpu"]

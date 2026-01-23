@@ -423,6 +423,7 @@ struct WidgetPlaybookState {
     level_percent: f64,
     toggle_on: bool,
     metric_bytes: bool,
+    radio_choice: RadioChoice,
     line_text: String,
     multi_text: String,
     focus_target: FocusTarget,
@@ -435,10 +436,24 @@ impl Default for WidgetPlaybookState {
             level_percent: 50.0,
             toggle_on: false,
             metric_bytes: false,
+            radio_choice: RadioChoice::default(),
             line_text: "Short prompt".to_string(),
             multi_text: "First line\nSecond line\nThird line".to_string(),
             focus_target: FocusTarget::None,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RadioChoice {
+    Alpha,
+    Beta,
+    Gamma,
+}
+
+impl Default for RadioChoice {
+    fn default() -> Self {
+        Self::Alpha
     }
 }
 
@@ -665,6 +680,26 @@ fn main(nb: &mut NotebookCtx) {
                         &mut state.metric_bytes,
                         "COUNT",
                         "BYTES",
+                    ));
+                });
+
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("RADIO").monospace().strong());
+                ui.horizontal(|ui| {
+                    ui.add(widgets::RadioButton::new(
+                        &mut state.radio_choice,
+                        RadioChoice::Alpha,
+                        "ALPHA",
+                    ));
+                    ui.add(widgets::RadioButton::new(
+                        &mut state.radio_choice,
+                        RadioChoice::Beta,
+                        "BETA",
+                    ));
+                    ui.add(widgets::RadioButton::new(
+                        &mut state.radio_choice,
+                        RadioChoice::Gamma,
+                        "GAMMA",
                     ));
                 });
 
