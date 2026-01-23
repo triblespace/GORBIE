@@ -37,7 +37,7 @@ Add the dependency and drop in a `main`:
 ```toml
 # Cargo.toml
 [dependencies]
-GORBIE = "0.5.0"
+GORBIE = "0.5.1"
 ```
 
 ```rust
@@ -94,7 +94,7 @@ header to `notebook.rs` and paste the same `main` function below it:
 #!/usr/bin/env -S watchexec -r rust-script
 //! ```cargo
 //! [dependencies]
-//! GORBIE = "0.5.0"
+//! GORBIE = "0.5.1"
 //! ```
 ```
 
@@ -129,6 +129,7 @@ GORBIE! defaults to a lean build with `markdown` enabled. Add extras as needed:
 - `code`: syntax-highlighted `code_view`.
 - `polars`: dataframe widget (Polars + egui_extras).
 - `triblespace`: Triblespace widgets and visualizations.
+- `minla`: MinLA ordering for the entity inspector (HiGHS via good_lp). Implies `triblespace`.
 
 # Community
 
