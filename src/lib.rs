@@ -441,7 +441,6 @@ impl eframe::App for Notebook {
                         ui.set_min_size(column_rect.size());
                         ui.set_max_width(column_rect.width());
 
-                        let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
                         let fill = ui.visuals().window_fill;
 
                         let column_inner_margin = egui::Margin::symmetric(0, 12);
@@ -493,6 +492,11 @@ impl eframe::App for Notebook {
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 let mut floating_elements: Vec<FloatingElement> = Vec::new();
                                 let mut dragged_layer_ids: Vec<egui::LayerId> = Vec::new();
+                                let mut pending_anchor_updates: Vec<(
+                                    usize,
+                                    FloatingAnchor,
+                                    egui::Pos2,
+                                )> = Vec::new();
                                 for (i, entry) in notebook.cards.iter_mut().enumerate() {
                                     let card_detached = runtime.card_detached
                                         .get_mut(i)
@@ -1017,7 +1021,7 @@ impl eframe::App for Notebook {
                                                                     .translate(delta);
                                                                 *card_detached_position += delta;
 
-                                                                match *card_detached_anchor {
+                                                                let anchor_update = match *card_detached_anchor {
                                                                     FloatingAnchor::Content => {
                                                                         if right_outside_ratio(
                                                                             moved_rect,
@@ -1025,10 +1029,12 @@ impl eframe::App for Notebook {
                                                                         )
                                                                             >= STICK_RIGHT_OUTSIDE_RATIO
                                                                         {
-                                                                            *card_detached_anchor =
-                                                                                FloatingAnchor::Viewport;
-                                                                            *card_detached_position =
-                                                                                moved_rect.min;
+                                                                            Some((
+                                                                                FloatingAnchor::Viewport,
+                                                                                moved_rect.min,
+                                                                            ))
+                                                                        } else {
+                                                                            None
                                                                         }
                                                                     }
                                                                     FloatingAnchor::Viewport => {
@@ -1038,16 +1044,32 @@ impl eframe::App for Notebook {
                                                                         )
                                                                             <= UNSTICK_RIGHT_OUTSIDE_RATIO
                                                                         {
-                                                                            *card_detached_anchor =
-                                                                                FloatingAnchor::Content;
-                                                                            *card_detached_position =
+                                                                            Some((
+                                                                                FloatingAnchor::Content,
                                                                                 screen_to_content_pos(
                                                                                     moved_rect.min,
                                                                                     scroll_y,
                                                                                     clip_rect.min.y,
-                                                                                );
+                                                                                ),
+                                                                            ))
+                                                                        } else {
+                                                                            None
                                                                         }
                                                                     }
+                                                                };
+
+                                                                if let Some((anchor, pos)) =
+                                                                    anchor_update
+                                                                {
+                                                                    pending_anchor_updates
+                                                                        .retain(|(idx, _, _)| {
+                                                                            *idx != draw.index
+                                                                        });
+                                                                    pending_anchor_updates.push((
+                                                                        draw.index,
+                                                                        anchor,
+                                                                        pos,
+                                                                    ));
                                                                 }
                                                             }
 
@@ -1063,6 +1085,19 @@ impl eframe::App for Notebook {
 
                                 for layer_id in dragged_layer_ids {
                                     ui.ctx().move_to_top(layer_id);
+                                }
+
+                                for (index, anchor, pos) in pending_anchor_updates {
+                                    if let Some(slot) =
+                                        runtime.card_detached_anchors.get_mut(index)
+                                    {
+                                        *slot = anchor;
+                                    }
+                                    if let Some(slot) =
+                                        runtime.card_detached_positions.get_mut(index)
+                                    {
+                                        *slot = pos;
+                                    }
                                 }
 
                             });
