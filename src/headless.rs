@@ -42,28 +42,13 @@ impl HeadlessWgpuRunner {
         ctx.set_theme(theme);
 
         let instance = wgpu::Instance::default();
-        let adapter_options = wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-        };
-        let adapter = match pollster::block_on(instance.request_adapter(&adapter_options)) {
-            Ok(adapter) => adapter,
-            Err(err) => {
-                let fallback_options = wgpu::RequestAdapterOptions {
-                    power_preference: adapter_options.power_preference,
-                    compatible_surface: adapter_options.compatible_surface,
-                    force_fallback_adapter: true,
-                };
-                pollster::block_on(instance.request_adapter(&fallback_options)).map_err(
-                    |fallback_err| {
-                        format!(
-                            "headless adapter request failed: {err}; fallback failed: {fallback_err}"
-                        )
-                    },
-                )?
-            }
-        };
+        let adapter = pollster::block_on(instance.request_adapter(
+            &wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            },
+        ))?;
         let device_desc = wgpu::DeviceDescriptor {
             label: Some("gorbie_headless_device"),
             required_features: wgpu::Features::empty(),
