@@ -693,6 +693,8 @@ struct RoutedEdge {
     span_cols: usize,
     start_underline: Option<(egui::Pos2, egui::Pos2)>,
     attr_id: Id,
+    from_entity: usize,
+    to_entity: usize,
     go_left: bool,
     used_fallback_track: bool,
 }
@@ -702,6 +704,8 @@ struct EdgeRender {
     points: Vec<egui::Pos2>,
     line_color: egui::Color32,
     start_underline: Option<(egui::Pos2, egui::Pos2)>,
+    from_entity: usize,
+    to_entity: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -2403,6 +2407,8 @@ fn route_edges(layout: &GraphLayout, graph: &EntityGraph) -> Vec<RoutedEdge> {
                 draft.go_left,
             ),
             attr_id: draft.edge.attr_id,
+            from_entity: draft.edge.from_entity,
+            to_entity: draft.edge.to_entity,
             go_left: draft.go_left,
             used_fallback_track,
         });
@@ -2511,35 +2517,42 @@ fn round_polyline(points: &[egui::Pos2], radius: f32, segments: usize) -> Vec<eg
     out
 }
 
+struct TableInteraction {
+    select_target: Option<usize>,
+    scroll_target: Option<usize>,
+}
+
 fn paint_entity_table(
     ui: &mut Ui,
     rect: Rect,
     node: &EntityNode,
+    node_idx: usize,
     is_selected: bool,
-    selected_id: &mut Id,
     layout: &GraphLayout,
-) -> Response {
+    graph: &EntityGraph,
+) -> TableInteraction {
     let id = ui.id().with(("entity_table", node.id));
-    let mut response = ui.interact(rect, id, Sense::click());
-    if response.clicked() {
-        *selected_id = node.id;
-    }
+    let response = ui.interact(rect, id, Sense::click());
+    let table_clicked = response.clicked();
 
     let visuals = ui.visuals();
     let fill = visuals.window_fill;
     let ink = visuals.widgets.noninteractive.fg_stroke.color;
-    let outline = if is_selected {
-        visuals.selection.stroke.color
-    } else {
-        ink
-    };
-    let stroke = Stroke::new(1.0, outline);
+    let stroke = Stroke::new(1.0, ink);
     let grid_stroke = Stroke::new(1.0, ink);
     let hatch_color = visuals.widgets.noninteractive.bg_stroke.color;
 
     let painter = ui.painter();
     painter.rect_filled(rect, 0.0, fill);
-    painter.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Inside);
+    if is_selected {
+        painter.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Inside);
+        let inner_rect = rect.shrink(2.0);
+        if inner_rect.is_positive() {
+            painter.rect_stroke(inner_rect, 0.0, stroke, egui::StrokeKind::Inside);
+        }
+    } else {
+        painter.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Inside);
+    }
 
     let text_color = ink;
     let title_font = TextStyle::Monospace.resolve(ui.style());
@@ -2569,6 +2582,8 @@ fn paint_entity_table(
         painter.vline(divider_x, row_area.y_range(), grid_stroke);
     }
 
+    let mut scroll_target = None;
+    let mut select_target = None;
     for (i, row) in node.rows.iter().enumerate() {
         let y = row_top + i as f32 * layout.text_row_height;
         let row_rect = Rect::from_min_max(
@@ -2580,6 +2595,19 @@ fn paint_entity_table(
         );
         if i > 0 {
             painter.hline(row_rect.x_range(), row_rect.top(), grid_stroke);
+        }
+
+        if let Some(target) = row.target {
+            if let Some(&target_idx) = graph.id_to_index.get(&target) {
+                let row_id = id.with(("row", i));
+                let row_response = ui
+                    .interact(row_rect, row_id, Sense::click())
+                    .on_hover_cursor(egui::CursorIcon::PointingHand);
+                if row_response.clicked() {
+                    scroll_target = Some(target_idx);
+                    select_target = Some(target_idx);
+                }
+            }
         }
 
         painter.text(
@@ -2611,10 +2639,17 @@ fn paint_entity_table(
 
     if response.hovered() {
         let full = id_full(node.id);
-        response = response.on_hover_text(full);
+        let _ = response.on_hover_text(full);
     }
 
-    response
+    if select_target.is_none() && table_clicked {
+        select_target = Some(node_idx);
+    }
+
+    TableInteraction {
+        select_target,
+        scroll_target,
+    }
 }
 
 fn compute_inspector(
@@ -2744,6 +2779,21 @@ fn paint_entity_inspector(
     let offset_x = ((desired_width - layout.canvas_size.x).max(0.0)) * 0.5;
     let origin = pos2(outer_rect.left() + offset_x, outer_rect.top());
     let origin_vec = origin.to_vec2();
+    let tile_rects_ui: Vec<Rect> = layout
+        .tile_rects
+        .iter()
+        .map(|rect| rect.translate(origin_vec))
+        .collect();
+    let pointer_pos = ui
+        .input(|input| input.pointer.hover_pos())
+        .filter(|pos| outer_rect.contains(*pos));
+    let hovered_node = pointer_pos.and_then(|pos| {
+        tile_rects_ui
+            .iter()
+            .enumerate()
+            .find(|(_, rect)| rect.is_positive() && rect.contains(pos))
+            .map(|(idx, _)| idx)
+    });
 
     let painter = ui.painter().with_clip_rect(outer_rect);
     let line_width: f32 = 2.5;
@@ -2777,13 +2827,15 @@ fn paint_entity_inspector(
             start_underline: routed
                 .start_underline
                 .map(|(a, b)| (a + origin_vec, b + origin_vec)),
+            from_entity: routed.from_entity,
+            to_entity: routed.to_entity,
         });
     }
 
-    let hovered_edge = ui
-        .input(|input| input.pointer.hover_pos())
-        .filter(|pos| outer_rect.contains(*pos))
-        .and_then(|pos| {
+    let hovered_edge = if hovered_node.is_some() {
+        None
+    } else {
+        pointer_pos.and_then(|pos| {
             let mut best = hover_threshold * hover_threshold;
             let mut hovered = None;
             for (idx, render) in edge_renders.iter().enumerate() {
@@ -2797,36 +2849,48 @@ fn paint_entity_inspector(
                 }
             }
             hovered
-        });
+        })
+    };
 
     let mut end_dots = Vec::new();
     let mut end_dots_hover = Vec::new();
     let mut start_underlines = Vec::new();
     let mut start_underlines_hover = Vec::new();
     let fade_bg = ui.visuals().window_fill;
-    if let Some(hovered) = hovered_edge {
+    let mut active_mask = vec![false; edge_renders.len()];
+    if let Some(node_idx) = hovered_node {
         for (idx, render) in edge_renders.iter().enumerate() {
-            if idx == hovered {
-                continue;
+            if render.from_entity == node_idx {
+                active_mask[idx] = true;
             }
-            let line_color = themes::blend(render.line_color, fade_bg, 0.5);
+        }
+    } else if let Some(hovered) = hovered_edge {
+        active_mask[hovered] = true;
+    }
+
+    if hovered_node.is_some() || hovered_edge.is_some() {
+        for (idx, render) in edge_renders.iter().enumerate() {
+            let is_active = active_mask[idx];
+            let line_color = if is_active {
+                render.line_color
+            } else {
+                themes::blend(render.line_color, fade_bg, 0.5)
+            };
             let line_stroke = Stroke::new(line_width, line_color);
             paint_subway_edge(&painter, &render.points, line_stroke);
             if let Some((a, b)) = render.start_underline {
-                start_underlines.push((a, b, line_color));
+                if is_active {
+                    start_underlines_hover.push((a, b, line_color));
+                } else {
+                    start_underlines.push((a, b, line_color));
+                }
             }
             if let Some(end) = render.points.last().copied() {
-                end_dots.push((end, line_color));
-            }
-        }
-        if let Some(render) = edge_renders.get(hovered) {
-            let line_stroke = Stroke::new(line_width, render.line_color);
-            paint_subway_edge(&painter, &render.points, line_stroke);
-            if let Some((a, b)) = render.start_underline {
-                start_underlines_hover.push((a, b, render.line_color));
-            }
-            if let Some(end) = render.points.last().copied() {
-                end_dots_hover.push((end, render.line_color));
+                if is_active {
+                    end_dots_hover.push((end, line_color));
+                } else {
+                    end_dots.push((end, line_color));
+                }
             }
         }
     } else {
@@ -2842,14 +2906,53 @@ fn paint_entity_inspector(
         }
     }
 
+    let mut scroll_target = None;
+    let mut select_target = None;
     for (idx, node) in graph.nodes.iter().enumerate() {
-        let local = layout.tile_rects[idx];
-        if !local.is_positive() {
+        let rect = tile_rects_ui[idx];
+        if !rect.is_positive() {
             continue;
         }
-        let rect = local.translate(origin_vec);
         let is_selected = selected_index == Some(idx);
-        let _ = paint_entity_table(ui, rect, node, is_selected, selected_id, &layout);
+        let table = paint_entity_table(ui, rect, node, idx, is_selected, &layout, graph);
+        if scroll_target.is_none() {
+            scroll_target = table.scroll_target;
+        }
+        if select_target.is_none() {
+            select_target = table.select_target;
+        }
+    }
+
+    if scroll_target.is_none()
+        && ui.input(|input| input.pointer.primary_clicked())
+        && hovered_edge.is_some()
+    {
+        let shift = ui.input(|input| input.modifiers.shift);
+        if let Some(edge_idx) = hovered_edge {
+            if let Some(render) = edge_renders.get(edge_idx) {
+                let target_idx = if shift {
+                    render.from_entity
+                } else {
+                    render.to_entity
+                };
+                scroll_target = Some(target_idx);
+                select_target = Some(target_idx);
+            }
+        }
+    }
+
+    if let Some(target_idx) = select_target {
+        if let Some(node) = graph.nodes.get(target_idx) {
+            *selected_id = node.id;
+        }
+    }
+
+    if let Some(target_idx) = scroll_target {
+        if let Some(rect) = tile_rects_ui.get(target_idx).copied() {
+            if rect.is_positive() {
+                ui.scroll_to_rect(rect, Some(egui::Align::Center));
+            }
+        }
     }
 
     if !start_underlines.is_empty()

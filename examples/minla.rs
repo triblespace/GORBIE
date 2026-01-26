@@ -10,17 +10,20 @@
 use cubecl::prelude::*;
 use cubecl::server::Handle;
 use cubecl::wgpu::{WgpuDevice, WgpuRuntime};
-use egui::{DragValue, Spinner};
-use egui_plot::{Legend, Line, Plot, PlotPoints};
+use egui::{Color32, DragValue, Stroke};
+use egui_plot::{Legend, Line, Plot, PlotPoints, Polygon};
 use std::collections::{HashSet, hash_map::DefaultHasher};
+use std::f32::consts::TAU;
 use std::hash::{Hash, Hasher};
 use std::sync::{
     mpsc::{self, TryRecvError},
+    Arc,
     Mutex,
 };
 
 use GORBIE::cards::DEFAULT_CARD_PADDING;
 use GORBIE::prelude::*;
+use GORBIE::themes::{self, GorbieToggleButtonStyle};
 
 const NODE_NAMES: [&str; 10] = [
     "source",
@@ -71,7 +74,24 @@ const INV_U32_MAX_PLUS1: f32 = 1.0 / 4_294_967_296.0;
 const DEFAULT_ANNEAL_TEMP: f32 = 8.0;
 const DEFAULT_ANNEAL_COOLING: f32 = 0.995;
 const MIN_ANNEAL_TEMP: f32 = 0.001;
+const REHEAT_PLATEAU_STEPS: u32 = 12_000;
+const CHAIN_TUNE_INTERVAL: u32 = 4;
+const CHAIN_TUNE_TOLERANCE: f64 = 0.02;
+const CHAIN_TUNE_STEP_MAX: u32 = 64;
 const MAX_HISTORY: usize = 200;
+const AUTO_RUN_PULSE_HZ: f32 = 0.7;
+const AUTO_RUN_PULSE_BASE: f32 = 0.14;
+const AUTO_RUN_PULSE_RANGE: f32 = 0.08;
+
+fn auto_run_pulse(ui: &egui::Ui) -> (Color32, Color32) {
+    let style = GorbieToggleButtonStyle::from(ui.style().as_ref());
+    let time = ui.input(|input| input.time) as f32;
+    let wave = (time * AUTO_RUN_PULSE_HZ * TAU).sin();
+    let mix = (AUTO_RUN_PULSE_BASE + AUTO_RUN_PULSE_RANGE * wave).clamp(0.0, 1.0);
+    let fill = themes::blend(style.fill, style.accent, mix * 0.35);
+    let light = themes::blend(style.led_on, Color32::WHITE, mix);
+    (fill, light)
+}
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 enum GraphPattern {
@@ -196,9 +216,13 @@ struct BatchRequest {
 struct AnnealResult {
     graph_id: u64,
     best_cost: u32,
+    p10_cost: u32,
+    p50_cost: u32,
+    p90_cost: u32,
     batch_size: usize,
     steps: u32,
     elapsed_ms: u128,
+    temperature: f32,
     error: Option<String>,
 }
 
@@ -207,9 +231,13 @@ impl AnnealResult {
         Self {
             graph_id: 0,
             best_cost: u32::MAX,
+            p10_cost: u32::MAX,
+            p50_cost: u32::MAX,
+            p90_cost: u32::MAX,
             batch_size: 0,
             steps: 0,
             elapsed_ms: 0,
+            temperature: 0.0,
             error: None,
         }
     }
@@ -217,16 +245,24 @@ impl AnnealResult {
     fn ok(
         graph_id: u64,
         best_cost: u32,
+        p10_cost: u32,
+        p50_cost: u32,
+        p90_cost: u32,
         batch_size: usize,
         steps: u32,
         elapsed_ms: u128,
+        temperature: f32,
     ) -> Self {
         Self {
             graph_id,
             best_cost,
+            p10_cost,
+            p50_cost,
+            p90_cost,
             batch_size,
             steps,
             elapsed_ms,
+            temperature,
             error: None,
         }
     }
@@ -235,9 +271,13 @@ impl AnnealResult {
         Self {
             graph_id: 0,
             best_cost: u32::MAX,
+            p10_cost: u32::MAX,
+            p50_cost: u32::MAX,
+            p90_cost: u32::MAX,
             batch_size: 0,
             steps: 0,
             elapsed_ms: 0,
+            temperature: 0.0,
             error: Some(message.into()),
         }
     }
@@ -583,21 +623,96 @@ impl<R: Runtime> AnnealRunnerState<R> {
         }
 
         let costs_bytes = self.client.read_one(best_costs_handle.clone());
-        let costs = u32::from_bytes(&costs_bytes);
+        let mut costs = u32::from_bytes(&costs_bytes).to_vec();
+        let temps_bytes = self.client.read_one(temperatures_handle.clone());
+        let temps = f32::from_bytes(&temps_bytes);
 
         let mut best_cost = u32::MAX;
-        for cost in costs.iter() {
-            if *cost < best_cost {
-                best_cost = *cost;
+        let mut best_idx = 0usize;
+        if !costs.is_empty() {
+            for (idx, cost) in costs.iter().enumerate() {
+                if *cost < best_cost {
+                    best_cost = *cost;
+                    best_idx = idx;
+                }
+            }
+        }
+        let (p10_cost, p50_cost, p90_cost) = if costs.is_empty() {
+            (u32::MAX, u32::MAX, u32::MAX)
+        } else {
+            costs.sort_unstable();
+            (
+                percentile_u32(&costs, 0.10),
+                percentile_u32(&costs, 0.50),
+                percentile_u32(&costs, 0.90),
+            )
+        };
+        let avg_temp = if temps.is_empty() {
+            0.0
+        } else {
+            temps.iter().sum::<f32>() / temps.len() as f32
+        };
+
+        if request.batch_size > 1 && best_cost != u32::MAX && self.node_count > 0 {
+            let orders_handle = self.orders_handle.as_ref().expect("orders handle");
+            let positions_handle = self.positions_handle.as_ref().expect("positions handle");
+            let best_orders_handle = self.best_orders_handle.as_ref().expect("best orders handle");
+            let current_costs_handle = self
+                .current_costs_handle
+                .as_ref()
+                .expect("current costs handle");
+            let best_costs_handle = self.best_costs_handle.as_ref().expect("best costs handle");
+            let temperatures_handle =
+                self.temperatures_handle.as_ref().expect("temperatures handle");
+            let temp_floor_handle = self
+                .temp_floor_handle
+                .as_ref()
+                .expect("temp floor handle");
+            let stagnant_steps_handle = self
+                .stagnant_steps_handle
+                .as_ref()
+                .expect("stagnant steps handle");
+            let orders_len = request.batch_size * self.node_count;
+            let stale_steps = request.reheat_plateau_steps.max(1);
+            let reset_temp = request.initial_temp.max(MIN_ANNEAL_TEMP);
+            let mut reset_floor = request.reheat_temp.max(MIN_ANNEAL_TEMP);
+            if reset_floor > reset_temp {
+                reset_floor = reset_temp;
+            }
+            unsafe {
+                minla_sa_reseed_kernel::launch::<R>(
+                    &self.client,
+                    CubeCount::new_1d(request.batch_size as u32),
+                    CubeDim::new_1d(1),
+                    ScalarArg::new(self.node_count as u32),
+                    ScalarArg::new(best_idx as u32),
+                    ScalarArg::new(best_cost),
+                    ScalarArg::new(stale_steps),
+                    ScalarArg::new(reset_temp),
+                    ScalarArg::new(reset_floor),
+                    ArrayArg::from_raw_parts::<u32>(orders_handle, orders_len, 1),
+                    ArrayArg::from_raw_parts::<u32>(positions_handle, orders_len, 1),
+                    ArrayArg::from_raw_parts::<u32>(best_orders_handle, orders_len, 1),
+                    ArrayArg::from_raw_parts::<u32>(current_costs_handle, request.batch_size, 1),
+                    ArrayArg::from_raw_parts::<u32>(best_costs_handle, request.batch_size, 1),
+                    ArrayArg::from_raw_parts::<f32>(temperatures_handle, request.batch_size, 1),
+                    ArrayArg::from_raw_parts::<f32>(temp_floor_handle, request.batch_size, 1),
+                    ArrayArg::from_raw_parts::<u32>(stagnant_steps_handle, request.batch_size, 1),
+                )
+                .expect("minla SA reseed kernel launch");
             }
         }
 
         AnnealResult::ok(
             request.graph.id,
             best_cost,
+            p10_cost,
+            p50_cost,
+            p90_cost,
             request.batch_size,
             steps,
             start.elapsed().as_millis(),
+            avg_temp,
         )
     }
 
@@ -622,12 +737,10 @@ impl<R: Runtime> AnnealRunnerState<R> {
 
     fn ensure_state(&mut self, request: &AnnealRequest) -> Result<(), AnnealResult> {
         let graph_changed = self.sync_graph(&request.graph);
-        let needs_init = request.reset
-            || graph_changed
-            || self.batch_size != request.batch_size
-            || self.orders_handle.is_none();
+        let has_state = self.orders_handle.is_some();
+        let needs_reset = request.reset || graph_changed || !has_state;
 
-        if !needs_init {
+        if !needs_reset && request.batch_size <= self.batch_size {
             return Ok(());
         }
 
@@ -649,6 +762,84 @@ impl<R: Runtime> AnnealRunnerState<R> {
         let batch_bytes_f32 = match batch_size.checked_mul(bytes_f32) {
             Some(bytes) => bytes,
             None => return Err(AnnealResult::failed("batch buffer too large")),
+        };
+
+        let grow = !needs_reset && batch_size > self.batch_size;
+        let old_batch_size = self.batch_size;
+        let old_orders_handle = if grow {
+            Some(self.orders_handle.as_ref().expect("orders handle").clone())
+        } else {
+            None
+        };
+        let old_positions_handle = if grow {
+            Some(self.positions_handle.as_ref().expect("positions handle").clone())
+        } else {
+            None
+        };
+        let old_best_orders_handle = if grow {
+            Some(self.best_orders_handle.as_ref().expect("best orders handle").clone())
+        } else {
+            None
+        };
+        let old_current_costs_handle = if grow {
+            Some(
+                self.current_costs_handle
+                    .as_ref()
+                    .expect("current costs handle")
+                    .clone(),
+            )
+        } else {
+            None
+        };
+        let old_best_costs_handle = if grow {
+            Some(
+                self.best_costs_handle
+                    .as_ref()
+                    .expect("best costs handle")
+                    .clone(),
+            )
+        } else {
+            None
+        };
+        let old_temperatures_handle = if grow {
+            Some(
+                self.temperatures_handle
+                    .as_ref()
+                    .expect("temperatures handle")
+                    .clone(),
+            )
+        } else {
+            None
+        };
+        let old_temp_floor_handle = if grow {
+            Some(
+                self.temp_floor_handle
+                    .as_ref()
+                    .expect("temp floor handle")
+                    .clone(),
+            )
+        } else {
+            None
+        };
+        let old_cooling_handle = if grow {
+            Some(self.cooling_handle.as_ref().expect("cooling handle").clone())
+        } else {
+            None
+        };
+        let old_rng_states_handle = if grow {
+            Some(self.rng_states_handle.as_ref().expect("rng states handle").clone())
+        } else {
+            None
+        };
+        let old_stagnant_steps_handle = if grow {
+            Some(
+                self.stagnant_steps_handle
+                    .as_ref()
+                    .expect("stagnant steps handle")
+                    .clone(),
+            )
+        } else {
+            None
         };
 
         self.orders_handle = Some(self.client.empty(order_bytes));
@@ -733,6 +924,66 @@ impl<R: Runtime> AnnealRunnerState<R> {
                 ArrayArg::from_raw_parts::<u32>(stagnant_steps_handle, batch_size, 1),
             )
             .expect("minla SA init kernel launch");
+        }
+
+        if grow {
+            let old_batch_size = old_batch_size;
+            let old_order_len = match old_batch_size.checked_mul(self.node_count) {
+                Some(len) if len > 0 => len,
+                _ => return Err(AnnealResult::failed("batch too large for graph size")),
+            };
+            let old_orders_handle = old_orders_handle.expect("old orders handle");
+            let old_positions_handle = old_positions_handle.expect("old positions handle");
+            let old_best_orders_handle = old_best_orders_handle.expect("old best orders handle");
+            let old_current_costs_handle =
+                old_current_costs_handle.expect("old current costs handle");
+            let old_best_costs_handle = old_best_costs_handle.expect("old best costs handle");
+            let old_temperatures_handle =
+                old_temperatures_handle.expect("old temperatures handle");
+            let old_temp_floor_handle = old_temp_floor_handle.expect("old temp floor handle");
+            let old_cooling_handle = old_cooling_handle.expect("old cooling handle");
+            let old_rng_states_handle = old_rng_states_handle.expect("old rng states handle");
+            let old_stagnant_steps_handle =
+                old_stagnant_steps_handle.expect("old stagnant steps handle");
+
+            unsafe {
+                minla_sa_copy_kernel::launch::<R>(
+                    &self.client,
+                    CubeCount::new_1d(batch_size as u32),
+                    CubeDim::new_1d(1),
+                    ScalarArg::new(self.node_count as u32),
+                    ScalarArg::new(old_batch_size as u32),
+                    ArrayArg::from_raw_parts::<u32>(&old_orders_handle, old_order_len, 1),
+                    ArrayArg::from_raw_parts::<u32>(&old_positions_handle, old_order_len, 1),
+                    ArrayArg::from_raw_parts::<u32>(&old_best_orders_handle, old_order_len, 1),
+                    ArrayArg::from_raw_parts::<u32>(
+                        &old_current_costs_handle,
+                        old_batch_size,
+                        1,
+                    ),
+                    ArrayArg::from_raw_parts::<u32>(&old_best_costs_handle, old_batch_size, 1),
+                    ArrayArg::from_raw_parts::<f32>(&old_temperatures_handle, old_batch_size, 1),
+                    ArrayArg::from_raw_parts::<f32>(&old_temp_floor_handle, old_batch_size, 1),
+                    ArrayArg::from_raw_parts::<f32>(&old_cooling_handle, old_batch_size, 1),
+                    ArrayArg::from_raw_parts::<u32>(&old_rng_states_handle, old_batch_size, 1),
+                    ArrayArg::from_raw_parts::<u32>(
+                        &old_stagnant_steps_handle,
+                        old_batch_size,
+                        1,
+                    ),
+                    ArrayArg::from_raw_parts::<u32>(orders_handle, order_len, 1),
+                    ArrayArg::from_raw_parts::<u32>(positions_handle, order_len, 1),
+                    ArrayArg::from_raw_parts::<u32>(best_orders_handle, order_len, 1),
+                    ArrayArg::from_raw_parts::<u32>(current_costs_handle, batch_size, 1),
+                    ArrayArg::from_raw_parts::<u32>(best_costs_handle, batch_size, 1),
+                    ArrayArg::from_raw_parts::<f32>(temperatures_handle, batch_size, 1),
+                    ArrayArg::from_raw_parts::<f32>(temp_floor_handle, batch_size, 1),
+                    ArrayArg::from_raw_parts::<f32>(cooling_handle, batch_size, 1),
+                    ArrayArg::from_raw_parts::<u32>(rng_states_handle, batch_size, 1),
+                    ArrayArg::from_raw_parts::<u32>(stagnant_steps_handle, batch_size, 1),
+                )
+                .expect("minla SA copy kernel launch");
+            }
         }
 
         Ok(())
@@ -1196,7 +1447,6 @@ struct AnnealConfig {
     seed: u64,
     reheat_enabled: bool,
     reheat_temp: f32,
-    reheat_plateau_batches: u32,
     adaptive_cooling: bool,
     target_acceptance: f32,
     cooling_adjust: f32,
@@ -1211,7 +1461,6 @@ impl Default for AnnealConfig {
             seed: 7,
             reheat_enabled: true,
             reheat_temp: DEFAULT_ANNEAL_TEMP,
-            reheat_plateau_batches: 12,
             adaptive_cooling: true,
             target_acceptance: 0.3,
             cooling_adjust: 0.002,
@@ -1264,7 +1513,6 @@ fn auto_tune_anneal_config(config: &mut AnnealConfig, graph: &GraphData) {
     config.seed = graph.id ^ 0xD1B5_4A32_D192_ED03;
     config.initial_temp = estimate_initial_temp(graph, config.seed, config.target_acceptance);
     config.reheat_temp = (config.initial_temp * 0.25).max(MIN_ANNEAL_TEMP);
-    config.reheat_plateau_batches = 12;
 }
 
 fn adjust_batch_size(current: u32, elapsed_ms: u128, target_ms: u32) -> u32 {
@@ -1297,12 +1545,25 @@ fn adjust_steps_per_batch(current: u32, elapsed_ms: u128, target_ms: u32) -> u32
     next.clamp(MIN_ANNEAL_STEPS, MAX_ANNEAL_STEPS)
 }
 
+fn percentile_u32(sorted: &[u32], percentile: f32) -> u32 {
+    if sorted.is_empty() {
+        return 0;
+    }
+    let percentile = percentile.clamp(0.0, 1.0);
+    let idx = ((sorted.len() - 1) as f32 * percentile).round() as usize;
+    sorted[idx]
+}
+
 #[derive(Clone, Debug)]
 struct AnnealHistory {
     run: usize,
     batch_cost: u32,
     best_cost: u32,
     elapsed_ms: u128,
+    temperature: f32,
+    p10_cost: u32,
+    p50_cost: u32,
+    p90_cost: u32,
 }
 
 struct AnnealState {
@@ -1319,6 +1580,13 @@ struct AnnealState {
     graph_id: u64,
     pending_reset: bool,
     force_reinit: bool,
+    chain_count: u32,
+    auto_chains: bool,
+    chain_tune_batches: u32,
+    chain_rate_ema: f64,
+    chain_last_rate: f64,
+    chain_step: u32,
+    chain_direction: i32,
 }
 
 impl AnnealState {
@@ -1342,6 +1610,13 @@ impl AnnealState {
             graph,
             pending_reset: false,
             force_reinit: true,
+            chain_count: MIN_BATCH_SIZE,
+            auto_chains: true,
+            chain_tune_batches: 0,
+            chain_rate_ema: 0.0,
+            chain_last_rate: 0.0,
+            chain_step: 2,
+            chain_direction: 1,
         }
     }
 
@@ -1355,6 +1630,11 @@ impl AnnealState {
         self.total_chains = 0;
         self.pending_reset = false;
         self.force_reinit = true;
+        self.chain_tune_batches = 0;
+        self.chain_rate_ema = 0.0;
+        self.chain_last_rate = 0.0;
+        self.chain_step = 2;
+        self.chain_direction = 1;
     }
 
     fn sync_graph(&mut self, graph: &GraphData) {
@@ -1371,6 +1651,11 @@ impl AnnealState {
         self.total_steps = 0;
         self.total_chains = 0;
         self.force_reinit = true;
+        self.chain_tune_batches = 0;
+        self.chain_rate_ema = 0.0;
+        self.chain_last_rate = 0.0;
+        self.chain_step = 2;
+        self.chain_direction = 1;
     }
 
     fn maybe_reset(&mut self) {
@@ -1408,6 +1693,10 @@ impl AnnealState {
             batch_cost: batch.best_cost,
             best_cost: self.best_cost,
             elapsed_ms: batch.elapsed_ms,
+            temperature: batch.temperature,
+            p10_cost: batch.p10_cost,
+            p50_cost: batch.p50_cost,
+            p90_cost: batch.p90_cost,
         });
         if self.history.len() > MAX_HISTORY {
             let drop = self.history.len() - MAX_HISTORY;
@@ -1419,6 +1708,52 @@ impl AnnealState {
                 batch.elapsed_ms,
                 target_ms,
             );
+        }
+        self.tune_chains(batch);
+    }
+
+    fn tune_chains(&mut self, batch: &AnnealResult) {
+        if !self.auto_chains {
+            return;
+        }
+        if batch.elapsed_ms == 0 || batch.steps == 0 {
+            return;
+        }
+        let rate = batch.steps as f64 * batch.batch_size as f64 / batch.elapsed_ms as f64;
+        if self.chain_rate_ema == 0.0 {
+            self.chain_rate_ema = rate;
+        } else {
+            self.chain_rate_ema = self.chain_rate_ema * 0.8 + rate * 0.2;
+        }
+        self.chain_tune_batches += 1;
+        if self.chain_tune_batches < CHAIN_TUNE_INTERVAL {
+            return;
+        }
+        self.chain_tune_batches = 0;
+        if self.chain_last_rate == 0.0 {
+            self.chain_last_rate = self.chain_rate_ema;
+            return;
+        }
+
+        let gain = (self.chain_rate_ema - self.chain_last_rate) / self.chain_last_rate;
+        if gain.abs() < CHAIN_TUNE_TOLERANCE {
+            self.chain_step = (self.chain_step / 2).max(1);
+            self.chain_last_rate = self.chain_rate_ema;
+            return;
+        }
+        if gain < 0.0 {
+            self.chain_direction = -self.chain_direction;
+            self.chain_step = (self.chain_step / 2).max(1);
+        } else if self.chain_step < CHAIN_TUNE_STEP_MAX {
+            self.chain_step = (self.chain_step.saturating_mul(2)).min(CHAIN_TUNE_STEP_MAX);
+        }
+        self.chain_last_rate = self.chain_rate_ema;
+
+        let current = self.chain_count.max(1);
+        let next = (current as i64 + self.chain_direction as i64 * self.chain_step as i64)
+            .clamp(MIN_BATCH_SIZE as i64, MAX_BATCH_SIZE as i64) as u32;
+        if next != current {
+            self.chain_count = next;
         }
     }
 }
@@ -1917,6 +2252,96 @@ fn minla_sa_kernel(
     }
 }
 
+#[cube(launch)]
+fn minla_sa_reseed_kernel(
+    node_count: u32,
+    best_idx: u32,
+    best_cost: u32,
+    stale_steps: u32,
+    reset_temp: f32,
+    reset_floor: f32,
+    orders: &mut Array<u32>,
+    positions: &mut Array<u32>,
+    best_orders: &mut Array<u32>,
+    current_costs: &mut Array<u32>,
+    best_costs: &mut Array<u32>,
+    temperatures: &mut Array<f32>,
+    temp_floors: &mut Array<f32>,
+    stagnant_steps: &mut Array<u32>,
+) {
+    let candidate = ABSOLUTE_POS;
+    let node_count = node_count as usize;
+    let best_idx = best_idx as usize;
+    let should_reseed = stale_steps > 0
+        && candidate != best_idx
+        && stagnant_steps[candidate] >= stale_steps;
+    if should_reseed {
+        if node_count == 0 {
+            current_costs[candidate] = best_cost;
+            best_costs[candidate] = best_cost;
+        } else {
+            let base = candidate * node_count;
+            let best_base = best_idx * node_count;
+            for idx in 0..node_count {
+                let node = best_orders[best_base + idx];
+                orders[base + idx] = node;
+                best_orders[base + idx] = node;
+                positions[base + node as usize] = idx as u32;
+            }
+            current_costs[candidate] = best_cost;
+            best_costs[candidate] = best_cost;
+        }
+        temperatures[candidate] = reset_temp;
+        temp_floors[candidate] = reset_floor;
+        stagnant_steps[candidate] = 0;
+    }
+}
+
+#[cube(launch)]
+fn minla_sa_copy_kernel(
+    node_count: u32,
+    old_batch_size: u32,
+    orders_old: &Array<u32>,
+    positions_old: &Array<u32>,
+    best_orders_old: &Array<u32>,
+    current_costs_old: &Array<u32>,
+    best_costs_old: &Array<u32>,
+    temperatures_old: &Array<f32>,
+    temp_floors_old: &Array<f32>,
+    cooling_old: &Array<f32>,
+    rng_states_old: &Array<u32>,
+    stagnant_steps_old: &Array<u32>,
+    orders_new: &mut Array<u32>,
+    positions_new: &mut Array<u32>,
+    best_orders_new: &mut Array<u32>,
+    current_costs_new: &mut Array<u32>,
+    best_costs_new: &mut Array<u32>,
+    temperatures_new: &mut Array<f32>,
+    temp_floors_new: &mut Array<f32>,
+    cooling_new: &mut Array<f32>,
+    rng_states_new: &mut Array<u32>,
+    stagnant_steps_new: &mut Array<u32>,
+) {
+    let candidate = ABSOLUTE_POS;
+    let node_count = node_count as usize;
+    if candidate < old_batch_size as usize {
+        let base = candidate * node_count;
+        for idx in 0..node_count {
+            let offset = base + idx;
+            orders_new[offset] = orders_old[offset];
+            positions_new[offset] = positions_old[offset];
+            best_orders_new[offset] = best_orders_old[offset];
+        }
+        current_costs_new[candidate] = current_costs_old[candidate];
+        best_costs_new[candidate] = best_costs_old[candidate];
+        temperatures_new[candidate] = temperatures_old[candidate];
+        temp_floors_new[candidate] = temp_floors_old[candidate];
+        cooling_new[candidate] = cooling_old[candidate];
+        rng_states_new[candidate] = rng_states_old[candidate];
+        stagnant_steps_new[candidate] = stagnant_steps_old[candidate];
+    }
+}
+
 fn seed_to_u32(seed: u64) -> u32 {
     let low = seed as u32;
     let high = (seed >> 32) as u32;
@@ -2104,15 +2529,21 @@ The first run can be slow while CubeCL builds shaders."#
                 } else {
                     "Auto-run: off"
                 };
-                ui.add(widgets::ToggleButton::new(&mut state.auto_run, toggle_label));
-                if ui
-                    .add_enabled(!running, widgets::Button::new("Run once"))
-                    .clicked()
+                let auto_run_active = state.auto_run;
+                let mut toggle = widgets::ToggleButton::new(&mut state.auto_run, toggle_label);
+                if auto_run_active {
+                    let (fill, light) = auto_run_pulse(ui);
+                    toggle = toggle.fill(fill).light(light);
+                }
+                ui.add(toggle);
+                if !state.auto_run
+                    && ui
+                        .add_enabled(!running, widgets::Button::new("Run once"))
+                        .clicked()
                 {
                     spawn_requested = true;
                 }
-                if running {
-                    ui.add(Spinner::new());
+                if running || state.auto_run {
                     ui.ctx().request_repaint();
                 }
             });
@@ -2161,7 +2592,7 @@ The first run can be slow while CubeCL builds shaders."#
                         .collect();
 
                     Plot::new("minla_perf")
-                        .height(160.0)
+                        .height(320.0)
                         .legend(Legend::default())
                         .show(&mut columns[0], |plot_ui| {
                             if !perf_points.is_empty() {
@@ -2181,7 +2612,7 @@ The first run can be slow while CubeCL builds shaders."#
                         .collect();
 
                     Plot::new("minla_cost")
-                        .height(160.0)
+                        .height(320.0)
                         .legend(Legend::default())
                         .show(&mut columns[1], |plot_ui| {
                             if !best_points.is_empty() {
@@ -2239,16 +2670,19 @@ The first run can be slow while CubeCL builds shaders."#
                 target_ms
             ));
             ui.label(format!(
-                "Steps/chain: {}, initial temp: {:.2}, base cooling: {:.4}.",
-                state.config.steps_per_batch, state.config.initial_temp, state.config.cooling
+                "Steps/chain: {}, chains: {} (auto), initial temp: {:.2}, base cooling: {:.4}.",
+                state.config.steps_per_batch,
+                state.chain_count,
+                state.config.initial_temp,
+                state.config.cooling
             ));
             ui.label(format!(
                 "Target acceptance: {:.2}, cooling adjust: {:.4}.",
                 state.config.target_acceptance, state.config.cooling_adjust
             ));
             ui.label(format!(
-                "Temp floor: {:.2}, stagnation scale: {} batches.",
-                state.config.reheat_temp, state.config.reheat_plateau_batches
+                "Temp floor: {:.2}, stagnation scale: {} steps.",
+                state.config.reheat_temp, REHEAT_PLATEAU_STEPS
             ));
             ui.label("Reset re-tunes parameters for the current graph.");
 
@@ -2258,21 +2692,28 @@ The first run can be slow while CubeCL builds shaders."#
                 } else {
                     "Auto-run: off"
                 };
-                ui.add(widgets::ToggleButton::new(&mut state.auto_run, toggle_label));
-                if ui
-                    .add_enabled(!running, widgets::Button::new("Run once"))
-                    .clicked()
+                let auto_run_active = state.auto_run;
+                let mut toggle = widgets::ToggleButton::new(&mut state.auto_run, toggle_label);
+                if auto_run_active {
+                    let (fill, light) = auto_run_pulse(ui);
+                    toggle = toggle.fill(fill).light(light);
+                }
+                ui.add(toggle);
+                if !state.auto_run
+                    && ui
+                        .add_enabled(!running, widgets::Button::new("Run once"))
+                        .clicked()
                 {
                     spawn_requested = true;
                 }
-                if ui
-                    .add_enabled(!running, widgets::Button::new("Reset"))
-                    .clicked()
+                if !state.auto_run
+                    && ui
+                        .add_enabled(!running, widgets::Button::new("Reset"))
+                        .clicked()
                 {
                     reset_requested = true;
                 }
-                if running {
-                    ui.add(Spinner::new());
+                if running || state.auto_run {
                     ui.ctx().request_repaint();
                 }
             });
@@ -2349,13 +2790,98 @@ The first run can be slow while CubeCL builds shaders."#
                     .iter()
                     .map(|entry| [entry.run as f64, entry.best_cost as f64])
                     .collect();
+                let median_points: Vec<[f64; 2]> = state
+                    .history
+                    .iter()
+                    .map(|entry| [entry.run as f64, entry.p50_cost as f64])
+                    .collect();
+                let band_quads: Vec<PlotPoints> = state
+                    .history
+                    .windows(2)
+                    .map(|window| {
+                        let left = &window[0];
+                        let right = &window[1];
+                        PlotPoints::from(vec![
+                            [left.run as f64, left.p90_cost as f64],
+                            [right.run as f64, right.p90_cost as f64],
+                            [right.run as f64, right.p10_cost as f64],
+                            [left.run as f64, left.p10_cost as f64],
+                        ])
+                    })
+                    .collect();
+                let temp_values: Vec<f32> = state
+                    .history
+                    .iter()
+                    .map(|entry| entry.temperature)
+                    .collect();
+                let run_base = state
+                    .history
+                    .first()
+                    .map(|entry| entry.run)
+                    .unwrap_or(0) as i64;
+                let temp_floor = MIN_ANNEAL_TEMP;
+                let temp_ceiling = state
+                    .config
+                    .reheat_temp
+                    .max(state.config.initial_temp)
+                    .max(temp_floor);
+                let temp_span = (temp_ceiling - temp_floor).max(f32::EPSILON);
+                let cold = Color32::from_rgb(80, 140, 255);
+                let hot = Color32::from_rgb(255, 120, 70);
+                let band_base = themes::blend(cold, hot, 0.35);
+                let band_color = Color32::from_rgba_unmultiplied(
+                    band_base.r(),
+                    band_base.g(),
+                    band_base.b(),
+                    28,
+                );
+                let median_color = Color32::from_rgba_unmultiplied(
+                    band_base.r(),
+                    band_base.g(),
+                    band_base.b(),
+                    110,
+                );
 
                 Plot::new("anneal_cost")
-                    .height(160.0)
+                    .height(320.0)
                     .legend(Legend::default())
-                    .show(ui, |plot_ui| {
+                    .show(ui, move |plot_ui| {
+                        for quad in band_quads {
+                            plot_ui.polygon(
+                                Polygon::new("", quad)
+                                    .fill_color(band_color)
+                                    .stroke(Stroke::new(0.0, band_color))
+                                    .allow_hover(false),
+                            );
+                        }
+                        if !median_points.is_empty() {
+                            plot_ui.line(
+                                Line::new("", PlotPoints::from(median_points))
+                                    .color(median_color)
+                                    .width(1.0)
+                                    .allow_hover(false),
+                            );
+                        }
                         if !batch_points.is_empty() {
-                            plot_ui.line(Line::new("batch", PlotPoints::from(batch_points)));
+                            let batch_line = Line::new("batch", PlotPoints::from(batch_points))
+                                .gradient_color(
+                                    Arc::new(move |point| {
+                                        let run = point.x.round() as i64;
+                                        let idx = if run >= run_base {
+                                            (run - run_base) as usize
+                                        } else {
+                                            0
+                                        };
+                                        let temp = temp_values
+                                            .get(idx)
+                                            .copied()
+                                            .unwrap_or(temp_floor);
+                                        let t = ((temp - temp_floor) / temp_span).clamp(0.0, 1.0);
+                                        themes::blend(cold, hot, t)
+                                    }),
+                                    false,
+                                );
+                            plot_ui.line(batch_line);
                         }
                         if !best_points.is_empty() {
                             plot_ui.line(Line::new("best", PlotPoints::from(best_points)));
@@ -2371,18 +2897,12 @@ The first run can be slow while CubeCL builds shaders."#
             spawn_requested = true;
         }
         if spawn_requested && !running {
-            let batch_size = {
-                let config = config.read(ui);
-                config.batch_size.max(1) as usize
-            };
+            let batch_size = state.chain_count.max(1) as usize;
             let steps = state
                 .config
                 .steps_per_batch
                 .clamp(MIN_ANNEAL_STEPS, MAX_ANNEAL_STEPS);
-            let plateau_steps = state
-                .config
-                .reheat_plateau_batches
-                .saturating_mul(steps);
+            let plateau_steps = REHEAT_PLATEAU_STEPS;
             let seed = state.config.seed;
             let reset = state.force_reinit;
             if let Err(error) = state.runner.spawn(AnnealRequest {
