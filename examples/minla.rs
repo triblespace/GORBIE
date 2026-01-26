@@ -2248,15 +2248,12 @@ fn minla_sa_kernel(
                 if adaptive_cooling && interval_steps >= SA_ADAPT_INTERVAL {
                     let acceptance = interval_accepts as f32 / interval_steps as f32;
                     if acceptance > target_acceptance + 0.05 {
-                        cooling -= cooling_adjust;
-                        if cooling < 0.90 {
-                            cooling = 0.90;
-                        }
+                        temperature = temperature * (1.0 - cooling_adjust);
                     } else if acceptance < target_acceptance - 0.05 {
-                        cooling += cooling_adjust;
-                        if cooling > 0.9999 {
-                            cooling = 0.9999;
-                        }
+                        temperature = temperature * (1.0 + cooling_adjust);
+                    }
+                    if temperature < temp_floor {
+                        temperature = temp_floor;
                     }
                     interval_steps = 0;
                     interval_accepts = 0;
@@ -2699,7 +2696,7 @@ The first run can be slow while CubeCL builds shaders."#
                 state.config.cooling
             ));
             ui.label(format!(
-                "Target acceptance: {:.2}, cooling adjust: {:.4}.",
+                "Target acceptance: {:.2}, temp adjust: {:.4}.",
                 state.config.target_acceptance, state.config.cooling_adjust
             ));
             ui.label(format!(
