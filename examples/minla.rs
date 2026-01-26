@@ -1576,6 +1576,8 @@ struct AnnealState {
     runs: usize,
     total_steps: usize,
     total_chains: usize,
+    total_elapsed_ms: u128,
+    start_cost: Option<u32>,
     graph: GraphData,
     graph_id: u64,
     pending_reset: bool,
@@ -1606,6 +1608,8 @@ impl AnnealState {
             runs: 0,
             total_steps: 0,
             total_chains: 0,
+            total_elapsed_ms: 0,
+            start_cost: None,
             graph_id: graph.id,
             graph,
             pending_reset: false,
@@ -1628,6 +1632,8 @@ impl AnnealState {
         self.runs = 0;
         self.total_steps = 0;
         self.total_chains = 0;
+        self.total_elapsed_ms = 0;
+        self.start_cost = None;
         self.pending_reset = false;
         self.force_reinit = true;
         self.chain_tune_batches = 0;
@@ -1635,6 +1641,18 @@ impl AnnealState {
         self.chain_last_rate = 0.0;
         self.chain_step = 2;
         self.chain_direction = 1;
+    }
+
+    fn ensure_start_cost(&mut self) {
+        if self.start_cost.is_some() {
+            return;
+        }
+        if self.graph.node_count == 0 {
+            self.start_cost = Some(0);
+            return;
+        }
+        let baseline_order: Vec<usize> = (0..self.graph.node_count).collect();
+        self.start_cost = Some(cost_cpu(&baseline_order, &self.graph));
     }
 
     fn sync_graph(&mut self, graph: &GraphData) {
@@ -1650,6 +1668,8 @@ impl AnnealState {
         self.runs = 0;
         self.total_steps = 0;
         self.total_chains = 0;
+        self.total_elapsed_ms = 0;
+        self.start_cost = None;
         self.force_reinit = true;
         self.chain_tune_batches = 0;
         self.chain_rate_ema = 0.0;
@@ -1685,6 +1705,8 @@ impl AnnealState {
         self.runs += 1;
         self.total_steps += batch.steps as usize * batch.batch_size;
         self.total_chains += batch.batch_size;
+        self.total_elapsed_ms += batch.elapsed_ms;
+        self.ensure_start_cost();
         if batch.best_cost < self.best_cost {
             self.best_cost = batch.best_cost;
         }
@@ -2764,6 +2786,18 @@ The first run can be slow while CubeCL builds shaders."#
                             "Best improvement rate: {:.2} cost/s over last {} runs.",
                             improvement_per_s,
                             state.history.len()
+                        ));
+                    }
+                }
+                if let Some(start_cost) = state.start_cost {
+                    if state.total_elapsed_ms > 0 {
+                        let improvement = start_cost.saturating_sub(state.best_cost) as f64;
+                        let improvement_per_s =
+                            improvement * 1000.0 / state.total_elapsed_ms as f64;
+                        let elapsed_s = state.total_elapsed_ms as f64 / 1000.0;
+                        ui.label(format!(
+                            "Overall improvement rate: {:.2} cost/s over {:.1} s.",
+                            improvement_per_s, elapsed_s
                         ));
                     }
                 }
