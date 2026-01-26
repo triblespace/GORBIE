@@ -2397,7 +2397,16 @@ We keep the search deliberately simple:
 
 A separate card runs a GPU simulated annealing loop for comparison.
 
-The first run can be slow while CubeCL builds shaders."#
+The first run can be slow while CubeCL builds shaders.
+
+## SA intuition (quick)
+- *Metropolis test*: a move with `delta = new - current` is accepted if `delta <= 0`,
+  otherwise with probability `exp(-delta / T)`.
+- *Temperature (`T`)* is the scale that decides how often we accept worse moves.
+- *Acceptance rate* is just the observed fraction of accepted moves.
+- *Adaptive temperature* nudges `T` up/down to keep acceptance near a target band.
+- *Temperature floor / reheat* reacts to stagnation; it can kick the chain loose even
+  if acceptance is already “healthy.” These are complementary signals."#
         );
     });
 
