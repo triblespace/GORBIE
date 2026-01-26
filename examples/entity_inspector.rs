@@ -24,7 +24,7 @@ use triblespace::prelude::valueschemas::{GenId, ShortString, R256};
 use triblespace::prelude::{entity, ConstMetadata, TribleSet, View};
 
 use GORBIE::prelude::*;
-use GORBIE::widgets::triblespace::{id_short, EntityInspectorWidget, EntityOrder};
+use GORBIE::widgets::triblespace::{id_short, EntityInspectorWidget};
 
 mod demo {
     use triblespace::prelude::*;
@@ -292,7 +292,6 @@ fn build_demo_space() -> (TribleSet, TribleSet, MemoryRepo, Id) {
 struct InspectorState {
     selected: Id,
     columns: usize,
-    order: EntityOrder,
     node_count: usize,
 }
 
@@ -302,7 +301,6 @@ impl Default for InspectorState {
         Self {
             selected: id_hex!("11111111111111111111111111111111"),
             columns: 0,
-            order: EntityOrder::Id,
             node_count: 0,
         }
     }
@@ -328,7 +326,6 @@ fn main(nb: &mut NotebookCtx) {
         InspectorState {
             selected: default_selected,
             columns: 0,
-            order: EntityOrder::Id,
             node_count: 0,
         },
         move |ui, state| {
@@ -344,60 +341,6 @@ fn main(nb: &mut NotebookCtx) {
                     );
                     ui.label(egui::RichText::new("(0 = auto)").monospace().weak());
                 });
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("ORDER").monospace().strong());
-                    let passes = match state.order {
-                        EntityOrder::Barycentric { passes }
-                        | EntityOrder::BarycentricSwap { passes } => passes,
-                        _ => 4,
-                    };
-                    #[cfg(feature = "minla")]
-                    let minla_max_nodes = match state.order {
-                        EntityOrder::Minla { max_nodes } => max_nodes,
-                        _ => 48,
-                    };
-                    let mut order_choice = widgets::ChoiceToggle::new(&mut state.order)
-                        .choice(EntityOrder::Id, "ID")
-                        .choice(EntityOrder::CuthillMckee, "CM")
-                        .choice(EntityOrder::Barycentric { passes }, "BC")
-                        .choice(EntityOrder::BarycentricSwap { passes }, "BS");
-                    #[cfg(feature = "minla")]
-                    {
-                        order_choice =
-                            order_choice.choice(EntityOrder::Minla { max_nodes: minla_max_nodes }, "ML");
-                    }
-                    ui.add(order_choice.small());
-                    if let EntityOrder::Barycentric { passes }
-                    | EntityOrder::BarycentricSwap { passes } = &mut state.order
-                    {
-                        ui.add_space(8.0);
-                        ui.label(egui::RichText::new("BC PASSES").monospace().weak());
-                        let constrain = |_: usize, next: usize| next.clamp(1, 32);
-                        ui.add(
-                            widgets::NumberField::new(passes)
-                                .speed(0.25)
-                                .constrain_value(&constrain),
-                        );
-                    }
-                    #[cfg(feature = "minla")]
-                    if let EntityOrder::Minla { max_nodes } = &mut state.order {
-                        ui.add_space(8.0);
-                        ui.label(egui::RichText::new("ML NODES").monospace().weak());
-                        let constrain = |_: usize, next: usize| {
-                            if next == 0 {
-                                0
-                            } else {
-                                next.clamp(4, 256)
-                            }
-                        };
-                        ui.add(
-                            widgets::NumberField::new(max_nodes)
-                                .speed(0.25)
-                                .constrain_value(&constrain),
-                        );
-                        ui.label(egui::RichText::new("(0 = no cap)").monospace().weak());
-                    }
-                });
                 ui.add_space(8.0);
 
                 let response = EntityInspectorWidget::new(
@@ -408,7 +351,6 @@ fn main(nb: &mut NotebookCtx) {
                     &mut state.selected,
                 )
                 .columns(state.columns)
-                .order(state.order)
                 .show(ui);
 
                 let stats = response.stats;

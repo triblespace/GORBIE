@@ -392,12 +392,12 @@ struct PileSimulation {
     colliders: ColliderSet,
     pipeline: PhysicsPipeline,
     island_manager: IslandManager,
-    broad_phase: BroadPhase,
+    broad_phase: BroadPhaseBvh,
     narrow_phase: NarrowPhase,
     impulse_joints: ImpulseJointSet,
     multibody_joints: MultibodyJointSet,
     ccd_solver: CCDSolver,
-    gravity: Vector<f32>,
+    gravity: Vector,
     integration_parameters: IntegrationParameters,
     spawn_accumulator: f32,
     spawn_interval: f32,
@@ -424,7 +424,7 @@ impl PileSimulation {
 
         let ground_handle = bodies.insert(
             RigidBodyBuilder::fixed()
-                .translation(vector![0.0, 0.0])
+                .translation(Vector::new(0.0, 0.0))
                 .build(),
         );
         let ground = ColliderBuilder::cuboid(layout.half_width * 8.0, layout.wall_thickness)
@@ -442,12 +442,12 @@ impl PileSimulation {
             colliders,
             pipeline: PhysicsPipeline::new(),
             island_manager: IslandManager::new(),
-            broad_phase: BroadPhase::new(),
+            broad_phase: BroadPhaseBvh::new(),
             narrow_phase: NarrowPhase::new(),
             impulse_joints: ImpulseJointSet::new(),
             multibody_joints: MultibodyJointSet::new(),
             ccd_solver: CCDSolver::new(),
-            gravity: vector![0.0, -980.0],
+            gravity: Vector::new(0.0, -980.0),
             integration_parameters: IntegrationParameters::default(),
             spawn_accumulator: 0.0,
             spawn_interval: spawn_interval.max(0.005),
@@ -468,7 +468,7 @@ impl PileSimulation {
         let x = self.rng.range_f32(spawn_span * 0.15, spawn_span);
         let y = self.layout.spawn_y + self.rng.range_f32(half * 0.4, half * 1.6);
         let body = RigidBodyBuilder::dynamic()
-            .translation(vector![x, y])
+            .translation(Vector::new(x, y))
             .linear_damping(1.7)
             .angular_damping(2.2)
             .build();
@@ -497,7 +497,7 @@ impl PileSimulation {
 
         self.integration_parameters.dt = dt;
         self.pipeline.step(
-            &self.gravity,
+            self.gravity,
             &self.integration_parameters,
             &mut self.island_manager,
             &mut self.broad_phase,
@@ -507,7 +507,6 @@ impl PileSimulation {
             &mut self.impulse_joints,
             &mut self.multibody_joints,
             &mut self.ccd_solver,
-            None,
             &(),
             &(),
         );
@@ -523,7 +522,7 @@ impl PileSimulation {
         let mut max_speed = 0.0_f32;
         for block in &self.blocks {
             if let Some(body) = self.bodies.get(block.handle) {
-                max_speed = max_speed.max(body.linvel().norm());
+                max_speed = max_speed.max(body.linvel().length());
             }
         }
 

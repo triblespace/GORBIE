@@ -5,7 +5,7 @@
 //! ed25519-dalek = "2.1.1"
 //! egui = "0.33"
 //! hifitime = "4.2.3"
-//! rand = "0.8.5"
+//! rand_core = "0.9.5"
 //! triblespace = { path = "../../triblespace-rs", features = ["wasm"] }
 //! ```
 
@@ -13,9 +13,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use ed25519_dalek::SigningKey;
+use ed25519_dalek::{SecretKey, SigningKey};
 use hifitime::Epoch;
-use rand::rngs::OsRng;
+use rand_core::OsRng;
+use rand_core::TryRngCore;
 use triblespace::core::blob::schemas::longstring::LongString;
 use triblespace::core::blob::schemas::simplearchive::SimpleArchive;
 use triblespace::core::blob::schemas::wasmcode::WasmCode;
@@ -346,7 +347,11 @@ fn checkout_space(
     selection: CommitSelection,
 ) -> (Pile, Result<CheckoutData, String>) {
     let mut rng = OsRng;
-    let signing_key = SigningKey::generate(&mut rng);
+    let mut secret = SecretKey::default();
+    if let Err(err) = rng.try_fill_bytes(&mut secret) {
+        return (pile, Err(format!("rng failed: {err}")));
+    }
+    let signing_key = SigningKey::from_bytes(&secret);
     let mut repo = Repository::new(pile, signing_key);
     let space_result = repo
         .pull(branch_id)

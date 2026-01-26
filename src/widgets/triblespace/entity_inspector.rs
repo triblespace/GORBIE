@@ -1,15 +1,21 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
-#[cfg(feature = "minla")]
+#[cfg(feature = "cubecl")]
 use std::sync::mpsc;
-#[cfg(feature = "minla")]
+#[cfg(feature = "cubecl")]
 use std::sync::Mutex;
-#[cfg(feature = "minla")]
+#[cfg(feature = "cubecl")]
 use std::time::Instant;
 
 use eframe::egui;
 use eframe::egui::{pos2, vec2, Align2, Rect, Response, Sense, Stroke, TextStyle, Ui};
 
+#[cfg(feature = "cubecl")]
+use cubecl::prelude::*;
+#[cfg(feature = "cubecl")]
+use cubecl::server::Handle as CubeHandle;
+#[cfg(feature = "cubecl")]
+use cubecl::wgpu::{WgpuDevice, WgpuRuntime};
 use triblespace::core::blob::schemas::longstring::LongString;
 use triblespace::core::blob::schemas::wasmcode::WasmCode;
 use triblespace::core::blob::BlobCache;
@@ -22,13 +28,6 @@ use triblespace::core::value::Value;
 use triblespace::core::value_formatter::{WasmLimits, WasmValueFormatter};
 use triblespace::prelude::valueschemas::GenId;
 use triblespace::prelude::{find, pattern, ConstMetadata, TribleSet, TribleSetFingerprint, View};
-
-#[cfg(feature = "minla")]
-use good_lp::constraint;
-#[cfg(feature = "minla")]
-use good_lp::solvers::highs::highs;
-#[cfg(feature = "minla")]
-use good_lp::{variable, variables, Expression, Solution, SolutionStatus, SolverModel};
 
 use crate::themes;
 
@@ -583,11 +582,8 @@ pub struct EntityInspectorStats {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EntityOrder {
     Id,
-    CuthillMckee,
-    Barycentric { passes: usize },
-    BarycentricSwap { passes: usize },
-    #[cfg(feature = "minla")]
-    Minla { max_nodes: usize },
+    #[cfg(feature = "cubecl")]
+    Anneal,
 }
 
 pub struct EntityInspectorResponse {
@@ -622,6 +618,10 @@ where
         formatter_cache: &'a BlobCache<B, Blake3, WasmCode, WasmValueFormatter>,
         selection: &'a mut Id,
     ) -> Self {
+        #[cfg(feature = "cubecl")]
+        let order = EntityOrder::Anneal;
+        #[cfg(not(feature = "cubecl"))]
+        let order = EntityOrder::Id;
         Self {
             data,
             metadata,
@@ -629,7 +629,7 @@ where
             formatter_cache,
             selection,
             columns: 0,
-            order: EntityOrder::Id,
+            order,
             cache_id: None,
         }
     }
@@ -650,11 +650,13 @@ where
     }
 
     pub fn show(self, ui: &mut Ui) -> EntityInspectorResponse {
+        let data_fingerprint = self.data.fingerprint();
+        let metadata_fingerprint = self.metadata.fingerprint();
         let cache_id = self.cache_id.unwrap_or_else(|| {
             ui.id()
                 .with("entity_inspector_graph")
-                .with(self.name_cache as *const _ as usize)
-                .with(self.formatter_cache as *const _ as usize)
+                .with(data_fingerprint)
+                .with(metadata_fingerprint)
         });
         let graph = cached_entity_graph(
             ui,
@@ -730,112 +732,562 @@ fn attribute_palette_index(attr: Id, palette_len: usize) -> usize {
     (hash as usize) % palette_len
 }
 
-fn entity_order(ui: &mut Ui, cache_id: egui::Id, graph: &EntityGraph, order: EntityOrder) -> Vec<usize> {
-    #[cfg(not(feature = "minla"))]
+fn entity_order(
+    ui: &mut Ui,
+    cache_id: egui::Id,
+    graph: &EntityGraph,
+    order: EntityOrder,
+) -> Vec<usize> {
+    #[cfg(not(feature = "cubecl"))]
     let _ = (ui, cache_id);
     match order {
         EntityOrder::Id => (0..graph.nodes.len()).collect(),
-        EntityOrder::CuthillMckee => cuthill_mckee_order(graph),
-        EntityOrder::Barycentric { passes } => barycentric_order(graph, passes),
-        EntityOrder::BarycentricSwap { passes } => barycentric_swap_order(graph, passes),
-        #[cfg(feature = "minla")]
-        EntityOrder::Minla { max_nodes } => {
-            minla_order(ui, cache_id, graph, max_nodes)
-                .unwrap_or_else(|| barycentric_swap_order(graph, 4))
+        #[cfg(feature = "cubecl")]
+        EntityOrder::Anneal => {
+            gpu_sa_order(ui, cache_id, graph)
+                .unwrap_or_else(|| (0..graph.nodes.len()).collect())
         }
     }
 }
 
-#[cfg(feature = "minla")]
+#[cfg(feature = "cubecl")]
 #[derive(Clone)]
-struct MinlaProblem {
+struct GpuSaProblem {
     node_count: usize,
     edges: Vec<(usize, usize)>,
+    edges_flat: Vec<u32>,
+    adj_offsets: Vec<u32>,
+    adj_list: Vec<u32>,
 }
 
-#[cfg(feature = "minla")]
-impl MinlaProblem {
+#[cfg(feature = "cubecl")]
+impl GpuSaProblem {
     fn from_graph(graph: &EntityGraph) -> Self {
-        let edges = graph
+        let node_count = graph.nodes.len();
+        let edges: Vec<(usize, usize)> = graph
             .edges
             .iter()
             .map(|edge| (edge.from_entity, edge.to_entity))
             .collect();
+        let mut edges_flat = Vec::with_capacity(edges.len() * 2);
+        for (u, v) in &edges {
+            edges_flat.push(*u as u32);
+            edges_flat.push(*v as u32);
+        }
+
+        let mut degrees = vec![0usize; node_count];
+        for &(u, v) in &edges {
+            degrees[u] += 1;
+            degrees[v] += 1;
+        }
+        let mut adj_offsets = Vec::with_capacity(node_count + 1);
+        adj_offsets.push(0u32);
+        for i in 0..node_count {
+            adj_offsets.push(adj_offsets[i] + degrees[i] as u32);
+        }
+        let total_adj = *adj_offsets.last().unwrap_or(&0) as usize;
+        let mut adj_list = vec![0u32; total_adj];
+        let mut cursor: Vec<usize> = adj_offsets.iter().map(|&offset| offset as usize).collect();
+        for &(u, v) in &edges {
+            let idx = cursor[u];
+            adj_list[idx] = v as u32;
+            cursor[u] += 1;
+            let idx = cursor[v];
+            adj_list[idx] = u as u32;
+            cursor[v] += 1;
+        }
+
         Self {
-            node_count: graph.nodes.len(),
+            node_count,
             edges,
+            edges_flat,
+            adj_offsets,
+            adj_list,
         }
     }
 }
 
-#[cfg(feature = "minla")]
+#[cfg(feature = "cubecl")]
 #[derive(Clone, Default)]
-struct MinlaCache {
+struct GpuSaCache {
     graph_ptr: usize,
-    max_nodes: usize,
     order: Option<Vec<usize>>,
-    best_objective: Option<f64>,
-    receiver: Option<Arc<Mutex<mpsc::Receiver<MinlaUpdate>>>>,
+    best_cost: Option<u32>,
+    receiver: Option<Arc<Mutex<mpsc::Receiver<GpuSaUpdate>>>>,
     skipped: bool,
 }
 
-#[cfg(feature = "minla")]
+#[cfg(feature = "cubecl")]
 #[derive(Clone, Debug)]
-struct MinlaUpdate {
+struct GpuSaUpdate {
     order: Vec<usize>,
-    objective: f64,
 }
 
-#[cfg(feature = "minla")]
-const MINLA_LOOP_SECONDS: f64 = 1.0;
+#[cfg(feature = "cubecl")]
+const SA_DEFAULT_STEPS: u32 = 1000;
+#[cfg(feature = "cubecl")]
+const SA_MIN_STEPS: u32 = 1;
+#[cfg(feature = "cubecl")]
+const SA_MAX_STEPS: u32 = 20_000;
+#[cfg(feature = "cubecl")]
+const SA_TARGET_MS: u32 = 60;
+#[cfg(feature = "cubecl")]
+const SA_MAX_TOTAL_NODES: usize = 200_000;
+#[cfg(feature = "cubecl")]
+const SA_MAX_BATCH_SIZE: usize = 256;
+#[cfg(feature = "cubecl")]
+const SA_DEFAULT_COOLING: f32 = 0.995;
+#[cfg(feature = "cubecl")]
+const SA_DEFAULT_TARGET_ACCEPTANCE: f32 = 0.3;
+#[cfg(feature = "cubecl")]
+const SA_DEFAULT_COOLING_ADJUST: f32 = 0.002;
+#[cfg(feature = "cubecl")]
+const SA_REHEAT_PLATEAU_BATCHES: u32 = 12;
+#[cfg(feature = "cubecl")]
+const SA_STOP_AFTER_PLATEAU_MS: u64 = 10_000;
+#[cfg(feature = "cubecl")]
+const SA_FLOOR_FRACTION: f32 = 0.25;
+#[cfg(feature = "cubecl")]
+const SEED_MIX: u32 = 0x9E37_79B9;
+#[cfg(feature = "cubecl")]
+const LCG_A: u32 = 1_664_525;
+#[cfg(feature = "cubecl")]
+const LCG_C: u32 = 1_013_904_223;
+#[cfg(feature = "cubecl")]
+const SA_ADAPT_INTERVAL: u32 = 32;
+#[cfg(feature = "cubecl")]
+const INV_U32_MAX_PLUS1: f32 = 1.0 / 4_294_967_296.0;
+#[cfg(feature = "cubecl")]
+const MIN_ANNEAL_TEMP: f32 = 0.001;
 
-#[cfg(feature = "minla")]
-const MINLA_LOOP_COUNT: usize = 10;
+#[cfg(feature = "cubecl")]
+#[derive(Clone, Copy, Debug)]
+struct LcgRng {
+    state: u64,
+}
 
-#[cfg(feature = "minla")]
-const MINLA_MIP_REL_GAP: f32 = 0.01;
+#[cfg(feature = "cubecl")]
+impl LcgRng {
+    fn new(seed: u64) -> Self {
+        Self { state: seed }
+    }
 
-#[cfg(feature = "minla")]
-const MINLA_MIP_ABS_GAP_FRACTION: f64 = 0.01;
+    fn next_u32(&mut self) -> u32 {
+        self.state = self
+            .state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        (self.state >> 32) as u32
+    }
 
-#[cfg(feature = "minla")]
-fn minla_mip_abs_gap(best_objective: f64) -> Option<f32> {
-    if !best_objective.is_finite() || best_objective <= 0.0 {
+    fn gen_range(&mut self, upper: usize) -> usize {
+        if upper == 0 {
+            return 0;
+        }
+        (self.next_u32() as usize) % upper
+    }
+}
+
+#[cfg(feature = "cubecl")]
+fn seed_to_u32(seed: u64) -> u32 {
+    let low = seed as u32;
+    let high = (seed >> 32) as u32;
+    low ^ high.wrapping_mul(SEED_MIX)
+}
+
+#[cfg(feature = "cubecl")]
+fn sa_batch_size(node_count: usize) -> usize {
+    let node_count = node_count.max(1);
+    let max_chains = SA_MAX_TOTAL_NODES / node_count;
+    max_chains.clamp(1, SA_MAX_BATCH_SIZE)
+}
+
+#[cfg(feature = "cubecl")]
+fn adjust_steps_per_batch(current: u32, elapsed_ms: u128, target_ms: u32) -> u32 {
+    if elapsed_ms == 0 {
+        return current.saturating_mul(2).clamp(SA_MIN_STEPS, SA_MAX_STEPS);
+    }
+    let target = target_ms.max(1) as f64;
+    let elapsed = elapsed_ms as f64;
+    let ratio = target / elapsed;
+    if (0.9..=1.1).contains(&ratio) {
+        return current.clamp(SA_MIN_STEPS, SA_MAX_STEPS);
+    }
+    let factor = ratio.clamp(0.5, 2.0);
+    let next = (current as f64 * factor).round() as u32;
+    next.clamp(SA_MIN_STEPS, SA_MAX_STEPS)
+}
+
+#[cfg(feature = "cubecl")]
+fn cost_cpu(order: &[usize], problem: &GpuSaProblem) -> u32 {
+    let mut positions = vec![0u32; problem.node_count.max(1)];
+    for (pos, &node) in order.iter().take(problem.node_count).enumerate() {
+        positions[node] = pos as u32;
+    }
+
+    let mut cost = 0u32;
+    for &(u, v) in &problem.edges {
+        let pu = positions[u];
+        let pv = positions[v];
+        cost += if pu > pv { pu - pv } else { pv - pu };
+    }
+    cost
+}
+
+#[cfg(feature = "cubecl")]
+fn order_cost(graph: &EntityGraph, order: &[usize]) -> u32 {
+    let mut positions = vec![0u32; graph.nodes.len().max(1)];
+    for (pos, &node) in order.iter().take(graph.nodes.len()).enumerate() {
+        positions[node] = pos as u32;
+    }
+
+    let mut cost = 0u32;
+    for edge in &graph.edges {
+        let pu = positions[edge.from_entity];
+        let pv = positions[edge.to_entity];
+        cost += if pu > pv { pu - pv } else { pv - pu };
+    }
+    cost
+}
+
+#[cfg(feature = "cubecl")]
+fn order_cost_checked(graph: &EntityGraph, order: &[usize]) -> Option<u32> {
+    let node_count = graph.nodes.len();
+    if order.len() != node_count {
         return None;
     }
-    let gap = best_objective * MINLA_MIP_ABS_GAP_FRACTION;
-    if gap.is_finite() && gap > 0.0 {
-        Some(gap as f32)
-    } else {
-        None
+
+    let mut positions = vec![u32::MAX; node_count.max(1)];
+    for (pos, &node) in order.iter().enumerate() {
+        if node >= node_count {
+            return None;
+        }
+        if positions[node] != u32::MAX {
+            return None;
+        }
+        positions[node] = pos as u32;
     }
+
+    let mut cost = 0u32;
+    for edge in &graph.edges {
+        let pu = positions[edge.from_entity];
+        let pv = positions[edge.to_entity];
+        cost += if pu > pv { pu - pv } else { pv - pu };
+    }
+    Some(cost)
 }
 
-#[cfg(feature = "minla")]
-fn minla_order(
+#[cfg(feature = "cubecl")]
+fn estimate_initial_temp(problem: &GpuSaProblem, seed: u64, target_acceptance: f32) -> f32 {
+    let node_count = problem.node_count.max(2);
+    let mut order: Vec<usize> = (0..node_count).collect();
+    let base_cost = cost_cpu(&order, problem);
+    let mut rng = LcgRng::new(seed ^ 0x9E37_79B9_7F4A_7C15);
+    let sample_count = node_count.min(64).max(8);
+    let mut sum_delta = 0u64;
+    let mut count = 0u32;
+
+    for _ in 0..sample_count {
+        let i = rng.gen_range(node_count);
+        let mut j = rng.gen_range(node_count - 1);
+        if j >= i {
+            j += 1;
+        }
+        order.swap(i, j);
+        let candidate_cost = cost_cpu(&order, problem);
+        order.swap(i, j);
+        if candidate_cost > base_cost {
+            sum_delta += (candidate_cost - base_cost) as u64;
+            count += 1;
+        }
+    }
+
+    let avg_delta = if count > 0 {
+        sum_delta as f32 / count as f32
+    } else {
+        1.0
+    };
+    let target = target_acceptance.clamp(0.05, 0.95);
+    let denom = -target.ln();
+    let temp = if denom > 0.0 { avg_delta / denom } else { avg_delta };
+    temp.clamp(0.1, 100_000.0)
+}
+
+#[cfg(feature = "cubecl")]
+fn sa_seed(problem: &GpuSaProblem) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    problem.node_count.hash(&mut hasher);
+    problem.edges.len().hash(&mut hasher);
+    for edge in problem.edges.iter().take(1024) {
+        edge.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+#[cfg(feature = "cubecl")]
+struct GpuSaConfig {
+    seed: u64,
+    initial_temp: f32,
+    cooling: f32,
+    floor_temp: f32,
+    reheat_enabled: bool,
+    reheat_plateau_batches: u32,
+    adaptive_cooling: bool,
+    target_acceptance: f32,
+    cooling_adjust: f32,
+}
+
+#[cfg(feature = "cubecl")]
+struct GpuSaBatch {
+    best_cost: u32,
+    best_index: usize,
+    elapsed_ms: u128,
+}
+
+#[cfg(feature = "cubecl")]
+struct GpuSaRunnerState<R: Runtime> {
+    _device: R::Device,
+    client: ComputeClient<R>,
+    _edges_handle: CubeHandle,
+    adj_offsets_handle: CubeHandle,
+    adj_list_handle: CubeHandle,
+    adj_list_len: usize,
+    node_count: usize,
+    batch_size: usize,
+    orders_handle: CubeHandle,
+    positions_handle: CubeHandle,
+    best_orders_handle: CubeHandle,
+    current_costs_handle: CubeHandle,
+    best_costs_handle: CubeHandle,
+    temperatures_handle: CubeHandle,
+    temp_floor_handle: CubeHandle,
+    cooling_handle: CubeHandle,
+    rng_states_handle: CubeHandle,
+    stagnant_steps_handle: CubeHandle,
+}
+
+#[cfg(feature = "cubecl")]
+impl<R: Runtime> GpuSaRunnerState<R> {
+    fn new(
+        device: R::Device,
+        problem: &GpuSaProblem,
+        batch_size: usize,
+        config: &GpuSaConfig,
+    ) -> Result<Self, String> {
+        if batch_size == 0 {
+            return Err("batch size must be > 0".to_string());
+        }
+        if problem.node_count == 0 {
+            return Err("graph must have at least one node".to_string());
+        }
+
+        let client = R::client(&device);
+        let edges_handle = client.create_from_slice(u32::as_bytes(&problem.edges_flat));
+        let adj_offsets_handle = client.create_from_slice(u32::as_bytes(&problem.adj_offsets));
+        let adj_list_handle = client.create_from_slice(u32::as_bytes(&problem.adj_list));
+
+        let order_len = match batch_size.checked_mul(problem.node_count) {
+            Some(len) if len > 0 => len,
+            _ => return Err("batch too large for graph size".to_string()),
+        };
+        let bytes_u32 = std::mem::size_of::<u32>();
+        let bytes_f32 = std::mem::size_of::<f32>();
+        let order_bytes = match order_len.checked_mul(bytes_u32) {
+            Some(bytes) => bytes,
+            None => return Err("order buffer too large".to_string()),
+        };
+        let batch_bytes_u32 = match batch_size.checked_mul(bytes_u32) {
+            Some(bytes) => bytes,
+            None => return Err("batch buffer too large".to_string()),
+        };
+        let batch_bytes_f32 = match batch_size.checked_mul(bytes_f32) {
+            Some(bytes) => bytes,
+            None => return Err("batch buffer too large".to_string()),
+        };
+
+        let orders_handle = client.empty(order_bytes);
+        let positions_handle = client.empty(order_bytes);
+        let best_orders_handle = client.empty(order_bytes);
+        let current_costs_handle = client.empty(batch_bytes_u32);
+        let best_costs_handle = client.empty(batch_bytes_u32);
+        let temperatures_handle = client.empty(batch_bytes_f32);
+        let temp_floor_handle = client.empty(batch_bytes_f32);
+        let cooling_handle = client.empty(batch_bytes_f32);
+        let rng_states_handle = client.empty(batch_bytes_u32);
+        let stagnant_steps_handle = client.empty(batch_bytes_u32);
+
+        let seed32 = seed_to_u32(config.seed);
+        let mut initial_temp = config.initial_temp;
+        if initial_temp < MIN_ANNEAL_TEMP {
+            initial_temp = MIN_ANNEAL_TEMP;
+        }
+        let mut cooling = config.cooling;
+        if cooling < 0.90 {
+            cooling = 0.90;
+        } else if cooling > 0.9999 {
+            cooling = 0.9999;
+        }
+        let mut floor_temp = config.floor_temp;
+        if floor_temp < MIN_ANNEAL_TEMP {
+            floor_temp = MIN_ANNEAL_TEMP;
+        }
+        if floor_temp > initial_temp {
+            floor_temp = initial_temp;
+        }
+
+        unsafe {
+            minla_sa_init_kernel::launch::<R>(
+                &client,
+                CubeCount::new_1d(batch_size as u32),
+                CubeDim::new_1d(1),
+                ArrayArg::from_raw_parts::<u32>(
+                    &edges_handle,
+                    problem.edges_flat.len(),
+                    1,
+                ),
+                ScalarArg::new(problem.node_count as u32),
+                ScalarArg::new(problem.edges.len() as u32),
+                ScalarArg::new(seed32),
+                ScalarArg::new(initial_temp),
+                ScalarArg::new(cooling),
+                ScalarArg::new(floor_temp),
+                ArrayArg::from_raw_parts::<u32>(&orders_handle, order_len, 1),
+                ArrayArg::from_raw_parts::<u32>(&positions_handle, order_len, 1),
+                ArrayArg::from_raw_parts::<u32>(&best_orders_handle, order_len, 1),
+                ArrayArg::from_raw_parts::<u32>(&current_costs_handle, batch_size, 1),
+                ArrayArg::from_raw_parts::<u32>(&best_costs_handle, batch_size, 1),
+                ArrayArg::from_raw_parts::<f32>(&temperatures_handle, batch_size, 1),
+                ArrayArg::from_raw_parts::<f32>(&temp_floor_handle, batch_size, 1),
+                ArrayArg::from_raw_parts::<f32>(&cooling_handle, batch_size, 1),
+                ArrayArg::from_raw_parts::<u32>(&rng_states_handle, batch_size, 1),
+                ArrayArg::from_raw_parts::<u32>(&stagnant_steps_handle, batch_size, 1),
+            )
+            .expect("minla SA init kernel launch");
+        }
+
+        Ok(Self {
+            _device: device,
+            client,
+            _edges_handle: edges_handle,
+            adj_offsets_handle,
+            adj_list_handle,
+            adj_list_len: problem.adj_list.len(),
+            node_count: problem.node_count,
+            batch_size,
+            orders_handle,
+            positions_handle,
+            best_orders_handle,
+            current_costs_handle,
+            best_costs_handle,
+            temperatures_handle,
+            temp_floor_handle,
+            cooling_handle,
+            rng_states_handle,
+            stagnant_steps_handle,
+        })
+    }
+
+    fn run_steps(&mut self, steps: u32, config: &GpuSaConfig) -> Result<GpuSaBatch, String> {
+        let start = Instant::now();
+        let plateau_steps = config.reheat_plateau_batches.saturating_mul(steps);
+        let order_len = self.batch_size * self.node_count;
+
+        unsafe {
+            minla_sa_kernel::launch::<R>(
+                &self.client,
+                CubeCount::new_1d(self.batch_size as u32),
+                CubeDim::new_1d(1),
+                ArrayArg::from_raw_parts::<u32>(
+                    &self.adj_offsets_handle,
+                    self.node_count + 1,
+                    1,
+                ),
+                ArrayArg::from_raw_parts::<u32>(
+                    &self.adj_list_handle,
+                    self.adj_list_len,
+                    1,
+                ),
+                ScalarArg::new(self.node_count as u32),
+                ScalarArg::new(steps),
+                ScalarArg::new(if config.reheat_enabled { 1u32 } else { 0u32 }),
+                ScalarArg::new(plateau_steps),
+                ScalarArg::new(if config.adaptive_cooling { 1u32 } else { 0u32 }),
+                ScalarArg::new(config.target_acceptance),
+                ScalarArg::new(config.cooling_adjust),
+                ArrayArg::from_raw_parts::<u32>(&self.orders_handle, order_len, 1),
+                ArrayArg::from_raw_parts::<u32>(&self.positions_handle, order_len, 1),
+                ArrayArg::from_raw_parts::<u32>(&self.best_orders_handle, order_len, 1),
+                ArrayArg::from_raw_parts::<u32>(&self.current_costs_handle, self.batch_size, 1),
+                ArrayArg::from_raw_parts::<u32>(&self.best_costs_handle, self.batch_size, 1),
+                ArrayArg::from_raw_parts::<f32>(&self.temperatures_handle, self.batch_size, 1),
+                ArrayArg::from_raw_parts::<f32>(&self.temp_floor_handle, self.batch_size, 1),
+                ArrayArg::from_raw_parts::<f32>(&self.cooling_handle, self.batch_size, 1),
+                ArrayArg::from_raw_parts::<u32>(&self.rng_states_handle, self.batch_size, 1),
+                ArrayArg::from_raw_parts::<u32>(&self.stagnant_steps_handle, self.batch_size, 1),
+            )
+            .expect("minla SA kernel launch");
+        }
+
+        let costs_bytes = self.client.read_one(self.best_costs_handle.clone());
+        let costs = u32::from_bytes(&costs_bytes);
+        let mut best_cost = u32::MAX;
+        let mut best_index = 0usize;
+        for (idx, cost) in costs.iter().enumerate() {
+            if *cost < best_cost {
+                best_cost = *cost;
+                best_index = idx;
+            }
+        }
+
+        Ok(GpuSaBatch {
+            best_cost,
+            best_index,
+            elapsed_ms: start.elapsed().as_millis(),
+        })
+    }
+
+    fn read_best_order(&self, chain_index: usize) -> Vec<usize> {
+        let order_stride = self.node_count * std::mem::size_of::<u32>();
+        let offset_start = (chain_index * order_stride) as u64;
+        let offset_end = (self.batch_size.saturating_sub(chain_index + 1) * order_stride) as u64;
+        let handle = self
+            .best_orders_handle
+            .clone()
+            .offset_start(offset_start)
+            .offset_end(offset_end);
+        let order_bytes = self.client.read_one(handle);
+        let order = u32::from_bytes(&order_bytes);
+        order
+            .iter()
+            .take(self.node_count)
+            .map(|&val| val as usize)
+            .collect()
+    }
+
+}
+
+#[cfg(feature = "cubecl")]
+fn gpu_sa_order(
     ui: &mut Ui,
     cache_id: egui::Id,
     graph: &EntityGraph,
-    max_nodes: usize,
 ) -> Option<Vec<usize>> {
     if graph.nodes.is_empty() {
         return Some(Vec::new());
     }
 
-    let max_nodes = if max_nodes == 0 { usize::MAX } else { max_nodes };
     let graph_ptr = graph as *const _ as usize;
-    let verbose = minla_verbose_enabled();
     let mut order_out = None;
     let mut repaint = false;
 
     ui.data_mut(|memory| {
-        let cache_id = cache_id.with("minla_order");
-        let cache = memory.get_temp_mut_or_default::<MinlaCache>(cache_id);
-        if cache.graph_ptr != graph_ptr || cache.max_nodes != max_nodes {
+        let cache_id = cache_id.with("gpu_sa_order");
+        let cache = memory.get_temp_mut_or_default::<GpuSaCache>(cache_id);
+        if cache.graph_ptr != graph_ptr {
             cache.graph_ptr = graph_ptr;
-            cache.max_nodes = max_nodes;
             cache.order = None;
-            cache.best_objective = None;
+            cache.best_cost = None;
             cache.receiver = None;
             cache.skipped = false;
         }
@@ -862,14 +1314,16 @@ fn minla_order(
             }
 
             if let Some(update) = latest {
-                let improved = cache
-                    .best_objective
-                    .map(|best| update.objective + 1e-6 < best)
-                    .unwrap_or(true);
-                if improved {
-                    cache.best_objective = Some(update.objective);
-                    cache.order = Some(update.order);
-                    repaint = true;
+                if let Some(candidate_cost) = order_cost_checked(graph, &update.order) {
+                    let improved = cache
+                        .best_cost
+                        .map(|best| candidate_cost < best)
+                        .unwrap_or(true);
+                    if improved {
+                        cache.best_cost = Some(candidate_cost);
+                        cache.order = Some(update.order);
+                        repaint = true;
+                    }
                 }
             }
 
@@ -882,22 +1336,15 @@ fn minla_order(
         }
 
         if cache.order.is_none() && cache.receiver.is_none() && !cache.skipped {
-            if graph.nodes.len() > max_nodes {
-                if verbose && !cache.skipped {
-                    eprintln!(
-                        "minla: skipping solve (nodes {} > max_nodes {})",
-                        graph.nodes.len(),
-                        max_nodes
-                    );
-                }
-                cache.skipped = true;
-            } else if graph.edges.is_empty() {
-                cache.order = Some((0..graph.nodes.len()).collect());
-            } else {
-                let problem = MinlaProblem::from_graph(graph);
+            let baseline: Vec<usize> = (0..graph.nodes.len()).collect();
+            cache.best_cost = Some(order_cost(graph, &baseline));
+            cache.order = Some(baseline);
+
+            if !graph.edges.is_empty() {
+                let problem = GpuSaProblem::from_graph(graph);
                 let (tx, rx) = mpsc::channel();
                 std::thread::spawn(move || {
-                    minla_solve_loop(problem, verbose, tx);
+                    gpu_sa_loop(problem, tx);
                 });
                 cache.receiver = Some(Arc::new(Mutex::new(rx)));
             }
@@ -913,378 +1360,495 @@ fn minla_order(
     order_out
 }
 
-#[cfg(feature = "minla")]
-fn minla_solve_loop(
-    problem: MinlaProblem,
-    verbose: bool,
-    sender: mpsc::Sender<MinlaUpdate>,
-) {
-    let mut best_objective = f64::INFINITY;
-    let mut current_order: Option<Vec<usize>> = None;
-    for _ in 0..MINLA_LOOP_COUNT {
-        let previous_best = if best_objective.is_finite() {
-            Some(best_objective)
-        } else {
-            None
-        };
-        let Some((order, objective, status)) = minla_solve_once(
-            &problem,
-            current_order.as_deref(),
-            verbose,
-            MINLA_LOOP_SECONDS,
-            previous_best,
-        ) else {
-            break;
+#[cfg(feature = "cubecl")]
+fn gpu_sa_loop(problem: GpuSaProblem, sender: mpsc::Sender<GpuSaUpdate>) {
+    let batch_size = sa_batch_size(problem.node_count);
+    let seed = sa_seed(&problem);
+    let initial_temp = estimate_initial_temp(&problem, seed, SA_DEFAULT_TARGET_ACCEPTANCE);
+    let floor_temp = (initial_temp * SA_FLOOR_FRACTION).max(MIN_ANNEAL_TEMP);
+    let config = GpuSaConfig {
+        seed,
+        initial_temp,
+        cooling: SA_DEFAULT_COOLING,
+        floor_temp,
+        reheat_enabled: true,
+        reheat_plateau_batches: SA_REHEAT_PLATEAU_BATCHES,
+        adaptive_cooling: true,
+        target_acceptance: SA_DEFAULT_TARGET_ACCEPTANCE,
+        cooling_adjust: SA_DEFAULT_COOLING_ADJUST,
+    };
+
+    let device = WgpuDevice::default();
+    let mut runner = match GpuSaRunnerState::<WgpuRuntime>::new(device, &problem, batch_size, &config)
+    {
+        Ok(runner) => runner,
+        Err(err) => {
+            eprintln!("gpu-sa: init failed: {err}");
+            return;
+        }
+    };
+
+    let mut best_cost = u32::MAX;
+    let mut steps = SA_DEFAULT_STEPS;
+    let mut plateau_ms = 0u64;
+
+    loop {
+        let batch = match runner.run_steps(steps, &config) {
+            Ok(batch) => batch,
+            Err(err) => {
+                eprintln!("gpu-sa: batch failed: {err}");
+                break;
+            }
         };
 
-        if objective + 1e-6 < best_objective {
-            best_objective = objective;
+        if batch.best_cost < best_cost {
+            let order = runner.read_best_order(batch.best_index);
+            best_cost = batch.best_cost;
+            plateau_ms = 0;
             if sender
-                .send(MinlaUpdate {
-                    order: order.clone(),
-                    objective,
-                })
+                .send(GpuSaUpdate { order })
                 .is_err()
             {
                 break;
             }
+        } else {
+            let elapsed_ms = batch
+                .elapsed_ms
+                .min(u128::from(u64::MAX)) as u64;
+            plateau_ms = plateau_ms.saturating_add(elapsed_ms);
+            if plateau_ms >= SA_STOP_AFTER_PLATEAU_MS {
+                break;
+            }
         }
 
-        current_order = Some(order);
-        if matches!(status, SolutionStatus::Optimal) {
-            break;
+        steps = adjust_steps_per_batch(steps, batch.elapsed_ms, SA_TARGET_MS);
+    }
+}
+
+#[cfg(feature = "cubecl")]
+#[cube(launch)]
+fn minla_sa_init_kernel(
+    edges: &Array<u32>,
+    node_count: u32,
+    edge_count: u32,
+    seed: u32,
+    initial_temp: f32,
+    cooling: f32,
+    floor_temp: f32,
+    orders: &mut Array<u32>,
+    positions: &mut Array<u32>,
+    best_orders: &mut Array<u32>,
+    current_costs: &mut Array<u32>,
+    best_costs: &mut Array<u32>,
+    temperatures: &mut Array<f32>,
+    temp_floors: &mut Array<f32>,
+    cooling_state: &mut Array<f32>,
+    rng_states: &mut Array<u32>,
+    stagnant_steps: &mut Array<u32>,
+) {
+    let candidate = ABSOLUTE_POS;
+    let node_count = node_count as usize;
+    let edge_count = edge_count as usize;
+    let mut temp = initial_temp;
+    if temp < MIN_ANNEAL_TEMP {
+        temp = MIN_ANNEAL_TEMP;
+    }
+    let mut floor_temp = floor_temp;
+    if floor_temp < MIN_ANNEAL_TEMP {
+        floor_temp = MIN_ANNEAL_TEMP;
+    }
+    if floor_temp > temp {
+        floor_temp = temp;
+    }
+    let mut cooling = cooling;
+    if cooling < 0.90 {
+        cooling = 0.90;
+    } else if cooling > 0.9999 {
+        cooling = 0.9999;
+    }
+
+    if node_count == 0 {
+        current_costs[candidate] = 0;
+        best_costs[candidate] = 0;
+        temperatures[candidate] = temp;
+        temp_floors[candidate] = floor_temp;
+        cooling_state[candidate] = cooling;
+        rng_states[candidate] = seed;
+        stagnant_steps[candidate] = 0;
+    } else {
+        let mut state = seed ^ candidate as u32;
+        state = state * SEED_MIX;
+        let base = candidate * node_count;
+
+        for index in 0..node_count {
+            orders[base + index] = index as u32;
+        }
+
+        for pos in 0..node_count {
+            let node = orders[base + pos] as usize;
+            positions[base + node] = pos as u32;
+        }
+
+        let mut cost = 0u32;
+        for edge in 0..edge_count {
+            let edge_index = edge * 2;
+            let u = edges[edge_index] as usize;
+            let v = edges[edge_index + 1] as usize;
+            let pu = positions[base + u];
+            let pv = positions[base + v];
+            let diff = if pu > pv { pu - pv } else { pv - pu };
+            cost += diff;
+        }
+
+        current_costs[candidate] = cost;
+        best_costs[candidate] = cost;
+        temperatures[candidate] = temp;
+        temp_floors[candidate] = floor_temp;
+        cooling_state[candidate] = cooling;
+        rng_states[candidate] = state;
+        stagnant_steps[candidate] = 0;
+
+        for idx in 0..node_count {
+            best_orders[base + idx] = orders[base + idx];
         }
     }
 }
 
-#[cfg(feature = "minla")]
-fn minla_solve_once(
-    problem: &MinlaProblem,
-    initial_order: Option<&[usize]>,
-    verbose: bool,
-    time_limit_secs: f64,
-    previous_best: Option<f64>,
-) -> Option<(Vec<usize>, f64, SolutionStatus)> {
-    if problem.node_count == 0 {
-        return Some((Vec::new(), 0.0, SolutionStatus::Optimal));
-    }
-    if problem.edges.is_empty() {
-        let order: Vec<usize> = (0..problem.node_count).collect();
-        return Some((order, 0.0, SolutionStatus::Optimal));
-    }
-
-    let node_count = problem.node_count;
-    let initial_positions = initial_order
-        .filter(|order| order.len() == node_count)
-        .map(|order| {
-            let mut positions = vec![0usize; node_count];
-            for (pos, &node_idx) in order.iter().enumerate() {
-                positions[node_idx] = pos;
-            }
-            positions
-        });
-    let mut vars = variables!();
-    let mut assign = Vec::with_capacity(node_count);
-    for row_idx in 0..node_count {
-        let mut row = Vec::with_capacity(node_count);
-        for col_idx in 0..node_count {
-            let mut var = variable().binary();
-            if let Some(positions) = &initial_positions {
-                let value = if positions[row_idx] == col_idx { 1.0 } else { 0.0 };
-                var = var.initial(value);
-            }
-            row.push(vars.add(var));
+#[cfg(feature = "cubecl")]
+#[cube(launch)]
+fn minla_sa_kernel(
+    adj_offsets: &Array<u32>,
+    adj_list: &Array<u32>,
+    node_count: u32,
+    steps: u32,
+    reheat_enabled: u32,
+    reheat_plateau_steps: u32,
+    adaptive_cooling: u32,
+    target_acceptance: f32,
+    cooling_adjust: f32,
+    orders: &mut Array<u32>,
+    positions: &mut Array<u32>,
+    best_orders: &mut Array<u32>,
+    current_costs: &mut Array<u32>,
+    best_costs: &mut Array<u32>,
+    temperatures: &mut Array<f32>,
+    temp_floors: &mut Array<f32>,
+    cooling_state: &mut Array<f32>,
+    rng_states: &mut Array<u32>,
+    stagnant_steps: &mut Array<u32>,
+) {
+    let candidate = ABSOLUTE_POS;
+    let node_count = node_count as usize;
+    let steps = steps as usize;
+    if node_count == 0 {
+        current_costs[candidate] = 0;
+        best_costs[candidate] = 0;
+    } else {
+        let base = candidate * node_count;
+        let mut state = rng_states[candidate];
+        let mut current_cost = current_costs[candidate];
+        let mut best_cost = best_costs[candidate];
+        let mut temperature = temperatures[candidate];
+        if temperature < MIN_ANNEAL_TEMP {
+            temperature = MIN_ANNEAL_TEMP;
         }
-        assign.push(row);
-    }
-
-    let mut distances = Vec::with_capacity(problem.edges.len());
-    for (from, to) in &problem.edges {
-        let mut var = variable().min(0);
-        if let Some(positions) = &initial_positions {
-            let dist = positions[*from].abs_diff(positions[*to]) as f64;
-            var = var.initial(dist);
+        let mut temp_floor = temp_floors[candidate];
+        if temp_floor < MIN_ANNEAL_TEMP {
+            temp_floor = MIN_ANNEAL_TEMP;
         }
-        distances.push(vars.add(var));
-    }
-
-    let mut objective = Expression::from(0.0);
-    for &distance in &distances {
-        objective += distance;
-    }
-
-    let mut problem_model = vars
-        .minimise(objective)
-        .using(highs)
-        .set_time_limit(time_limit_secs);
-
-    if let Some(best_objective) = previous_best {
-        if let Some(abs_gap) = minla_mip_abs_gap(best_objective) {
-            problem_model = problem_model
-                .set_mip_abs_gap(abs_gap)
-                .expect("minla mip_abs_gap");
+        let mut cooling = cooling_state[candidate];
+        if cooling < 0.90 {
+            cooling = 0.90;
+        } else if cooling > 0.9999 {
+            cooling = 0.9999;
         }
-        problem_model = problem_model
-            .set_mip_rel_gap(MINLA_MIP_REL_GAP)
-            .expect("minla mip_rel_gap");
-    }
 
-    for row in &assign {
-        let mut expr = Expression::from(0.0);
-        for &var in row {
-            expr += var;
+        let reheat_enabled = reheat_enabled != 0;
+        let adaptive_cooling = adaptive_cooling != 0;
+        let mut reheat_gain = cooling_adjust * 4.0;
+        if reheat_gain < 0.001 {
+            reheat_gain = 0.001;
+        } else if reheat_gain > 0.05 {
+            reheat_gain = 0.05;
         }
-        problem_model = problem_model.with(constraint!(expr == 1));
-    }
-
-    for col in 0..node_count {
-        let mut expr = Expression::from(0.0);
-        for row in &assign {
-            expr += row[col];
+        let mut floor_decay = 1.0 - cooling_adjust * 2.0;
+        if floor_decay < 0.90 {
+            floor_decay = 0.90;
+        } else if floor_decay > 0.9999 {
+            floor_decay = 0.9999;
         }
-        problem_model = problem_model.with(constraint!(expr == 1));
-    }
-
-    let mut position_exprs = Vec::with_capacity(node_count);
-    for row in &assign {
-        let mut expr = Expression::from(0.0);
-        for (idx, &var) in row.iter().enumerate() {
-            expr += (idx as f64) * var;
+        let mut target_acceptance = target_acceptance;
+        if target_acceptance < 0.05 {
+            target_acceptance = 0.05;
+        } else if target_acceptance > 0.95 {
+            target_acceptance = 0.95;
         }
-        position_exprs.push(expr);
-    }
-
-    for (edge_idx, (from, to)) in problem.edges.iter().enumerate() {
-        let distance = distances[edge_idx];
-        let from_expr = position_exprs[*from].clone();
-        let to_expr = position_exprs[*to].clone();
-        problem_model = problem_model
-            .with(constraint!(
-                distance - (from_expr.clone() - to_expr.clone()) >= 0
-            ))
-            .with(constraint!(distance - (to_expr - from_expr) >= 0));
-    }
-
-    if verbose {
-        problem_model.set_verbose(true);
-    }
-    let solve_start = if verbose { Some(Instant::now()) } else { None };
-    let solution = match problem_model.solve() {
-        Ok(solution) => solution,
-        Err(err) => {
-            if verbose {
-                eprintln!("minla: solve failed: {err}");
-            }
-            return None;
+        let mut cooling_adjust = cooling_adjust;
+        if cooling_adjust < 0.0001 {
+            cooling_adjust = 0.0001;
+        } else if cooling_adjust > 0.05 {
+            cooling_adjust = 0.05;
         }
-    };
-    let status = solution.status();
-    let mut positions = vec![0usize; node_count];
-    for (node_idx, row) in assign.iter().enumerate() {
-        let mut best_pos = None;
-        let mut best_val = f64::NEG_INFINITY;
-        for (pos, &var) in row.iter().enumerate() {
-            let val = solution.value(var);
-            if val > best_val {
-                best_val = val;
-                best_pos = Some(pos);
-            }
-        }
-        positions[node_idx] = best_pos?;
-    }
+        let mut interval_steps: u32 = 0;
+        let mut interval_accepts: u32 = 0;
+        let mut stagnant = stagnant_steps[candidate];
+        let stagnation_scale = if reheat_plateau_steps > 0 {
+            reheat_plateau_steps
+        } else {
+            1u32.into()
+        };
 
-    let objective = distances
-        .iter()
-        .map(|&distance| solution.value(distance))
-        .sum::<f64>();
-    if let Some(start) = solve_start {
-        let elapsed_ms = start.elapsed().as_millis();
-        eprintln!(
-            "minla: solved nodes={} edges={} objective={:.1} in {}ms ({:?})",
-            node_count,
-            problem.edges.len(),
-            objective,
-            elapsed_ms,
-            status
-        );
-    }
+        if node_count > 1 && steps > 0 {
+            for _ in 0..steps {
+                state = state * LCG_A + LCG_C;
+                let mut use_reverse: u32 = 0;
+                if node_count > 3 {
+                    let reverse_divisor: u32 = if temperature > 1.0 {
+                        32u32.into()
+                    } else if temperature > 0.2 {
+                        64u32.into()
+                    } else {
+                        128u32.into()
+                    };
+                    if (state % reverse_divisor) == 0 {
+                        use_reverse = 1;
+                    }
+                }
 
-    let mut order: Vec<usize> = (0..node_count).collect();
-    order.sort_by_key(|&idx| positions[idx]);
-    Some((order, objective, status))
-}
+                let mut candidate_cost = current_cost;
+                let mut i = 0usize;
+                let mut j = 0usize;
+                let mut node_i = 0u32;
+                let mut node_j = 0u32;
+                let mut start = 0usize;
+                let mut end = 0usize;
 
-#[cfg(feature = "minla")]
-fn minla_verbose_enabled() -> bool {
-    std::env::var_os("GORBIE_MINLA_VERBOSE").is_some()
-}
+                if use_reverse != 0 {
+                    let base_max: usize = if node_count < 64 {
+                        node_count
+                    } else {
+                        64usize.into()
+                    };
+                    let temp_scale = temperature / (temperature + 1.0);
+                    let mut max_segment = if base_max > 2 {
+                        2 + ((base_max - 2) as f32 * temp_scale) as usize
+                    } else {
+                        base_max
+                    };
+                    if max_segment < 2 {
+                        max_segment = 2;
+                    }
+                    let mut len = max_segment;
+                    if max_segment > 2 {
+                        state = state * LCG_A + LCG_C;
+                        let span = (max_segment - 1) as u32;
+                        len = 2 + (state % span) as usize;
+                    }
+                    if len > node_count {
+                        len = node_count;
+                    }
+                    if len < 2 {
+                        use_reverse = 0;
+                    } else {
+                        state = state * LCG_A + LCG_C;
+                        let max_start = node_count - len + 1;
+                        start = (state % max_start as u32) as usize;
+                        end = start + len - 1;
+                        let start_pos = start as u32;
+                        let end_pos = end as u32;
+                        let mut delta_cost: i32 = 0;
 
-fn cuthill_mckee_order(graph: &EntityGraph) -> Vec<usize> {
-    let mut adjacency = build_adjacency(graph);
-    for neighbors in &mut adjacency {
-        neighbors.sort_unstable();
-        neighbors.dedup();
-    }
+                        let mut pos = start;
+                        while pos <= end {
+                            let node = orders[base + pos] as usize;
+                            let pos_u = pos as u32;
+                            let new_pos = start_pos + end_pos - pos_u;
+                            let start_idx = adj_offsets[node] as usize;
+                            let end_idx = adj_offsets[node + 1] as usize;
+                            for idx in start_idx..end_idx {
+                                let neighbor = adj_list[idx] as usize;
+                                let neighbor_pos = positions[base + neighbor] as usize;
+                                if neighbor_pos < start || neighbor_pos > end {
+                                    let pos_n = neighbor_pos as u32;
+                                    let old = if pos_u > pos_n { pos_u - pos_n } else { pos_n - pos_u };
+                                    let new = if new_pos > pos_n { new_pos - pos_n } else { pos_n - new_pos };
+                                    delta_cost += new as i32 - old as i32;
+                                }
+                            }
+                            pos += 1;
+                        }
 
-    let degrees: Vec<usize> = adjacency.iter().map(|neighbors| neighbors.len()).collect();
-    let mut seeds: Vec<usize> = (0..graph.nodes.len()).collect();
-    seeds.sort_by_key(|&idx| (degrees[idx], graph.nodes[idx].id));
+                        let mut next_cost = current_cost as i32 + delta_cost;
+                        if next_cost < 0 {
+                            next_cost = 0;
+                        }
+                        candidate_cost = next_cost as u32;
 
-    let mut visited = vec![false; graph.nodes.len()];
-    let mut order = Vec::with_capacity(graph.nodes.len());
-    let mut queue = VecDeque::new();
+                        let mut left = start;
+                        let mut right = end;
+                        while left < right {
+                            let left_idx = base + left;
+                            let right_idx = base + right;
+                            let left_node = orders[left_idx];
+                            let right_node = orders[right_idx];
+                            orders[left_idx] = right_node;
+                            orders[right_idx] = left_node;
+                            positions[base + right_node as usize] = left as u32;
+                            positions[base + left_node as usize] = right as u32;
+                            left += 1;
+                            right -= 1;
+                        }
+                    }
+                }
 
-    for start in seeds {
-        if visited[start] {
-            continue;
-        }
-        visited[start] = true;
-        queue.push_back(start);
-        while let Some(node) = queue.pop_front() {
-            order.push(node);
-            let mut neighbors = adjacency[node].clone();
-            neighbors.sort_by_key(|&idx| (degrees[idx], graph.nodes[idx].id));
-            for next in neighbors {
-                if !visited[next] {
-                    visited[next] = true;
-                    queue.push_back(next);
+                if use_reverse == 0 {
+                    state = state * LCG_A + LCG_C;
+                    i = (state % node_count as u32) as usize;
+                    state = state * LCG_A + LCG_C;
+                    j = (state % (node_count as u32 - 1)) as usize;
+                    if j >= i {
+                        j += 1;
+                    }
+
+                    let left = base + i;
+                    let right = base + j;
+                    node_i = orders[left];
+                    node_j = orders[right];
+                    orders[left] = node_j;
+                    orders[right] = node_i;
+                    positions[base + node_j as usize] = i as u32;
+                    positions[base + node_i as usize] = j as u32;
+
+                    let node_i_usize = node_i as usize;
+                    let node_j_usize = node_j as usize;
+                    let pos_i = i as u32;
+                    let pos_j = j as u32;
+                    let mut delta_cost: i32 = 0;
+
+                    let start_i = adj_offsets[node_i_usize] as usize;
+                    let end_i = adj_offsets[node_i_usize + 1] as usize;
+                    for idx in start_i..end_i {
+                        let neighbor = adj_list[idx] as usize;
+                        if neighbor != node_j_usize {
+                            let pos_n = positions[base + neighbor];
+                            let old = if pos_i > pos_n { pos_i - pos_n } else { pos_n - pos_i };
+                            let new = if pos_j > pos_n { pos_j - pos_n } else { pos_n - pos_j };
+                            delta_cost += new as i32 - old as i32;
+                        }
+                    }
+
+                    let start_j = adj_offsets[node_j_usize] as usize;
+                    let end_j = adj_offsets[node_j_usize + 1] as usize;
+                    for idx in start_j..end_j {
+                        let neighbor = adj_list[idx] as usize;
+                        if neighbor != node_i_usize {
+                            let pos_n = positions[base + neighbor];
+                            let old = if pos_j > pos_n { pos_j - pos_n } else { pos_n - pos_j };
+                            let new = if pos_i > pos_n { pos_i - pos_n } else { pos_n - pos_i };
+                            delta_cost += new as i32 - old as i32;
+                        }
+                    }
+
+                    let mut next_cost = current_cost as i32 + delta_cost;
+                    if next_cost < 0 {
+                        next_cost = 0;
+                    }
+                    candidate_cost = next_cost as u32;
+                }
+
+                let delta = candidate_cost as f32 - current_cost as f32;
+                let mut accept = delta <= 0.0;
+                if !accept && temperature > MIN_ANNEAL_TEMP {
+                    let probability = (-delta / temperature).exp();
+                    state = state * LCG_A + LCG_C;
+                    let rand = state as f32 * INV_U32_MAX_PLUS1;
+                    accept = rand < probability;
+                }
+
+                if accept {
+                    current_cost = candidate_cost;
+                    interval_accepts += 1;
+                    if candidate_cost < best_cost {
+                        best_cost = candidate_cost;
+                        stagnant = 0;
+                        for idx in 0..node_count {
+                            best_orders[base + idx] = orders[base + idx];
+                        }
+                        if reheat_enabled {
+                            temp_floor = temp_floor * floor_decay;
+                            if temp_floor < MIN_ANNEAL_TEMP {
+                                temp_floor = MIN_ANNEAL_TEMP;
+                            }
+                        }
+                    } else if stagnant < u32::MAX {
+                        stagnant += 1;
+                    }
+                } else {
+                    if use_reverse != 0 {
+                        let mut left = start;
+                        let mut right = end;
+                        while left < right {
+                            let left_idx = base + left;
+                            let right_idx = base + right;
+                            let left_node = orders[left_idx];
+                            let right_node = orders[right_idx];
+                            orders[left_idx] = right_node;
+                            orders[right_idx] = left_node;
+                            positions[base + right_node as usize] = left as u32;
+                            positions[base + left_node as usize] = right as u32;
+                            left += 1;
+                            right -= 1;
+                        }
+                    } else {
+                        let left = base + i;
+                        let right = base + j;
+                        orders[left] = node_i;
+                        orders[right] = node_j;
+                        positions[base + node_i as usize] = i as u32;
+                        positions[base + node_j as usize] = j as u32;
+                    }
+                    if stagnant < u32::MAX {
+                        stagnant += 1;
+                    }
+                }
+                if reheat_enabled && stagnant > 0 {
+                    let ratio = stagnant as f32 / stagnation_scale as f32;
+                    let gain = reheat_gain * (ratio / (1.0 + ratio));
+                    temp_floor = temp_floor * (1.0 + gain);
+                }
+
+                interval_steps += 1;
+                temperature = temperature * cooling;
+                if temperature < temp_floor {
+                    temperature = temp_floor;
+                }
+
+                if adaptive_cooling && interval_steps >= SA_ADAPT_INTERVAL {
+                    let acceptance = interval_accepts as f32 / interval_steps as f32;
+                    if acceptance > target_acceptance + 0.05 {
+                        cooling -= cooling_adjust;
+                        if cooling < 0.90 {
+                            cooling = 0.90;
+                        }
+                    } else if acceptance < target_acceptance - 0.05 {
+                        cooling += cooling_adjust;
+                        if cooling > 0.9999 {
+                            cooling = 0.9999;
+                        }
+                    }
+                    interval_steps = 0;
+                    interval_accepts = 0;
                 }
             }
         }
-    }
 
-    order
-}
-
-fn barycentric_order(graph: &EntityGraph, passes: usize) -> Vec<usize> {
-    let adjacency = build_adjacency(graph);
-    let mut order: Vec<usize> = (0..graph.nodes.len()).collect();
-    let mut best = order.clone();
-    let mut best_cost = order_linear_cost(graph, &best);
-
-    let passes = passes.max(1);
-    for pass in 0..passes {
-        let reverse_ties = pass % 2 == 1;
-        order = barycentric_pass(graph, &adjacency, order, reverse_ties);
-        let cost = order_linear_cost(graph, &order);
-        if cost < best_cost {
-            best_cost = cost;
-            best.clone_from(&order);
-        }
-    }
-
-    best
-}
-
-fn barycentric_pass(
-    graph: &EntityGraph,
-    adjacency: &[Vec<usize>],
-    mut order: Vec<usize>,
-    reverse_ties: bool,
-) -> Vec<usize> {
-    let mut positions = vec![0usize; graph.nodes.len()];
-    let mut positions_f32 = vec![0.0f32; graph.nodes.len()];
-    let mut scores = vec![0.0f32; graph.nodes.len()];
-
-    for _ in 0..8 {
-        for (pos, &idx) in order.iter().enumerate() {
-            positions[idx] = pos;
-            positions_f32[idx] = pos as f32;
-        }
-
-        for (idx, neighbors) in adjacency.iter().enumerate() {
-            if neighbors.is_empty() {
-                scores[idx] = positions_f32[idx];
-                continue;
-            }
-            let sum = neighbors
-                .iter()
-                .map(|&neighbor| positions_f32[neighbor])
-                .sum::<f32>();
-            scores[idx] = sum / neighbors.len() as f32;
-        }
-
-        let mut next = order.clone();
-        next.sort_by(|a, b| {
-            scores[*a]
-                .total_cmp(&scores[*b])
-                .then_with(|| {
-                    let left = positions[*a];
-                    let right = positions[*b];
-                    if reverse_ties {
-                        right.cmp(&left)
-                    } else {
-                        left.cmp(&right)
-                    }
-                })
-                .then_with(|| graph.nodes[*a].id.cmp(&graph.nodes[*b].id))
-        });
-        if next == order {
-            break;
-        }
-        order = next;
-    }
-
-    order
-}
-
-fn order_linear_cost(graph: &EntityGraph, order: &[usize]) -> i64 {
-    let mut positions = vec![0usize; graph.nodes.len()];
-    for (pos, &idx) in order.iter().enumerate() {
-        positions[idx] = pos;
-    }
-
-    let mut total = 0i64;
-    for edge in &graph.edges {
-        let from = positions[edge.from_entity] as i64;
-        let to = positions[edge.to_entity] as i64;
-        total += (from - to).abs();
-    }
-
-    total
-}
-
-fn barycentric_swap_order(graph: &EntityGraph, passes: usize) -> Vec<usize> {
-    let mut order = barycentric_order(graph, passes);
-    let adjacency = build_adjacency(graph);
-    local_swap_refine(&mut order, &adjacency);
-    order
-}
-
-fn local_swap_refine(order: &mut [usize], adjacency: &[Vec<usize>]) {
-    let mut positions = vec![0usize; order.len()];
-    for (pos, &idx) in order.iter().enumerate() {
-        positions[idx] = pos;
-    }
-
-    for _ in 0..8 {
-        let mut changed = false;
-        for pos in 0..order.len().saturating_sub(1) {
-            let left = order[pos];
-            let right = order[pos + 1];
-            let mut delta = 0i32;
-
-            for &neighbor in &adjacency[left] {
-                let old = (positions[left] as i32 - positions[neighbor] as i32).abs();
-                let new = (positions[right] as i32 - positions[neighbor] as i32).abs();
-                delta += new - old;
-            }
-            for &neighbor in &adjacency[right] {
-                let old = (positions[right] as i32 - positions[neighbor] as i32).abs();
-                let new = (positions[left] as i32 - positions[neighbor] as i32).abs();
-                delta += new - old;
-            }
-
-            if delta < 0 {
-                order.swap(pos, pos + 1);
-                positions.swap(left, right);
-                changed = true;
-            }
-        }
-
-        if !changed {
-            break;
-        }
+        current_costs[candidate] = current_cost;
+        best_costs[candidate] = best_cost;
+        temperatures[candidate] = temperature;
+        temp_floors[candidate] = temp_floor;
+        cooling_state[candidate] = cooling;
+        rng_states[candidate] = state;
+        stagnant_steps[candidate] = stagnant;
     }
 }
 

@@ -137,7 +137,7 @@ GORBIE! defaults to a lean build with `markdown` enabled. Add extras as needed:
 - `markdown`: rich Markdown rendering with `md!` and `note!` (default).
 - `polars`: dataframe widget (Polars + egui_extras).
 - `triblespace`: Triblespace widgets and visualizations.
-- `minla`: MinLA ordering for the entity inspector (HiGHS via good_lp). Implies `triblespace`.
+- `cubecl`: GPU simulated-annealing ordering for the entity inspector (use with `triblespace`).
 
 # Community
 
