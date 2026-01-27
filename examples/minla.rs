@@ -10,14 +10,13 @@
 use cubecl::prelude::*;
 use cubecl::server::Handle;
 use cubecl::wgpu::{WgpuDevice, WgpuRuntime};
-use egui::{Color32, DragValue, Stroke};
-use egui_plot::{Legend, Line, Plot, PlotPoints, Polygon};
+use egui::{Color32, ColorImage, DragValue, Vec2};
+use egui_plot::{Legend, Line, Plot, PlotPoints};
 use std::collections::{HashSet, hash_map::DefaultHasher};
 use std::f32::consts::TAU;
 use std::hash::{Hash, Hasher};
 use std::sync::{
     mpsc::{self, TryRecvError},
-    Arc,
     Mutex,
 };
 
@@ -79,6 +78,9 @@ const CHAIN_TUNE_INTERVAL: u32 = 4;
 const CHAIN_TUNE_TOLERANCE: f64 = 0.02;
 const CHAIN_TUNE_STEP_MAX: u32 = 64;
 const MAX_HISTORY: usize = 200;
+const STRESS_HISTORY: usize = 360;
+const STRESS_MAX_WIDTH: usize = 512;
+const STRESS_VIEW_HEIGHT: f32 = STRESS_HISTORY as f32;
 const AUTO_RUN_PULSE_HZ: f32 = 0.7;
 const AUTO_RUN_PULSE_BASE: f32 = 0.14;
 const AUTO_RUN_PULSE_RANGE: f32 = 0.08;
@@ -216,13 +218,12 @@ struct BatchRequest {
 struct AnnealResult {
     graph_id: u64,
     best_cost: u32,
-    p10_cost: u32,
-    p50_cost: u32,
-    p90_cost: u32,
     batch_size: usize,
     steps: u32,
     elapsed_ms: u128,
-    temperature: f32,
+    stress_row: Option<Vec<u32>>,
+    change_row: Option<Vec<u32>>,
+    touched_active: bool,
     error: Option<String>,
 }
 
@@ -231,13 +232,12 @@ impl AnnealResult {
         Self {
             graph_id: 0,
             best_cost: u32::MAX,
-            p10_cost: u32::MAX,
-            p50_cost: u32::MAX,
-            p90_cost: u32::MAX,
             batch_size: 0,
             steps: 0,
             elapsed_ms: 0,
-            temperature: 0.0,
+            stress_row: None,
+            change_row: None,
+            touched_active: false,
             error: None,
         }
     }
@@ -245,24 +245,22 @@ impl AnnealResult {
     fn ok(
         graph_id: u64,
         best_cost: u32,
-        p10_cost: u32,
-        p50_cost: u32,
-        p90_cost: u32,
         batch_size: usize,
         steps: u32,
         elapsed_ms: u128,
-        temperature: f32,
+        stress_row: Option<Vec<u32>>,
+        change_row: Option<Vec<u32>>,
+        touched_active: bool,
     ) -> Self {
         Self {
             graph_id,
             best_cost,
-            p10_cost,
-            p50_cost,
-            p90_cost,
             batch_size,
             steps,
             elapsed_ms,
-            temperature,
+            stress_row,
+            change_row,
+            touched_active,
             error: None,
         }
     }
@@ -271,13 +269,12 @@ impl AnnealResult {
         Self {
             graph_id: 0,
             best_cost: u32::MAX,
-            p10_cost: u32::MAX,
-            p50_cost: u32::MAX,
-            p90_cost: u32::MAX,
             batch_size: 0,
             steps: 0,
             elapsed_ms: 0,
-            temperature: 0.0,
+            stress_row: None,
+            change_row: None,
+            touched_active: false,
             error: Some(message.into()),
         }
     }
@@ -294,9 +291,10 @@ struct AnnealRequest {
     reheat_enabled: bool,
     reheat_temp: f32,
     reheat_plateau_steps: u32,
-    adaptive_cooling: bool,
     target_acceptance: f32,
     cooling_adjust: f32,
+    capture_stress: bool,
+    capture_touched: bool,
     graph: GraphData,
 }
 
@@ -523,6 +521,10 @@ struct AnnealRunnerState<R: Runtime> {
     cooling_handle: Option<Handle>,
     rng_states_handle: Option<Handle>,
     stagnant_steps_handle: Option<Handle>,
+    stress_handle: Option<Handle>,
+    best_order_handle: Option<Handle>,
+    best_positions_handle: Option<Handle>,
+    prev_best_order: Option<Vec<u32>>,
 }
 
 impl<R: Runtime> AnnealRunnerState<R> {
@@ -551,6 +553,10 @@ impl<R: Runtime> AnnealRunnerState<R> {
             cooling_handle: None,
             rng_states_handle: None,
             stagnant_steps_handle: None,
+            stress_handle: None,
+            best_order_handle: None,
+            best_positions_handle: None,
+            prev_best_order: None,
         }
     }
 
@@ -605,7 +611,6 @@ impl<R: Runtime> AnnealRunnerState<R> {
                 ScalarArg::new(steps),
                 ScalarArg::new(if request.reheat_enabled { 1u32 } else { 0u32 }),
                 ScalarArg::new(reheat_plateau_steps),
-                ScalarArg::new(if request.adaptive_cooling { 1u32 } else { 0u32 }),
                 ScalarArg::new(target_acceptance),
                 ScalarArg::new(cooling_adjust),
                 ArrayArg::from_raw_parts::<u32>(orders_handle, orders_len, 1),
@@ -623,10 +628,7 @@ impl<R: Runtime> AnnealRunnerState<R> {
         }
 
         let costs_bytes = self.client.read_one(best_costs_handle.clone());
-        let mut costs = u32::from_bytes(&costs_bytes).to_vec();
-        let temps_bytes = self.client.read_one(temperatures_handle.clone());
-        let temps = f32::from_bytes(&temps_bytes);
-
+        let costs = u32::from_bytes(&costs_bytes).to_vec();
         let mut best_cost = u32::MAX;
         let mut best_idx = 0usize;
         if !costs.is_empty() {
@@ -637,21 +639,6 @@ impl<R: Runtime> AnnealRunnerState<R> {
                 }
             }
         }
-        let (p10_cost, p50_cost, p90_cost) = if costs.is_empty() {
-            (u32::MAX, u32::MAX, u32::MAX)
-        } else {
-            costs.sort_unstable();
-            (
-                percentile_u32(&costs, 0.10),
-                percentile_u32(&costs, 0.50),
-                percentile_u32(&costs, 0.90),
-            )
-        };
-        let avg_temp = if temps.is_empty() {
-            0.0
-        } else {
-            temps.iter().sum::<f32>() / temps.len() as f32
-        };
 
         if request.batch_size > 1 && best_cost != u32::MAX && self.node_count > 0 {
             let orders_handle = self.orders_handle.as_ref().expect("orders handle");
@@ -703,16 +690,88 @@ impl<R: Runtime> AnnealRunnerState<R> {
             }
         }
 
+        let mut stress_row = None;
+        let mut change_row = None;
+        if request.capture_stress {
+            let stress_handle = self.stress_handle.as_ref().expect("stress handle");
+            let best_order_handle = self.best_order_handle.as_ref().expect("best order handle");
+            let best_positions_handle =
+                self.best_positions_handle.as_ref().expect("best positions handle");
+            unsafe {
+                minla_select_best_order_kernel::launch::<R>(
+                    &self.client,
+                    CubeCount::new_1d(self.node_count as u32),
+                    CubeDim::new_1d(1),
+                    ScalarArg::new(self.node_count as u32),
+                    ScalarArg::new(best_idx as u32),
+                    ArrayArg::from_raw_parts::<u32>(best_orders_handle, orders_len, 1),
+                    ArrayArg::from_raw_parts::<u32>(best_order_handle, self.node_count, 1),
+                )
+                .expect("minla select best order kernel launch");
+            }
+
+            if request.capture_touched {
+                let order_bytes = self.client.read_one(best_order_handle.clone());
+                let mut best_order = u32::from_bytes(&order_bytes).to_vec();
+                best_order.truncate(self.node_count);
+                if let Some(prev) = self.prev_best_order.as_ref() {
+                    if prev.len() == best_order.len() {
+                        let mut changes = vec![0u32; self.node_count];
+                        for (idx, (&curr, &prev)) in best_order.iter().zip(prev).enumerate() {
+                            changes[idx] = (curr != prev) as u32;
+                        }
+                        change_row = Some(changes);
+                    }
+                }
+                self.prev_best_order = Some(best_order);
+            }
+
+            unsafe {
+                minla_positions_from_order_kernel::launch::<R>(
+                    &self.client,
+                    CubeCount::new_1d(self.node_count as u32),
+                    CubeDim::new_1d(1),
+                    ScalarArg::new(self.node_count as u32),
+                    ArrayArg::from_raw_parts::<u32>(best_order_handle, self.node_count, 1),
+                    ArrayArg::from_raw_parts::<u32>(best_positions_handle, self.node_count, 1),
+                )
+                .expect("minla best positions kernel launch");
+                minla_stress_kernel::launch::<R>(
+                    &self.client,
+                    CubeCount::new_1d(self.node_count as u32),
+                    CubeDim::new_1d(1),
+                    ArrayArg::from_raw_parts::<u32>(
+                        &self.adj_offsets_handle,
+                        request.graph.adj_offsets.len(),
+                        1,
+                    ),
+                    ArrayArg::from_raw_parts::<u32>(
+                        &self.adj_list_handle,
+                        request.graph.adj_list.len(),
+                        1,
+                    ),
+                    ScalarArg::new(self.node_count as u32),
+                    ArrayArg::from_raw_parts::<u32>(best_positions_handle, self.node_count, 1),
+                    ScalarArg::new(1u32),
+                    ArrayArg::from_raw_parts::<u32>(stress_handle, self.node_count, 1),
+                )
+                .expect("minla stress kernel launch");
+            }
+            let stress_bytes = self.client.read_one(stress_handle.clone());
+            let mut row = u32::from_bytes(&stress_bytes).to_vec();
+            row.truncate(self.node_count);
+            stress_row = Some(row);
+        }
+
         AnnealResult::ok(
             request.graph.id,
             best_cost,
-            p10_cost,
-            p50_cost,
-            p90_cost,
             request.batch_size,
             steps,
             start.elapsed().as_millis(),
-            avg_temp,
+            stress_row,
+            change_row,
+            request.capture_touched,
         )
     }
 
@@ -739,6 +798,26 @@ impl<R: Runtime> AnnealRunnerState<R> {
         let graph_changed = self.sync_graph(&request.graph);
         let has_state = self.orders_handle.is_some();
         let needs_reset = request.reset || graph_changed || !has_state;
+
+        if needs_reset {
+            self.prev_best_order = None;
+        }
+
+        if self.stress_handle.is_none() || graph_changed {
+            let stress_len = self.node_count.max(1);
+            let stress_bytes = stress_len * std::mem::size_of::<u32>();
+            self.stress_handle = Some(self.client.empty(stress_bytes));
+        }
+        if self.best_order_handle.is_none() || graph_changed {
+            let order_len = self.node_count.max(1);
+            let order_bytes = order_len * std::mem::size_of::<u32>();
+            self.best_order_handle = Some(self.client.empty(order_bytes));
+        }
+        if self.best_positions_handle.is_none() || graph_changed {
+            let positions_len = self.node_count.max(1);
+            let positions_bytes = positions_len * std::mem::size_of::<u32>();
+            self.best_positions_handle = Some(self.client.empty(positions_bytes));
+        }
 
         if !needs_reset && request.batch_size <= self.batch_size {
             return Ok(());
@@ -1447,7 +1526,6 @@ struct AnnealConfig {
     seed: u64,
     reheat_enabled: bool,
     reheat_temp: f32,
-    adaptive_cooling: bool,
     target_acceptance: f32,
     cooling_adjust: f32,
 }
@@ -1461,7 +1539,6 @@ impl Default for AnnealConfig {
             seed: 7,
             reheat_enabled: true,
             reheat_temp: DEFAULT_ANNEAL_TEMP,
-            adaptive_cooling: true,
             target_acceptance: 0.3,
             cooling_adjust: 0.002,
         }
@@ -1507,7 +1584,6 @@ fn auto_tune_anneal_config(config: &mut AnnealConfig, graph: &GraphData) {
     config.steps_per_batch = MIN_ANNEAL_STEPS;
     config.target_acceptance = 0.3;
     config.cooling_adjust = 0.002;
-    config.adaptive_cooling = true;
     config.reheat_enabled = true;
     config.cooling = DEFAULT_ANNEAL_COOLING;
     config.seed = graph.id ^ 0xD1B5_4A32_D192_ED03;
@@ -1545,25 +1621,272 @@ fn adjust_steps_per_batch(current: u32, elapsed_ms: u128, target_ms: u32) -> u32
     next.clamp(MIN_ANNEAL_STEPS, MAX_ANNEAL_STEPS)
 }
 
-fn percentile_u32(sorted: &[u32], percentile: f32) -> u32 {
-    if sorted.is_empty() {
-        return 0;
+fn stress_color(t: f32) -> Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let value = (t * 255.0).round().clamp(0.0, 255.0) as u8;
+    Color32::from_gray(value)
+}
+
+fn downsample_row(row: &[u32], target: usize) -> Vec<u32> {
+    if row.is_empty() || target == 0 {
+        return Vec::new();
     }
-    let percentile = percentile.clamp(0.0, 1.0);
-    let idx = ((sorted.len() - 1) as f32 * percentile).round() as usize;
-    sorted[idx]
+    if row.len() <= target {
+        return row.to_vec();
+    }
+    let mut out = Vec::with_capacity(target);
+    for idx in 0..target {
+        let start = idx * row.len() / target;
+        let end = (idx + 1) * row.len() / target;
+        let mut sum: u64 = 0;
+        for value in &row[start..end] {
+            sum += *value as u64;
+        }
+        let count = (end - start).max(1) as u64;
+        out.push((sum / count) as u32);
+    }
+    out
+}
+
+fn downsample_mask(row: &[u32], target: usize) -> Vec<u8> {
+    if row.is_empty() || target == 0 {
+        return Vec::new();
+    }
+    if row.len() <= target {
+        return row
+            .iter()
+            .map(|value| if *value > 0 { 255 } else { 0 })
+            .collect();
+    }
+    let mut out = Vec::with_capacity(target);
+    for idx in 0..target {
+        let start = idx * row.len() / target;
+        let end = (idx + 1) * row.len() / target;
+        let mut sum: u32 = 0;
+        for value in &row[start..end] {
+            sum = sum.saturating_add((*value > 0) as u32);
+        }
+        let count = (end - start).max(1) as f32;
+        let ratio = sum as f32 / count;
+        out.push((ratio * 255.0).round() as u8);
+    }
+    out
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StressView {
+    Tension,
+    Touched,
+}
+
+struct StressHeatmap {
+    width: usize,
+    height: usize,
+    head: usize,
+    rows: Vec<u32>,
+    change_rows: Vec<u8>,
+    max_value: f32,
+    texture: Option<egui::TextureHandle>,
+    touched_texture: Option<egui::TextureHandle>,
+}
+
+impl StressHeatmap {
+    fn new() -> Self {
+        Self {
+            width: 0,
+            height: 0,
+            head: 0,
+            rows: Vec::new(),
+            change_rows: Vec::new(),
+            max_value: 0.0,
+            texture: None,
+            touched_texture: None,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.width = 0;
+        self.height = 0;
+        self.head = 0;
+        self.rows.clear();
+        self.change_rows.clear();
+        self.max_value = 0.0;
+        self.texture = None;
+        self.touched_texture = None;
+    }
+
+    fn ensure_tension_size(&mut self, width: usize, height: usize, ctx: &egui::Context) {
+        if self.width == width && self.height == height && self.texture.is_some() {
+            return;
+        }
+        self.width = width;
+        self.height = height;
+        self.head = 0;
+        self.rows = vec![0; width.saturating_mul(height)];
+        self.change_rows = vec![0; width.saturating_mul(height)];
+        self.max_value = 0.0;
+        let image = ColorImage::new([width, height], vec![Color32::BLACK; width * height]);
+        self.texture = Some(ctx.load_texture(
+            "minla_stress",
+            image,
+            egui::TextureOptions::NEAREST,
+        ));
+        self.touched_texture = None;
+    }
+
+    fn ensure_touched_size(&mut self, ctx: &egui::Context) {
+        if self.width == 0 || self.height == 0 {
+            return;
+        }
+        if self.touched_texture.is_some() {
+            return;
+        }
+        let touched = ColorImage::new([self.width, self.height], vec![Color32::BLACK; self.width * self.height]);
+        self.touched_texture = Some(ctx.load_texture(
+            "minla_stress_touched",
+            touched,
+            egui::TextureOptions::NEAREST,
+        ));
+    }
+
+    fn push_row(
+        &mut self,
+        row: &[u32],
+        change_row: Option<&[u32]>,
+        update_touched: bool,
+        ctx: &egui::Context,
+    ) {
+        if row.is_empty() {
+            return;
+        }
+        let width = row.len().min(STRESS_MAX_WIDTH);
+        let height = STRESS_HISTORY.max(1);
+        self.ensure_tension_size(width, height, ctx);
+        let downsampled = downsample_row(row, self.width);
+        if downsampled.len() != self.width {
+            return;
+        }
+        let row_max = downsampled
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or(0) as f32;
+        if self.max_value <= 0.0 {
+            self.max_value = row_max.max(1.0);
+        } else {
+            self.max_value *= 0.98;
+            if row_max > self.max_value {
+                self.max_value = row_max;
+            }
+            if self.max_value < 1.0 {
+                self.max_value = 1.0;
+            }
+        }
+        let offset = self.head * self.width;
+        self.rows[offset..offset + self.width].copy_from_slice(&downsampled);
+        if update_touched {
+            self.ensure_touched_size(ctx);
+            if let Some(change_row) = change_row {
+                let downsampled_changes = downsample_mask(change_row, self.width);
+                if downsampled_changes.len() == self.width {
+                    self.change_rows[offset..offset + self.width]
+                        .copy_from_slice(&downsampled_changes);
+                } else {
+                    self.change_rows[offset..offset + self.width].fill(0);
+                }
+            } else {
+                self.change_rows[offset..offset + self.width].fill(0);
+            }
+        }
+        self.head = (self.head + 1) % self.height;
+        self.update_tension_texture(ctx);
+        if update_touched {
+            self.update_touched_texture(ctx);
+        }
+    }
+
+    fn update_tension_texture(&mut self, ctx: &egui::Context) {
+        let Some(texture) = &mut self.texture else {
+            return;
+        };
+        let mut pixels = Vec::with_capacity(self.width * self.height);
+        let max_value = self.max_value.max(1.0);
+        let log_denom = (max_value + 1.0).ln();
+        for row in 0..self.height {
+            let src_row = (self.head + self.height - 1 - row) % self.height;
+            let start = src_row * self.width;
+            for col in 0..self.width {
+                let value = self.rows[start + col] as f32;
+                let t = if log_denom > 0.0 {
+                    ((value + 1.0).ln() / log_denom).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                pixels.push(stress_color(t));
+            }
+        }
+        let image = ColorImage::new([self.width, self.height], pixels);
+        texture.set(image, egui::TextureOptions::NEAREST);
+        ctx.request_repaint();
+    }
+
+    fn update_touched_texture(&mut self, ctx: &egui::Context) {
+        let Some(touched_texture) = &mut self.touched_texture else {
+            return;
+        };
+        let mut touched_pixels = Vec::with_capacity(self.width * self.height);
+        for row in 0..self.height {
+            let src_row = (self.head + self.height - 1 - row) % self.height;
+            let start = src_row * self.width;
+            for col in 0..self.width {
+                let intensity = self.change_rows[start + col] as f32 / 255.0;
+                let gray = (intensity * 255.0).round().clamp(0.0, 255.0) as u8;
+                touched_pixels.push(Color32::from_gray(gray));
+            }
+        }
+        let touched = ColorImage::new([self.width, self.height], touched_pixels);
+        touched_texture.set(touched, egui::TextureOptions::NEAREST);
+        ctx.request_repaint();
+    }
+
+    fn clear_touched(&mut self) {
+        if !self.change_rows.is_empty() {
+            self.change_rows.fill(0);
+        }
+        self.touched_texture = None;
+    }
+
+    fn show(&self, ui: &mut egui::Ui, view: StressView) {
+        let texture = match view {
+            StressView::Tension => self.texture.as_ref(),
+            StressView::Touched => self.touched_texture.as_ref(),
+        };
+        let Some(texture) = texture else {
+            match view {
+                StressView::Tension => {
+                    ui.label("Stress view will appear after the first batch.");
+                }
+                StressView::Touched => {
+                    ui.label("Touched view will appear after one batch.");
+                }
+            };
+            return;
+        };
+        let width = ui.available_width().max(1.0);
+        let size = Vec2::new(width, STRESS_VIEW_HEIGHT);
+        ui.add(
+            egui::Image::from_texture(texture)
+                .fit_to_exact_size(size)
+                .maintain_aspect_ratio(false),
+        );
+    }
 }
 
 #[derive(Clone, Debug)]
 struct AnnealHistory {
     run: usize,
-    batch_cost: u32,
     best_cost: u32,
     elapsed_ms: u128,
-    temperature: f32,
-    p10_cost: u32,
-    p50_cost: u32,
-    p90_cost: u32,
 }
 
 struct AnnealState {
@@ -1589,6 +1912,8 @@ struct AnnealState {
     chain_last_rate: f64,
     chain_step: u32,
     chain_direction: i32,
+    stress: StressHeatmap,
+    stress_view: StressView,
 }
 
 impl AnnealState {
@@ -1621,6 +1946,8 @@ impl AnnealState {
             chain_last_rate: 0.0,
             chain_step: 2,
             chain_direction: 1,
+            stress: StressHeatmap::new(),
+            stress_view: StressView::Tension,
         }
     }
 
@@ -1641,6 +1968,8 @@ impl AnnealState {
         self.chain_last_rate = 0.0;
         self.chain_step = 2;
         self.chain_direction = 1;
+        self.stress.clear();
+        self.stress_view = StressView::Tension;
     }
 
     fn ensure_start_cost(&mut self) {
@@ -1676,6 +2005,8 @@ impl AnnealState {
         self.chain_last_rate = 0.0;
         self.chain_step = 2;
         self.chain_direction = 1;
+        self.stress.clear();
+        self.stress_view = StressView::Tension;
     }
 
     fn maybe_reset(&mut self) {
@@ -1685,13 +2016,17 @@ impl AnnealState {
         }
     }
 
-    fn poll_runner(&mut self, target_ms: u32) {
+    fn poll_runner(&mut self, target_ms: u32, ctx: &egui::Context) {
         if let Some(batch) = self.runner.poll() {
             if batch.error.is_some() {
                 self.last = batch;
                 return;
             }
             if batch.graph_id == self.graph_id {
+                if let Some(row) = batch.stress_row.as_deref() {
+                    self.stress
+                        .push_row(row, batch.change_row.as_deref(), batch.touched_active, ctx);
+                }
                 self.record_batch(&batch, target_ms);
                 self.last = batch;
             }
@@ -1712,13 +2047,8 @@ impl AnnealState {
         }
         self.history.push(AnnealHistory {
             run: self.runs,
-            batch_cost: batch.best_cost,
             best_cost: self.best_cost,
             elapsed_ms: batch.elapsed_ms,
-            temperature: batch.temperature,
-            p10_cost: batch.p10_cost,
-            p50_cost: batch.p50_cost,
-            p90_cost: batch.p90_cost,
         });
         if self.history.len() > MAX_HISTORY {
             let drop = self.history.len() - MAX_HISTORY;
@@ -1945,7 +2275,6 @@ fn minla_sa_kernel(
     steps: u32,
     reheat_enabled: u32,
     reheat_plateau_steps: u32,
-    adaptive_cooling: u32,
     target_acceptance: f32,
     cooling_adjust: f32,
     orders: &mut Array<u32>,
@@ -1986,7 +2315,6 @@ fn minla_sa_kernel(
         }
 
         let reheat_enabled = reheat_enabled != 0;
-        let adaptive_cooling = adaptive_cooling != 0;
         let mut reheat_gain = cooling_adjust * 4.0;
         if reheat_gain < 0.001 {
             reheat_gain = 0.001;
@@ -2023,160 +2351,58 @@ fn minla_sa_kernel(
         if node_count > 1 && steps > 0 {
             for _ in 0..steps {
                 state = state * LCG_A + LCG_C;
-                let mut use_reverse: u32 = 0;
-                if node_count > 3 {
-                    let reverse_divisor: u32 = if temperature > 1.0 {
-                        32u32.into()
-                    } else if temperature > 0.2 {
-                        64u32.into()
-                    } else {
-                        128u32.into()
-                    };
-                    if (state % reverse_divisor) == 0 {
-                        use_reverse = 1;
+                state = state * LCG_A + LCG_C;
+                let i = (state % node_count as u32) as usize;
+                state = state * LCG_A + LCG_C;
+                let mut j = (state % (node_count as u32 - 1)) as usize;
+                if j >= i {
+                    j += 1;
+                }
+
+                let left = base + i;
+                let right = base + j;
+                let node_i = orders[left];
+                let node_j = orders[right];
+                orders[left] = node_j;
+                orders[right] = node_i;
+                positions[base + node_j as usize] = i as u32;
+                positions[base + node_i as usize] = j as u32;
+
+                let node_i_usize = node_i as usize;
+                let node_j_usize = node_j as usize;
+                let pos_i = i as u32;
+                let pos_j = j as u32;
+                let mut delta_cost: i32 = 0;
+
+                let start_i = adj_offsets[node_i_usize] as usize;
+                let end_i = adj_offsets[node_i_usize + 1] as usize;
+                for idx in start_i..end_i {
+                    let neighbor = adj_list[idx] as usize;
+                    if neighbor != node_j_usize {
+                        let pos_n = positions[base + neighbor];
+                        let old = if pos_i > pos_n { pos_i - pos_n } else { pos_n - pos_i };
+                        let new = if pos_j > pos_n { pos_j - pos_n } else { pos_n - pos_j };
+                        delta_cost += new as i32 - old as i32;
                     }
                 }
 
-                let mut candidate_cost = current_cost;
-                let mut i = 0usize;
-                let mut j = 0usize;
-                let mut node_i = 0u32;
-                let mut node_j = 0u32;
-                let mut start = 0usize;
-                let mut end = 0usize;
-
-                if use_reverse != 0 {
-                    let base_max: usize = if node_count < 64 {
-                        node_count
-                    } else {
-                        64usize.into()
-                    };
-                    let temp_scale = temperature / (temperature + 1.0);
-                    let mut max_segment = if base_max > 2 {
-                        2 + ((base_max - 2) as f32 * temp_scale) as usize
-                    } else {
-                        base_max
-                    };
-                    if max_segment < 2 {
-                        max_segment = 2;
-                    }
-                    let mut len = max_segment;
-                    if max_segment > 2 {
-                        state = state * LCG_A + LCG_C;
-                        let span = (max_segment - 1) as u32;
-                        len = 2 + (state % span) as usize;
-                    }
-                    if len > node_count {
-                        len = node_count;
-                    }
-                    if len < 2 {
-                        use_reverse = 0;
-                    } else {
-                        state = state * LCG_A + LCG_C;
-                        let max_start = node_count - len + 1;
-                        start = (state % max_start as u32) as usize;
-                        end = start + len - 1;
-                        let start_pos = start as u32;
-                        let end_pos = end as u32;
-                        let mut delta_cost: i32 = 0;
-
-                        let mut pos = start;
-                        while pos <= end {
-                            let node = orders[base + pos] as usize;
-                            let pos_u = pos as u32;
-                            let new_pos = start_pos + end_pos - pos_u;
-                            let start_idx = adj_offsets[node] as usize;
-                            let end_idx = adj_offsets[node + 1] as usize;
-                            for idx in start_idx..end_idx {
-                                let neighbor = adj_list[idx] as usize;
-                                let neighbor_pos = positions[base + neighbor] as usize;
-                                if neighbor_pos < start || neighbor_pos > end {
-                                    let pos_n = neighbor_pos as u32;
-                                    let old = if pos_u > pos_n { pos_u - pos_n } else { pos_n - pos_u };
-                                    let new = if new_pos > pos_n { new_pos - pos_n } else { pos_n - new_pos };
-                                    delta_cost += new as i32 - old as i32;
-                                }
-                            }
-                            pos += 1;
-                        }
-
-                        let mut next_cost = current_cost as i32 + delta_cost;
-                        if next_cost < 0 {
-                            next_cost = 0;
-                        }
-                        candidate_cost = next_cost as u32;
-
-                        let mut left = start;
-                        let mut right = end;
-                        while left < right {
-                            let left_idx = base + left;
-                            let right_idx = base + right;
-                            let left_node = orders[left_idx];
-                            let right_node = orders[right_idx];
-                            orders[left_idx] = right_node;
-                            orders[right_idx] = left_node;
-                            positions[base + right_node as usize] = left as u32;
-                            positions[base + left_node as usize] = right as u32;
-                            left += 1;
-                            right -= 1;
-                        }
+                let start_j = adj_offsets[node_j_usize] as usize;
+                let end_j = adj_offsets[node_j_usize + 1] as usize;
+                for idx in start_j..end_j {
+                    let neighbor = adj_list[idx] as usize;
+                    if neighbor != node_i_usize {
+                        let pos_n = positions[base + neighbor];
+                        let old = if pos_j > pos_n { pos_j - pos_n } else { pos_n - pos_j };
+                        let new = if pos_i > pos_n { pos_i - pos_n } else { pos_n - pos_i };
+                        delta_cost += new as i32 - old as i32;
                     }
                 }
 
-                if use_reverse == 0 {
-                    state = state * LCG_A + LCG_C;
-                    i = (state % node_count as u32) as usize;
-                    state = state * LCG_A + LCG_C;
-                    j = (state % (node_count as u32 - 1)) as usize;
-                    if j >= i {
-                        j += 1;
-                    }
-
-                    let left = base + i;
-                    let right = base + j;
-                    node_i = orders[left];
-                    node_j = orders[right];
-                    orders[left] = node_j;
-                    orders[right] = node_i;
-                    positions[base + node_j as usize] = i as u32;
-                    positions[base + node_i as usize] = j as u32;
-
-                    let node_i_usize = node_i as usize;
-                    let node_j_usize = node_j as usize;
-                    let pos_i = i as u32;
-                    let pos_j = j as u32;
-                    let mut delta_cost: i32 = 0;
-
-                    let start_i = adj_offsets[node_i_usize] as usize;
-                    let end_i = adj_offsets[node_i_usize + 1] as usize;
-                    for idx in start_i..end_i {
-                        let neighbor = adj_list[idx] as usize;
-                        if neighbor != node_j_usize {
-                            let pos_n = positions[base + neighbor];
-                            let old = if pos_i > pos_n { pos_i - pos_n } else { pos_n - pos_i };
-                            let new = if pos_j > pos_n { pos_j - pos_n } else { pos_n - pos_j };
-                            delta_cost += new as i32 - old as i32;
-                        }
-                    }
-
-                    let start_j = adj_offsets[node_j_usize] as usize;
-                    let end_j = adj_offsets[node_j_usize + 1] as usize;
-                    for idx in start_j..end_j {
-                        let neighbor = adj_list[idx] as usize;
-                        if neighbor != node_i_usize {
-                            let pos_n = positions[base + neighbor];
-                            let old = if pos_j > pos_n { pos_j - pos_n } else { pos_n - pos_j };
-                            let new = if pos_i > pos_n { pos_i - pos_n } else { pos_n - pos_i };
-                            delta_cost += new as i32 - old as i32;
-                        }
-                    }
-
-                    let mut next_cost = current_cost as i32 + delta_cost;
-                    if next_cost < 0 {
-                        next_cost = 0;
-                    }
-                    candidate_cost = next_cost as u32;
+                let mut next_cost = current_cost as i32 + delta_cost;
+                if next_cost < 0 {
+                    next_cost = 0;
                 }
+                let candidate_cost = next_cost as u32;
 
                 let delta = candidate_cost as f32 - current_cost as f32;
                 let mut accept = delta <= 0.0;
@@ -2206,29 +2432,12 @@ fn minla_sa_kernel(
                         stagnant += 1;
                     }
                 } else {
-                    if use_reverse != 0 {
-                        let mut left = start;
-                        let mut right = end;
-                        while left < right {
-                            let left_idx = base + left;
-                            let right_idx = base + right;
-                            let left_node = orders[left_idx];
-                            let right_node = orders[right_idx];
-                            orders[left_idx] = right_node;
-                            orders[right_idx] = left_node;
-                            positions[base + right_node as usize] = left as u32;
-                            positions[base + left_node as usize] = right as u32;
-                            left += 1;
-                            right -= 1;
-                        }
-                    } else {
-                        let left = base + i;
-                        let right = base + j;
-                        orders[left] = node_i;
-                        orders[right] = node_j;
-                        positions[base + node_i as usize] = i as u32;
-                        positions[base + node_j as usize] = j as u32;
-                    }
+                    let left = base + i;
+                    let right = base + j;
+                    orders[left] = node_i;
+                    orders[right] = node_j;
+                    positions[base + node_i as usize] = i as u32;
+                    positions[base + node_j as usize] = j as u32;
                     if stagnant < u32::MAX {
                         stagnant += 1;
                     }
@@ -2245,7 +2454,7 @@ fn minla_sa_kernel(
                     temperature = temp_floor;
                 }
 
-                if adaptive_cooling && interval_steps >= SA_ADAPT_INTERVAL {
+                if interval_steps >= SA_ADAPT_INTERVAL {
                     let acceptance = interval_accepts as f32 / interval_steps as f32;
                     if acceptance > target_acceptance + 0.05 {
                         temperature = temperature * (1.0 - cooling_adjust);
@@ -2268,6 +2477,66 @@ fn minla_sa_kernel(
         cooling_state[candidate] = cooling;
         rng_states[candidate] = state;
         stagnant_steps[candidate] = stagnant;
+    }
+}
+
+#[cube(launch)]
+fn minla_positions_from_order_kernel(
+    node_count: u32,
+    order: &Array<u32>,
+    positions: &mut Array<u32>,
+) {
+    let idx = ABSOLUTE_POS;
+    let node_count = node_count as usize;
+    if idx < node_count {
+        let node = order[idx] as usize;
+        positions[node] = idx as u32;
+    }
+}
+
+#[cube(launch)]
+fn minla_select_best_order_kernel(
+    node_count: u32,
+    best_idx: u32,
+    best_orders: &Array<u32>,
+    best_order_out: &mut Array<u32>,
+) {
+    let idx = ABSOLUTE_POS;
+    let node_count = node_count as usize;
+    if idx < node_count {
+        let base = best_idx as usize * node_count;
+        best_order_out[idx] = best_orders[base + idx];
+    }
+}
+
+#[cube(launch)]
+fn minla_stress_kernel(
+    adj_offsets: &Array<u32>,
+    adj_list: &Array<u32>,
+    node_count: u32,
+    positions: &Array<u32>,
+    normalize: u32,
+    stress_out: &mut Array<u32>,
+) {
+    let node = ABSOLUTE_POS;
+    let node_count = node_count as usize;
+    if node < node_count {
+        let pos_u = positions[node] as u32;
+        let start = adj_offsets[node] as usize;
+        let end = adj_offsets[node + 1] as usize;
+        let degree = (end - start) as u32;
+        let mut sum = 0u32;
+        for idx in start..end {
+            let neighbor = adj_list[idx] as usize;
+            let pos_v = positions[neighbor] as u32;
+            sum += if pos_u > pos_v { pos_u - pos_v } else { pos_v - pos_u };
+        }
+        let stress = if normalize != 0 && degree > 0 {
+            sum / degree
+        } else {
+            sum
+        };
+        stress_out[pos_u as usize] = stress;
     }
 }
 
@@ -2684,7 +2953,7 @@ The first run can be slow while CubeCL builds shaders.
         };
 
         state.sync_graph(&graph);
-        state.poll_runner(target_ms);
+        state.poll_runner(target_ms, ui.ctx());
         state.maybe_reset();
 
         let running = state.runner.is_running();
@@ -2820,115 +3089,39 @@ The first run can be slow while CubeCL builds shaders.
             }
 
             if !state.history.is_empty() {
-                let batch_points: Vec<[f64; 2]> = state
-                    .history
-                    .iter()
-                    .map(|entry| [entry.run as f64, entry.batch_cost as f64])
-                    .collect();
                 let best_points: Vec<[f64; 2]> = state
                     .history
                     .iter()
                     .map(|entry| [entry.run as f64, entry.best_cost as f64])
                     .collect();
-                let median_points: Vec<[f64; 2]> = state
-                    .history
-                    .iter()
-                    .map(|entry| [entry.run as f64, entry.p50_cost as f64])
-                    .collect();
-                let band_quads: Vec<PlotPoints> = state
-                    .history
-                    .windows(2)
-                    .map(|window| {
-                        let left = &window[0];
-                        let right = &window[1];
-                        PlotPoints::from(vec![
-                            [left.run as f64, left.p90_cost as f64],
-                            [right.run as f64, right.p90_cost as f64],
-                            [right.run as f64, right.p10_cost as f64],
-                            [left.run as f64, left.p10_cost as f64],
-                        ])
-                    })
-                    .collect();
-                let temp_values: Vec<f32> = state
-                    .history
-                    .iter()
-                    .map(|entry| entry.temperature)
-                    .collect();
-                let run_base = state
-                    .history
-                    .first()
-                    .map(|entry| entry.run)
-                    .unwrap_or(0) as i64;
-                let temp_floor = MIN_ANNEAL_TEMP;
-                let temp_ceiling = state
-                    .config
-                    .reheat_temp
-                    .max(state.config.initial_temp)
-                    .max(temp_floor);
-                let temp_span = (temp_ceiling - temp_floor).max(f32::EPSILON);
-                let cold = Color32::from_rgb(80, 140, 255);
-                let hot = Color32::from_rgb(255, 120, 70);
-                let band_base = themes::blend(cold, hot, 0.35);
-                let band_color = Color32::from_rgba_unmultiplied(
-                    band_base.r(),
-                    band_base.g(),
-                    band_base.b(),
-                    28,
-                );
-                let median_color = Color32::from_rgba_unmultiplied(
-                    band_base.r(),
-                    band_base.g(),
-                    band_base.b(),
-                    110,
-                );
 
                 Plot::new("anneal_cost")
                     .height(320.0)
                     .legend(Legend::default())
                     .show(ui, move |plot_ui| {
-                        for quad in band_quads {
-                            plot_ui.polygon(
-                                Polygon::new("", quad)
-                                    .fill_color(band_color)
-                                    .stroke(Stroke::new(0.0, band_color))
-                                    .allow_hover(false),
-                            );
-                        }
-                        if !median_points.is_empty() {
-                            plot_ui.line(
-                                Line::new("", PlotPoints::from(median_points))
-                                    .color(median_color)
-                                    .width(1.0)
-                                    .allow_hover(false),
-                            );
-                        }
-                        if !batch_points.is_empty() {
-                            let batch_line = Line::new("batch", PlotPoints::from(batch_points))
-                                .gradient_color(
-                                    Arc::new(move |point| {
-                                        let run = point.x.round() as i64;
-                                        let idx = if run >= run_base {
-                                            (run - run_base) as usize
-                                        } else {
-                                            0
-                                        };
-                                        let temp = temp_values
-                                            .get(idx)
-                                            .copied()
-                                            .unwrap_or(temp_floor);
-                                        let t = ((temp - temp_floor) / temp_span).clamp(0.0, 1.0);
-                                        themes::blend(cold, hot, t)
-                                    }),
-                                    false,
-                                );
-                            plot_ui.line(batch_line);
-                        }
                         if !best_points.is_empty() {
                             plot_ui.line(Line::new("best", PlotPoints::from(best_points)));
                         }
                     });
             }
+
+            ui.separator();
+            ui.label("Stress over time");
+            ui.horizontal(|ui| {
+                ui.label("View");
+                let prev_view = state.stress_view;
+                ui.add(
+                    widgets::ChoiceToggle::new(&mut state.stress_view)
+                        .choice(StressView::Tension, "Tension")
+                        .choice(StressView::Touched, "Touched"),
+                );
+                if state.stress_view != prev_view && state.stress_view == StressView::Touched {
+                    state.stress.clear_touched();
+                }
+            });
         });
+
+        state.stress.show(ui, state.stress_view);
 
         if reset_requested && !running {
             state.reset();
@@ -2955,9 +3148,10 @@ The first run can be slow while CubeCL builds shaders.
                 reheat_enabled: state.config.reheat_enabled,
                 reheat_temp: state.config.reheat_temp,
                 reheat_plateau_steps: plateau_steps,
-                adaptive_cooling: state.config.adaptive_cooling,
                 target_acceptance: state.config.target_acceptance,
                 cooling_adjust: state.config.cooling_adjust,
+                capture_stress: true,
+                capture_touched: state.stress_view == StressView::Touched,
                 graph: graph.clone(),
             }) {
                 state.last = error;
