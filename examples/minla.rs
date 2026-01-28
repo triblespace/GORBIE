@@ -74,7 +74,7 @@ const DEFAULT_ANNEAL_TEMP: f32 = 8.0;
 const DEFAULT_ANNEAL_COOLING: f32 = 0.995;
 const MIN_ANNEAL_TEMP: f32 = 0.001;
 const RESEED_PLATEAU_STEPS: u32 = 12_000;
-const BEST_ORDER_SAVE_STEPS: u32 = 0;
+const BEST_ORDER_SAVE_STEPS: u32 = 256;
 const CHAIN_TUNE_INTERVAL: u32 = 4;
 const CHAIN_TUNE_TOLERANCE: f64 = 0.02;
 const CHAIN_TUNE_STEP_MAX: u32 = 64;
@@ -575,7 +575,6 @@ impl<R: Runtime> AnnealRunnerState<R> {
         let steps = request.steps.max(1);
         let target_acceptance = request.target_acceptance.clamp(0.05, 0.95);
         let cooling_adjust = request.cooling_adjust.clamp(0.0001, 0.05);
-        let initial_temp = request.initial_temp.max(MIN_ANNEAL_TEMP);
         let reheat_steps = request.reseed_plateau_steps.max(1);
 
         let orders_handle = self.orders_handle.as_ref().expect("orders handle");
@@ -612,7 +611,6 @@ impl<R: Runtime> AnnealRunnerState<R> {
                 ScalarArg::new(steps),
                 ScalarArg::new(target_acceptance),
                 ScalarArg::new(cooling_adjust),
-                ScalarArg::new(initial_temp),
                 ScalarArg::new(reheat_steps),
                 ArrayArg::from_raw_parts::<u32>(orders_handle, orders_len, 1),
                 ArrayArg::from_raw_parts::<u32>(positions_handle, orders_len, 1),
@@ -630,8 +628,6 @@ impl<R: Runtime> AnnealRunnerState<R> {
 
         let costs_bytes = self.client.read_one(best_costs_handle.clone());
         let costs = u32::from_bytes(&costs_bytes).to_vec();
-        let current_bytes = self.client.read_one(current_costs_handle.clone());
-        let current_costs = u32::from_bytes(&current_bytes).to_vec();
         let mut best_cost = u32::MAX;
         let mut best_idx = 0usize;
         if !costs.is_empty() {
@@ -642,7 +638,6 @@ impl<R: Runtime> AnnealRunnerState<R> {
                 }
             }
         }
-        let reseed_cost = current_costs.get(best_idx).copied().unwrap_or(best_cost);
 
         if request.batch_size > 1 && best_cost != u32::MAX && self.node_count > 0 {
             let orders_handle = self.orders_handle.as_ref().expect("orders handle");
@@ -651,6 +646,7 @@ impl<R: Runtime> AnnealRunnerState<R> {
                 .current_costs_handle
                 .as_ref()
                 .expect("current costs handle");
+            let best_orders_handle = self.best_orders_handle.as_ref().expect("best orders handle");
             let temperatures_handle =
                 self.temperatures_handle.as_ref().expect("temperatures handle");
             let temp_floor_handle = self
@@ -675,12 +671,13 @@ impl<R: Runtime> AnnealRunnerState<R> {
                     CubeDim::new_1d(1),
                     ScalarArg::new(self.node_count as u32),
                     ScalarArg::new(best_idx as u32),
-                    ScalarArg::new(reseed_cost),
+                    ScalarArg::new(best_cost),
                     ScalarArg::new(stale_steps),
                     ScalarArg::new(reset_temp),
                     ScalarArg::new(reset_floor),
                     ArrayArg::from_raw_parts::<u32>(orders_handle, orders_len, 1),
                     ArrayArg::from_raw_parts::<u32>(positions_handle, orders_len, 1),
+                    ArrayArg::from_raw_parts::<u32>(best_orders_handle, orders_len, 1),
                     ArrayArg::from_raw_parts::<u32>(current_costs_handle, request.batch_size, 1),
                     ArrayArg::from_raw_parts::<u32>(best_costs_handle, request.batch_size, 1),
                     ArrayArg::from_raw_parts::<f32>(temperatures_handle, request.batch_size, 1),
@@ -2273,7 +2270,6 @@ fn minla_sa_kernel(
     steps: u32,
     target_acceptance: f32,
     cooling_adjust: f32,
-    initial_temp: f32,
     reheat_steps: u32,
     orders: &mut Array<u32>,
     positions: &mut Array<u32>,
@@ -2310,10 +2306,6 @@ fn minla_sa_kernel(
         } else if cooling > 0.9999 {
             cooling = 0.9999;
         }
-        let mut max_temp = initial_temp;
-        if max_temp < MIN_ANNEAL_TEMP {
-            max_temp = MIN_ANNEAL_TEMP;
-        }
 
         let mut target_acceptance = target_acceptance;
         if target_acceptance < 0.05 {
@@ -2331,7 +2323,18 @@ fn minla_sa_kernel(
         let mut interval_accepts: u32 = 0;
         let mut stagnant = stagnant_steps[candidate];
         let mut best_cost = best_costs[candidate];
-        let base_floor = temp_floor;
+        let mut reheat_gain = cooling_adjust * 4.0;
+        if reheat_gain < 0.001 {
+            reheat_gain = 0.001;
+        } else if reheat_gain > 0.05 {
+            reheat_gain = 0.05;
+        }
+        let mut floor_decay = 1.0 - cooling_adjust * 2.0;
+        if floor_decay < 0.90 {
+            floor_decay = 0.90;
+        } else if floor_decay > 0.9999 {
+            floor_decay = 0.9999;
+        }
         let reheat_steps = reheat_steps.max(1);
         if node_count > 1 && steps > 0 {
             for _ in 0..steps {
@@ -2412,6 +2415,10 @@ fn minla_sa_kernel(
                             }
                         }
                         stagnant = 0;
+                        temp_floor = temp_floor * floor_decay;
+                        if temp_floor < MIN_ANNEAL_TEMP {
+                            temp_floor = MIN_ANNEAL_TEMP;
+                        }
                     } else if stagnant < u32::MAX {
                         stagnant += 1;
                     }
@@ -2426,12 +2433,10 @@ fn minla_sa_kernel(
                         stagnant += 1;
                     }
                 }
-                if max_temp > base_floor && stagnant > 0 {
-                    let ratio = (stagnant as f32 / reheat_steps as f32).min(1.0);
-                    let target_floor = base_floor + (max_temp - base_floor) * ratio;
-                    if target_floor > temp_floor {
-                        temp_floor = target_floor;
-                    }
+                if stagnant > 0 {
+                    let ratio = stagnant as f32 / reheat_steps as f32;
+                    let gain = reheat_gain * (ratio / (1.0 + ratio));
+                    temp_floor = temp_floor * (1.0 + gain);
                 }
                 interval_steps += 1;
                 temperature = temperature * cooling;
@@ -2535,6 +2540,7 @@ fn minla_sa_reseed_kernel(
     reset_floor: f32,
     orders: &mut Array<u32>,
     positions: &mut Array<u32>,
+    best_orders: &mut Array<u32>,
     current_costs: &mut Array<u32>,
     best_costs: &mut Array<u32>,
     temperatures: &mut Array<f32>,
@@ -2555,8 +2561,9 @@ fn minla_sa_reseed_kernel(
             let base = candidate * node_count;
             let best_base = best_idx * node_count;
             for idx in 0..node_count {
-                let node = orders[best_base + idx];
+                let node = best_orders[best_base + idx];
                 orders[base + idx] = node;
+                best_orders[base + idx] = node;
                 positions[base + node as usize] = idx as u32;
             }
             current_costs[candidate] = best_cost;
