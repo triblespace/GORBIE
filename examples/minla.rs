@@ -512,13 +512,12 @@ struct AnnealRunnerState<R: Runtime> {
     node_count: usize,
     edge_count: usize,
     batch_size: usize,
-    best_committed_cost: u32,
+    best_cost: u32,
     best_version: u32,
     orders_handle: Option<Handle>,
     positions_handle: Option<Handle>,
     best_orders_handle: Option<Handle>,
     current_costs_handle: Option<Handle>,
-    best_costs_handle: Option<Handle>,
     best_orders_costs_handle: Option<Handle>,
     temp_floor_handle: Option<Handle>,
     rng_states_handle: Option<Handle>,
@@ -547,13 +546,12 @@ impl<R: Runtime> AnnealRunnerState<R> {
             node_count: graph.node_count,
             edge_count: graph.edge_count,
             batch_size: 0,
-            best_committed_cost: u32::MAX,
+            best_cost: u32::MAX,
             best_version: 0,
             orders_handle: None,
             positions_handle: None,
             best_orders_handle: None,
             current_costs_handle: None,
-            best_costs_handle: None,
             best_orders_costs_handle: None,
             temp_floor_handle: None,
             rng_states_handle: None,
@@ -580,29 +578,32 @@ impl<R: Runtime> AnnealRunnerState<R> {
 
         let start = std::time::Instant::now();
         let steps = request.steps.max(1);
-        let cooling_adjust = request.cooling_adjust.clamp(0.0001, 0.05);
+        let cooling_adjust = request.cooling_adjust.max(0.0001).min(0.05);
         let reheat_steps = request.reseed_plateau_steps.max(1);
 
         let orders_handle = self.orders_handle.as_ref().expect("orders handle");
         let positions_handle = self.positions_handle.as_ref().expect("positions handle");
-    let current_costs_handle =
-        self.current_costs_handle.as_ref().expect("current costs handle");
-    let best_orders_handle = self.best_orders_handle.as_ref().expect("best orders handle");
-        let best_costs_handle = self.best_costs_handle.as_ref().expect("best costs handle");
+        let current_costs_handle = self
+            .current_costs_handle
+            .as_ref()
+            .expect("current costs handle");
+        let best_orders_handle = self.best_orders_handle.as_ref().expect("best orders handle");
         let best_orders_costs_handle = self
             .best_orders_costs_handle
             .as_ref()
-            .expect("best orders costs handle");
+            .expect("best orders cost handle");
         let temp_floor_handle = self.temp_floor_handle.as_ref().expect("temp floor handle");
         let rng_states_handle = self.rng_states_handle.as_ref().expect("rng states handle");
-    let stagnant_steps_handle =
-        self.stagnant_steps_handle.as_ref().expect("stagnant steps handle");
-    let reseeded_handle = self.reseeded_handle.as_ref().expect("reseeded handle");
-    let seed_versions_handle = self
-        .seed_versions_handle
-        .as_ref()
-        .expect("seed versions handle");
-    let orders_len = request.batch_size * self.node_count;
+        let stagnant_steps_handle = self
+            .stagnant_steps_handle
+            .as_ref()
+            .expect("stagnant steps handle");
+        let reseeded_handle = self.reseeded_handle.as_ref().expect("reseeded handle");
+        let seed_versions_handle = self
+            .seed_versions_handle
+            .as_ref()
+            .expect("seed versions handle");
+        let orders_len = request.batch_size * self.node_count;
 
         unsafe {
             minla_sa_kernel::launch::<R>(
@@ -627,7 +628,6 @@ impl<R: Runtime> AnnealRunnerState<R> {
                 ArrayArg::from_raw_parts::<u32>(positions_handle, orders_len, 1),
                 ArrayArg::from_raw_parts::<u32>(current_costs_handle, request.batch_size, 1),
                 ArrayArg::from_raw_parts::<u32>(best_orders_handle, orders_len, 1),
-                ArrayArg::from_raw_parts::<u32>(best_costs_handle, request.batch_size, 1),
                 ArrayArg::from_raw_parts::<u32>(
                     best_orders_costs_handle,
                     request.batch_size,
@@ -640,70 +640,39 @@ impl<R: Runtime> AnnealRunnerState<R> {
             .expect("minla SA kernel launch");
         }
 
-        let best_cost_bytes = self.client.read_one(best_costs_handle.clone());
-        let best_costs = u32::from_bytes(&best_cost_bytes).to_vec();
-        let mut best_cost = u32::MAX;
-        let mut best_idx = 0usize;
-        if !best_costs.is_empty() {
-            for (idx, cost) in best_costs.iter().enumerate() {
-                if *cost < best_cost {
-                    best_cost = *cost;
-                    best_idx = idx;
-                }
-            }
-        }
         let best_orders_costs_bytes = self.client.read_one(best_orders_costs_handle.clone());
         let best_orders_costs = u32::from_bytes(&best_orders_costs_bytes).to_vec();
-        let mut committed_cost = best_cost;
-        let mut committed_idx = best_idx;
+        let mut batch_best_cost = u32::MAX;
+        let mut batch_best_idx = 0usize;
         if !best_orders_costs.is_empty() {
-            committed_cost = u32::MAX;
-            committed_idx = 0usize;
             for (idx, cost) in best_orders_costs.iter().enumerate() {
-                if *cost < committed_cost {
-                    committed_cost = *cost;
-                    committed_idx = idx;
+                if *cost < batch_best_cost {
+                    batch_best_cost = *cost;
+                    batch_best_idx = idx;
                 }
             }
         }
-        if committed_cost != u32::MAX && committed_cost < self.best_committed_cost {
-            self.best_committed_cost = committed_cost;
+        if batch_best_cost != u32::MAX && batch_best_cost < self.best_cost {
+            self.best_cost = batch_best_cost;
             self.best_version = self.best_version.saturating_add(1);
         }
 
-        let orders_handle = self.orders_handle.as_ref().expect("orders handle");
-        let positions_handle = self.positions_handle.as_ref().expect("positions handle");
-        let current_costs_handle = self
-            .current_costs_handle
-            .as_ref()
-            .expect("current costs handle");
-        let best_orders_handle = self.best_orders_handle.as_ref().expect("best orders handle");
-        let temp_floor_handle = self
-            .temp_floor_handle
-            .as_ref()
-            .expect("temp floor handle");
-        let stagnant_steps_handle = self
-            .stagnant_steps_handle
-            .as_ref()
-            .expect("stagnant steps handle");
-        let orders_len = request.batch_size * self.node_count;
-        let mut stale_steps = 0;
         let reset_cap = request.initial_temp.max(MIN_ANNEAL_TEMP);
-        let mut reset_floor = request.temp_floor.max(MIN_ANNEAL_TEMP);
-        if reset_floor > reset_cap {
-            reset_floor = reset_cap;
-        }
-        if request.batch_size > 1 && committed_cost != u32::MAX && self.node_count > 0 {
-            stale_steps = request.reseed_plateau_steps.max(1);
-        }
+        let reset_floor = request.temp_floor.max(MIN_ANNEAL_TEMP).min(reset_cap);
+        let stale_steps =
+            if request.batch_size > 1 && batch_best_cost != u32::MAX && self.node_count > 0 {
+                reheat_steps
+            } else {
+                0
+            };
         unsafe {
             minla_sa_reseed_kernel::launch::<R>(
                 &self.client,
                 CubeCount::new_1d(request.batch_size as u32),
                 CubeDim::new_1d(1),
                 ScalarArg::new(self.node_count as u32),
-                ScalarArg::new(committed_idx as u32),
-                ScalarArg::new(committed_cost),
+                ScalarArg::new(batch_best_idx as u32),
+                ScalarArg::new(batch_best_cost),
                 ScalarArg::new(stale_steps),
                 ScalarArg::new(self.best_version),
                 ScalarArg::new(reset_floor),
@@ -711,7 +680,6 @@ impl<R: Runtime> AnnealRunnerState<R> {
                 ArrayArg::from_raw_parts::<u32>(positions_handle, orders_len, 1),
                 ArrayArg::from_raw_parts::<u32>(best_orders_handle, orders_len, 1),
                 ArrayArg::from_raw_parts::<u32>(current_costs_handle, request.batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(best_costs_handle, request.batch_size, 1),
                 ArrayArg::from_raw_parts::<u32>(
                     best_orders_costs_handle,
                     request.batch_size,
@@ -742,7 +710,7 @@ impl<R: Runtime> AnnealRunnerState<R> {
                     CubeCount::new_1d(self.node_count as u32),
                     CubeDim::new_1d(1),
                     ScalarArg::new(self.node_count as u32),
-                    ScalarArg::new(committed_idx as u32),
+                    ScalarArg::new(batch_best_idx as u32),
                     ArrayArg::from_raw_parts::<u32>(best_orders_handle, orders_len, 1),
                     ArrayArg::from_raw_parts::<u32>(best_order_handle, self.node_count, 1),
                 )
@@ -804,8 +772,7 @@ impl<R: Runtime> AnnealRunnerState<R> {
 
         AnnealResult::ok(
             request.graph.id,
-            best_cost,
-            committed_cost,
+            batch_best_cost,
             reseeded,
             request.batch_size,
             steps,
@@ -842,7 +809,7 @@ impl<R: Runtime> AnnealRunnerState<R> {
 
         if needs_reset {
             self.prev_best_order = None;
-            self.best_committed_cost = u32::MAX;
+            self.best_cost = u32::MAX;
             self.best_version = 0;
         }
 
@@ -913,21 +880,11 @@ impl<R: Runtime> AnnealRunnerState<R> {
         } else {
             None
         };
-        let old_best_costs_handle = if grow {
-            Some(
-                self.best_costs_handle
-                    .as_ref()
-                    .expect("best costs handle")
-                    .clone(),
-            )
-        } else {
-            None
-        };
         let old_best_orders_costs_handle = if grow {
             Some(
                 self.best_orders_costs_handle
                     .as_ref()
-                    .expect("best orders costs handle")
+                    .expect("best orders cost handle")
                     .clone(),
             )
         } else {
@@ -973,7 +930,6 @@ impl<R: Runtime> AnnealRunnerState<R> {
         self.positions_handle = Some(self.client.empty(order_bytes));
         self.best_orders_handle = Some(self.client.empty(order_bytes));
         self.current_costs_handle = Some(self.client.empty(batch_bytes_u32));
-        self.best_costs_handle = Some(self.client.empty(batch_bytes_u32));
         self.best_orders_costs_handle = Some(self.client.empty(batch_bytes_u32));
         self.temp_floor_handle = Some(self.client.empty(batch_bytes_f32));
         self.rng_states_handle = Some(self.client.empty(batch_bytes_u32));
@@ -983,17 +939,8 @@ impl<R: Runtime> AnnealRunnerState<R> {
         self.batch_size = batch_size;
 
         let seed32 = seed_to_u32(request.seed);
-        let mut initial_temp = request.initial_temp;
-        if initial_temp < MIN_ANNEAL_TEMP {
-            initial_temp = MIN_ANNEAL_TEMP;
-        }
-        let mut floor_temp = request.temp_floor;
-        if floor_temp < MIN_ANNEAL_TEMP {
-            floor_temp = MIN_ANNEAL_TEMP;
-        }
-        if floor_temp > initial_temp {
-            floor_temp = initial_temp;
-        }
+        let initial_temp = request.initial_temp.max(MIN_ANNEAL_TEMP);
+        let floor_temp = request.temp_floor.max(MIN_ANNEAL_TEMP).min(initial_temp);
 
         let orders_handle = self.orders_handle.as_ref().expect("orders handle");
         let positions_handle = self.positions_handle.as_ref().expect("positions handle");
@@ -1002,11 +949,10 @@ impl<R: Runtime> AnnealRunnerState<R> {
             .current_costs_handle
             .as_ref()
             .expect("current costs handle");
-        let best_costs_handle = self.best_costs_handle.as_ref().expect("best costs handle");
         let best_orders_costs_handle = self
             .best_orders_costs_handle
             .as_ref()
-            .expect("best orders costs handle");
+            .expect("best orders cost handle");
         let temp_floor_handle = self
             .temp_floor_handle
             .as_ref()
@@ -1040,7 +986,6 @@ impl<R: Runtime> AnnealRunnerState<R> {
                 ArrayArg::from_raw_parts::<u32>(positions_handle, order_len, 1),
                 ArrayArg::from_raw_parts::<u32>(best_orders_handle, order_len, 1),
                 ArrayArg::from_raw_parts::<u32>(current_costs_handle, batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(best_costs_handle, batch_size, 1),
                 ArrayArg::from_raw_parts::<u32>(best_orders_costs_handle, batch_size, 1),
                 ArrayArg::from_raw_parts::<f32>(temp_floor_handle, batch_size, 1),
                 ArrayArg::from_raw_parts::<u32>(rng_states_handle, batch_size, 1),
@@ -1061,9 +1006,8 @@ impl<R: Runtime> AnnealRunnerState<R> {
             let old_best_orders_handle = old_best_orders_handle.expect("old best orders handle");
             let old_current_costs_handle =
                 old_current_costs_handle.expect("old current costs handle");
-            let old_best_costs_handle = old_best_costs_handle.expect("old best costs handle");
             let old_best_orders_costs_handle =
-                old_best_orders_costs_handle.expect("old best orders costs handle");
+                old_best_orders_costs_handle.expect("old best orders cost handle");
             let old_temp_floor_handle = old_temp_floor_handle.expect("old temp floor handle");
             let old_rng_states_handle = old_rng_states_handle.expect("old rng states handle");
             let old_stagnant_steps_handle =
@@ -1086,7 +1030,6 @@ impl<R: Runtime> AnnealRunnerState<R> {
                         old_batch_size,
                         1,
                     ),
-                    ArrayArg::from_raw_parts::<u32>(&old_best_costs_handle, old_batch_size, 1),
                     ArrayArg::from_raw_parts::<u32>(
                         &old_best_orders_costs_handle,
                         old_batch_size,
@@ -1104,7 +1047,6 @@ impl<R: Runtime> AnnealRunnerState<R> {
                     ArrayArg::from_raw_parts::<u32>(positions_handle, order_len, 1),
                     ArrayArg::from_raw_parts::<u32>(best_orders_handle, order_len, 1),
                     ArrayArg::from_raw_parts::<u32>(current_costs_handle, batch_size, 1),
-                    ArrayArg::from_raw_parts::<u32>(best_costs_handle, batch_size, 1),
                     ArrayArg::from_raw_parts::<u32>(best_orders_costs_handle, batch_size, 1),
                     ArrayArg::from_raw_parts::<f32>(temp_floor_handle, batch_size, 1),
                     ArrayArg::from_raw_parts::<u32>(rng_states_handle, batch_size, 1),
@@ -1636,34 +1578,27 @@ fn auto_tune_anneal_config(config: &mut AnnealConfig, graph: &GraphData) {
     config.temp_floor = (config.initial_temp * 0.25).max(MIN_ANNEAL_TEMP);
 }
 
-fn adjust_batch_size(current: u32, elapsed_ms: u128, target_ms: u32) -> u32 {
+fn adjust_to_target(current: u32, elapsed_ms: u128, target_ms: u32, min: u32, max: u32) -> u32 {
     if elapsed_ms == 0 {
-        return current.saturating_mul(2).clamp(MIN_BATCH_SIZE, MAX_BATCH_SIZE);
+        return current.saturating_mul(2).clamp(min, max);
     }
     let target = target_ms.max(1) as f64;
     let elapsed = elapsed_ms as f64;
     let ratio = target / elapsed;
     if (0.9..=1.1).contains(&ratio) {
-        return current.clamp(MIN_BATCH_SIZE, MAX_BATCH_SIZE);
+        return current.clamp(min, max);
     }
     let factor = ratio.clamp(0.5, 2.0);
     let next = (current as f64 * factor).round() as u32;
-    next.clamp(MIN_BATCH_SIZE, MAX_BATCH_SIZE)
+    next.clamp(min, max)
+}
+
+fn adjust_batch_size(current: u32, elapsed_ms: u128, target_ms: u32) -> u32 {
+    adjust_to_target(current, elapsed_ms, target_ms, MIN_BATCH_SIZE, MAX_BATCH_SIZE)
 }
 
 fn adjust_steps_per_batch(current: u32, elapsed_ms: u128, target_ms: u32) -> u32 {
-    if elapsed_ms == 0 {
-        return current.saturating_mul(2).clamp(MIN_ANNEAL_STEPS, MAX_ANNEAL_STEPS);
-    }
-    let target = target_ms.max(1) as f64;
-    let elapsed = elapsed_ms as f64;
-    let ratio = target / elapsed;
-    if (0.9..=1.1).contains(&ratio) {
-        return current.clamp(MIN_ANNEAL_STEPS, MAX_ANNEAL_STEPS);
-    }
-    let factor = ratio.clamp(0.5, 2.0);
-    let next = (current as f64 * factor).round() as u32;
-    next.clamp(MIN_ANNEAL_STEPS, MAX_ANNEAL_STEPS)
+    adjust_to_target(current, elapsed_ms, target_ms, MIN_ANNEAL_STEPS, MAX_ANNEAL_STEPS)
 }
 
 fn stress_color(t: f32) -> Color32 {
@@ -1819,13 +1754,7 @@ impl StressHeatmap {
         if self.max_value <= 0.0 {
             self.max_value = row_max.max(1.0);
         } else {
-            self.max_value *= 0.98;
-            if row_max > self.max_value {
-                self.max_value = row_max;
-            }
-            if self.max_value < 1.0 {
-                self.max_value = 1.0;
-            }
+            self.max_value = (self.max_value * 0.98).max(row_max).max(1.0);
         }
         let offset = self.head * self.width;
         self.rows[offset..offset + self.width].copy_from_slice(&downsampled);
@@ -1931,7 +1860,6 @@ impl StressHeatmap {
 struct AnnealHistory {
     run: usize,
     best_cost: u32,
-    committed_cost: u32,
     reseeded: u32,
     elapsed_ms: u128,
 }
@@ -1941,7 +1869,6 @@ struct AnnealState {
     runner: AnnealRunner,
     last: AnnealResult,
     best_cost: u32,
-    best_committed_cost: u32,
     history: Vec<AnnealHistory>,
     auto_run: bool,
     runs: usize,
@@ -1976,7 +1903,6 @@ impl AnnealState {
             runner: AnnealRunner::new_wgpu(),
             last: AnnealResult::idle(),
             best_cost: u32::MAX,
-            best_committed_cost: u32::MAX,
             history: Vec::new(),
             auto_run: false,
             runs: 0,
@@ -2000,18 +1926,15 @@ impl AnnealState {
         }
     }
 
-    fn reset(&mut self) {
-        auto_tune_anneal_config(&mut self.config, &self.graph);
+    fn clear_run_state(&mut self) {
         self.last = AnnealResult::idle();
         self.best_cost = u32::MAX;
-        self.best_committed_cost = u32::MAX;
         self.history.clear();
         self.runs = 0;
         self.total_steps = 0;
         self.total_chains = 0;
         self.total_elapsed_ms = 0;
         self.start_cost = None;
-        self.pending_reset = false;
         self.force_reinit = true;
         self.chain_tune_batches = 0;
         self.chain_rate_ema = 0.0;
@@ -2020,6 +1943,12 @@ impl AnnealState {
         self.chain_direction = 1;
         self.stress.clear();
         self.stress_view = StressView::Tension;
+    }
+
+    fn reset(&mut self) {
+        auto_tune_anneal_config(&mut self.config, &self.graph);
+        self.clear_run_state();
+        self.pending_reset = false;
     }
 
     fn ensure_start_cost(&mut self) {
@@ -2041,23 +1970,7 @@ impl AnnealState {
         self.graph = graph.clone();
         self.graph_id = graph.id;
         self.pending_reset = true;
-        self.last = AnnealResult::idle();
-        self.best_cost = u32::MAX;
-        self.best_committed_cost = u32::MAX;
-        self.history.clear();
-        self.runs = 0;
-        self.total_steps = 0;
-        self.total_chains = 0;
-        self.total_elapsed_ms = 0;
-        self.start_cost = None;
-        self.force_reinit = true;
-        self.chain_tune_batches = 0;
-        self.chain_rate_ema = 0.0;
-        self.chain_last_rate = 0.0;
-        self.chain_step = 2;
-        self.chain_direction = 1;
-        self.stress.clear();
-        self.stress_view = StressView::Tension;
+        self.clear_run_state();
     }
 
     fn maybe_reset(&mut self) {
@@ -2096,13 +2009,9 @@ impl AnnealState {
         if batch.best_cost < self.best_cost {
             self.best_cost = batch.best_cost;
         }
-        if batch.committed_cost < self.best_committed_cost {
-            self.best_committed_cost = batch.committed_cost;
-        }
         self.history.push(AnnealHistory {
             run: self.runs,
             best_cost: self.best_cost,
-            committed_cost: self.best_committed_cost,
             reseeded: batch.reseeded,
             elapsed_ms: batch.elapsed_ms,
         });
@@ -2235,7 +2144,6 @@ fn minla_sa_init_kernel(
     positions: &mut Array<u32>,
     best_orders: &mut Array<u32>,
     current_costs: &mut Array<u32>,
-    best_costs: &mut Array<u32>,
     best_orders_costs: &mut Array<u32>,
     temp_floors: &mut Array<f32>,
     rng_states: &mut Array<u32>,
@@ -2245,20 +2153,10 @@ fn minla_sa_init_kernel(
     let candidate = ABSOLUTE_POS;
     let node_count = node_count as usize;
     let edge_count = edge_count as usize;
-    let mut temp = initial_temp;
-    if temp < MIN_ANNEAL_TEMP {
-        temp = MIN_ANNEAL_TEMP;
-    }
-    let mut floor_temp = floor_temp;
-    if floor_temp < MIN_ANNEAL_TEMP {
-        floor_temp = MIN_ANNEAL_TEMP;
-    }
-    if floor_temp > temp {
-        floor_temp = temp;
-    }
+    let temp = initial_temp.max(MIN_ANNEAL_TEMP);
+    let floor_temp = floor_temp.max(MIN_ANNEAL_TEMP).min(temp);
     if node_count == 0 {
         current_costs[candidate] = 0;
-        best_costs[candidate] = 0;
         best_orders_costs[candidate] = 0;
         temp_floors[candidate] = floor_temp;
         rng_states[candidate] = seed;
@@ -2302,7 +2200,6 @@ fn minla_sa_init_kernel(
         }
 
         current_costs[candidate] = cost;
-        best_costs[candidate] = cost;
         best_orders_costs[candidate] = cost;
         temp_floors[candidate] = floor_temp;
         rng_states[candidate] = state;
@@ -2327,7 +2224,6 @@ fn minla_sa_kernel(
     positions: &mut Array<u32>,
     current_costs: &mut Array<u32>,
     best_orders: &mut Array<u32>,
-    best_costs: &mut Array<u32>,
     best_orders_costs: &mut Array<u32>,
     temp_floors: &mut Array<f32>,
     rng_states: &mut Array<u32>,
@@ -2338,36 +2234,16 @@ fn minla_sa_kernel(
     let steps = steps as usize;
     if node_count == 0 {
         current_costs[candidate] = 0;
-        best_costs[candidate] = 0;
     } else {
         let base = candidate * node_count;
         let mut state = rng_states[candidate];
         let mut current_cost = current_costs[candidate];
-        let mut temp_floor = temp_floors[candidate];
-        if temp_floor < MIN_ANNEAL_TEMP {
-            temp_floor = MIN_ANNEAL_TEMP;
-        }
-        let mut cooling_adjust = cooling_adjust;
-        if cooling_adjust < 0.0001 {
-            cooling_adjust = 0.0001;
-        } else if cooling_adjust > 0.05 {
-            cooling_adjust = 0.05;
-        }
+        let mut temp_floor = temp_floors[candidate].max(MIN_ANNEAL_TEMP);
+        let cooling_adjust = cooling_adjust.max(0.0001).min(0.05);
         let mut stagnant = stagnant_steps[candidate];
-        let mut best_cost = best_costs[candidate];
-        let mut committed_cost = best_orders_costs[candidate];
-        let mut reheat_gain = cooling_adjust * 4.0;
-        if reheat_gain < 0.001 {
-            reheat_gain = 0.001;
-        } else if reheat_gain > 0.05 {
-            reheat_gain = 0.05;
-        }
-        let mut floor_decay = 1.0 - cooling_adjust * 2.0;
-        if floor_decay < 0.90 {
-            floor_decay = 0.90;
-        } else if floor_decay > 0.9999 {
-            floor_decay = 0.9999;
-        }
+        let mut best_cost = best_orders_costs[candidate];
+        let reheat_gain = (cooling_adjust * 4.0).max(0.001).min(0.05);
+        let floor_decay = (1.0 - cooling_adjust * 2.0).max(0.90).min(0.9999);
         let reheat_steps = reheat_steps.max(1);
         if node_count > 1 && steps > 0 {
             for _ in 0..steps {
@@ -2419,11 +2295,8 @@ fn minla_sa_kernel(
                     }
                 }
 
-                let mut next_cost = current_cost as i32 + delta_cost;
-                if next_cost < 0 {
-                    next_cost = 0;
-                }
-                let candidate_cost = next_cost as u32;
+                let candidate_cost =
+                    (current_cost as i32 + delta_cost).max(0) as u32;
 
                 let delta = candidate_cost as f32 - current_cost as f32;
                 let mut accept = delta <= 0.0;
@@ -2437,19 +2310,12 @@ fn minla_sa_kernel(
                 if accept {
                     current_cost = candidate_cost;
                     if candidate_cost < best_cost {
-                        best_cost = candidate_cost;
-                    }
-                    if candidate_cost < committed_cost {
                         for idx in 0..node_count {
                             best_orders[base + idx] = orders[base + idx];
                         }
-                        committed_cost = candidate_cost;
-                        best_orders_costs[candidate] = candidate_cost;
+                        best_cost = candidate_cost;
                         stagnant = 0;
-                        temp_floor = temp_floor * floor_decay;
-                        if temp_floor < MIN_ANNEAL_TEMP {
-                            temp_floor = MIN_ANNEAL_TEMP;
-                        }
+                        temp_floor = (temp_floor * floor_decay).max(MIN_ANNEAL_TEMP);
                     } else if stagnant < u32::MAX {
                         stagnant += 1;
                     }
@@ -2473,8 +2339,7 @@ fn minla_sa_kernel(
         }
 
         current_costs[candidate] = current_cost;
-        best_costs[candidate] = best_cost;
-        best_orders_costs[candidate] = committed_cost;
+        best_orders_costs[candidate] = best_cost;
         temp_floors[candidate] = temp_floor;
         rng_states[candidate] = state;
         stagnant_steps[candidate] = stagnant;
@@ -2553,7 +2418,6 @@ fn minla_sa_reseed_kernel(
     positions: &mut Array<u32>,
     best_orders: &mut Array<u32>,
     current_costs: &mut Array<u32>,
-    best_costs: &mut Array<u32>,
     best_orders_costs: &mut Array<u32>,
     temp_floors: &mut Array<f32>,
     stagnant_steps: &mut Array<u32>,
@@ -2577,7 +2441,6 @@ fn minla_sa_reseed_kernel(
     if should_reseed {
         if node_count == 0 {
             current_costs[candidate] = best_cost;
-            best_costs[candidate] = best_cost;
             best_orders_costs[candidate] = best_cost;
         } else {
             let base = candidate * node_count;
@@ -2589,7 +2452,6 @@ fn minla_sa_reseed_kernel(
                 positions[base + node as usize] = idx as u32;
             }
             current_costs[candidate] = best_cost;
-            best_costs[candidate] = best_cost;
             best_orders_costs[candidate] = best_cost;
         }
         temp_floors[candidate] = reset_floor;
@@ -2606,7 +2468,6 @@ fn minla_sa_copy_kernel(
     positions_old: &Array<u32>,
     best_orders_old: &Array<u32>,
     current_costs_old: &Array<u32>,
-    best_costs_old: &Array<u32>,
     best_orders_costs_old: &Array<u32>,
     temp_floors_old: &Array<f32>,
     rng_states_old: &Array<u32>,
@@ -2616,7 +2477,6 @@ fn minla_sa_copy_kernel(
     positions_new: &mut Array<u32>,
     best_orders_new: &mut Array<u32>,
     current_costs_new: &mut Array<u32>,
-    best_costs_new: &mut Array<u32>,
     best_orders_costs_new: &mut Array<u32>,
     temp_floors_new: &mut Array<f32>,
     rng_states_new: &mut Array<u32>,
@@ -2634,7 +2494,6 @@ fn minla_sa_copy_kernel(
             best_orders_new[offset] = best_orders_old[offset];
         }
         current_costs_new[candidate] = current_costs_old[candidate];
-        best_costs_new[candidate] = best_costs_old[candidate];
         best_orders_costs_new[candidate] = best_orders_costs_old[candidate];
         temp_floors_new[candidate] = temp_floors_old[candidate];
         rng_states_new[candidate] = rng_states_old[candidate];
@@ -3041,14 +2900,13 @@ The first run can be slow while CubeCL builds shaders.
                 widgets::markdown(
                     ui,
                     &format!(
-                        "Last batch: `{}` chains × `{}` steps in `{}` ms ({:.2} chains/s, {:.0} steps/s). Best: `{}` (committed `{}`).",
+                        "Last batch: `{}` chains × `{}` steps in `{}` ms ({:.2} chains/s, {:.0} steps/s). Best: `{}`.",
                         last.batch_size,
                         last.steps,
                         last.elapsed_ms,
                         chains_per_s,
                         steps_per_s,
-                        last.best_cost,
-                        last.committed_cost
+                        last.best_cost
                     ),
                 );
                 widgets::markdown(
@@ -3095,9 +2953,8 @@ The first run can be slow while CubeCL builds shaders.
                 widgets::markdown(
                     ui,
                     &format!(
-                        "Best overall: `{}` (committed `{}`) ({} runs, {} chains, {} steps).",
+                        "Best overall: `{}` ({} runs, {} chains, {} steps).",
                         state.best_cost,
-                        state.best_committed_cost,
                         state.runs,
                         state.total_chains,
                         state.total_steps
@@ -3111,11 +2968,6 @@ The first run can be slow while CubeCL builds shaders.
                     .iter()
                     .map(|entry| [entry.run as f64, entry.best_cost as f64])
                     .collect();
-                let committed_points: Vec<[f64; 2]> = state
-                    .history
-                    .iter()
-                    .map(|entry| [entry.run as f64, entry.committed_cost as f64])
-                    .collect();
                 let reseed_points: Vec<[f64; 2]> = state
                     .history
                     .iter()
@@ -3128,12 +2980,6 @@ The first run can be slow while CubeCL builds shaders.
                     .show(ui, move |plot_ui| {
                         if !best_points.is_empty() {
                             plot_ui.line(Line::new("best", PlotPoints::from(best_points)));
-                        }
-                        if !committed_points.is_empty() {
-                            plot_ui.line(Line::new(
-                                "committed",
-                                PlotPoints::from(committed_points),
-                            ));
                         }
                     });
 
