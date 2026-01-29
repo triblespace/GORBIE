@@ -55,7 +55,6 @@ polars = ["dep:polars", "dep:egui_extras"]
 plots = ["dep:egui_plot"]
 triblespace = ["dep:triblespace", "dep:hifitime", "dep:rapier2d"]
 cubecl = ["dep:cubecl"]
-cubecl-cpu = ["cubecl", "cubecl/cpu"]
 
 [workspace]
 members = ["gorbie-macros"]
