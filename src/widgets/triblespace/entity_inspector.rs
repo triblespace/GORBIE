@@ -840,13 +840,11 @@ const SA_MAX_TOTAL_NODES: usize = 200_000;
 #[cfg(feature = "cubecl")]
 const SA_MAX_BATCH_SIZE: usize = 256;
 #[cfg(feature = "cubecl")]
-const SA_DEFAULT_COOLING: f32 = 0.995;
-#[cfg(feature = "cubecl")]
 const SA_DEFAULT_TARGET_ACCEPTANCE: f32 = 0.3;
 #[cfg(feature = "cubecl")]
 const SA_DEFAULT_COOLING_ADJUST: f32 = 0.002;
 #[cfg(feature = "cubecl")]
-const SA_REHEAT_PLATEAU_BATCHES: u32 = 12;
+const SA_RESEED_PLATEAU_STEPS: u32 = 12_000;
 #[cfg(feature = "cubecl")]
 const SA_STOP_AFTER_PLATEAU_MS: u64 = 10_000;
 #[cfg(feature = "cubecl")]
@@ -857,8 +855,6 @@ const SEED_MIX: u32 = 0x9E37_79B9;
 const LCG_A: u32 = 1_664_525;
 #[cfg(feature = "cubecl")]
 const LCG_C: u32 = 1_013_904_223;
-#[cfg(feature = "cubecl")]
-const SA_ADAPT_INTERVAL: u32 = 32;
 #[cfg(feature = "cubecl")]
 const INV_U32_MAX_PLUS1: f32 = 1.0 / 4_294_967_296.0;
 #[cfg(feature = "cubecl")]
@@ -1033,13 +1029,9 @@ fn sa_seed(problem: &GpuSaProblem) -> u64 {
 struct GpuSaConfig {
     seed: u64,
     initial_temp: f32,
-    cooling: f32,
-    floor_temp: f32,
-    reheat_enabled: bool,
-    reheat_plateau_batches: u32,
-    adaptive_cooling: bool,
-    target_acceptance: f32,
+    temp_floor: f32,
     cooling_adjust: f32,
+    reseed_plateau_steps: u32,
 }
 
 #[cfg(feature = "cubecl")]
@@ -1059,16 +1051,18 @@ struct GpuSaRunnerState<R: Runtime> {
     adj_list_len: usize,
     node_count: usize,
     batch_size: usize,
+    best_cost: u32,
+    best_version: u32,
     orders_handle: CubeHandle,
     positions_handle: CubeHandle,
     best_orders_handle: CubeHandle,
     current_costs_handle: CubeHandle,
-    best_costs_handle: CubeHandle,
-    temperatures_handle: CubeHandle,
+    best_orders_costs_handle: CubeHandle,
     temp_floor_handle: CubeHandle,
-    cooling_handle: CubeHandle,
     rng_states_handle: CubeHandle,
     stagnant_steps_handle: CubeHandle,
+    reseeded_handle: CubeHandle,
+    seed_versions_handle: CubeHandle,
 }
 
 #[cfg(feature = "cubecl")]
@@ -1114,31 +1108,16 @@ impl<R: Runtime> GpuSaRunnerState<R> {
         let positions_handle = client.empty(order_bytes);
         let best_orders_handle = client.empty(order_bytes);
         let current_costs_handle = client.empty(batch_bytes_u32);
-        let best_costs_handle = client.empty(batch_bytes_u32);
-        let temperatures_handle = client.empty(batch_bytes_f32);
+        let best_orders_costs_handle = client.empty(batch_bytes_u32);
         let temp_floor_handle = client.empty(batch_bytes_f32);
-        let cooling_handle = client.empty(batch_bytes_f32);
         let rng_states_handle = client.empty(batch_bytes_u32);
         let stagnant_steps_handle = client.empty(batch_bytes_u32);
+        let reseeded_handle = client.empty(batch_bytes_u32);
+        let seed_versions_handle = client.empty(batch_bytes_u32);
 
         let seed32 = seed_to_u32(config.seed);
-        let mut initial_temp = config.initial_temp;
-        if initial_temp < MIN_ANNEAL_TEMP {
-            initial_temp = MIN_ANNEAL_TEMP;
-        }
-        let mut cooling = config.cooling;
-        if cooling < 0.90 {
-            cooling = 0.90;
-        } else if cooling > 0.9999 {
-            cooling = 0.9999;
-        }
-        let mut floor_temp = config.floor_temp;
-        if floor_temp < MIN_ANNEAL_TEMP {
-            floor_temp = MIN_ANNEAL_TEMP;
-        }
-        if floor_temp > initial_temp {
-            floor_temp = initial_temp;
-        }
+        let initial_temp = config.initial_temp.max(MIN_ANNEAL_TEMP);
+        let floor_temp = config.temp_floor.max(MIN_ANNEAL_TEMP).min(initial_temp);
 
         unsafe {
             minla_sa_init_kernel::launch::<R>(
@@ -1154,18 +1133,16 @@ impl<R: Runtime> GpuSaRunnerState<R> {
                 ScalarArg::new(problem.edges.len() as u32),
                 ScalarArg::new(seed32),
                 ScalarArg::new(initial_temp),
-                ScalarArg::new(cooling),
                 ScalarArg::new(floor_temp),
                 ArrayArg::from_raw_parts::<u32>(&orders_handle, order_len, 1),
                 ArrayArg::from_raw_parts::<u32>(&positions_handle, order_len, 1),
                 ArrayArg::from_raw_parts::<u32>(&best_orders_handle, order_len, 1),
                 ArrayArg::from_raw_parts::<u32>(&current_costs_handle, batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(&best_costs_handle, batch_size, 1),
-                ArrayArg::from_raw_parts::<f32>(&temperatures_handle, batch_size, 1),
+                ArrayArg::from_raw_parts::<u32>(&best_orders_costs_handle, batch_size, 1),
                 ArrayArg::from_raw_parts::<f32>(&temp_floor_handle, batch_size, 1),
-                ArrayArg::from_raw_parts::<f32>(&cooling_handle, batch_size, 1),
                 ArrayArg::from_raw_parts::<u32>(&rng_states_handle, batch_size, 1),
                 ArrayArg::from_raw_parts::<u32>(&stagnant_steps_handle, batch_size, 1),
+                ArrayArg::from_raw_parts::<u32>(&seed_versions_handle, batch_size, 1),
             )
             .expect("minla SA init kernel launch");
         }
@@ -1179,22 +1156,24 @@ impl<R: Runtime> GpuSaRunnerState<R> {
             adj_list_len: problem.adj_list.len(),
             node_count: problem.node_count,
             batch_size,
+            best_cost: u32::MAX,
+            best_version: 0,
             orders_handle,
             positions_handle,
             best_orders_handle,
             current_costs_handle,
-            best_costs_handle,
-            temperatures_handle,
+            best_orders_costs_handle,
             temp_floor_handle,
-            cooling_handle,
             rng_states_handle,
             stagnant_steps_handle,
+            reseeded_handle,
+            seed_versions_handle,
         })
     }
 
     fn run_steps(&mut self, steps: u32, config: &GpuSaConfig) -> Result<GpuSaBatch, String> {
         let start = Instant::now();
-        let plateau_steps = config.reheat_plateau_batches.saturating_mul(steps);
+        let reheat_steps = config.reseed_plateau_steps.max(1);
         let order_len = self.batch_size * self.node_count;
 
         unsafe {
@@ -1214,26 +1193,21 @@ impl<R: Runtime> GpuSaRunnerState<R> {
                 ),
                 ScalarArg::new(self.node_count as u32),
                 ScalarArg::new(steps),
-                ScalarArg::new(if config.reheat_enabled { 1u32 } else { 0u32 }),
-                ScalarArg::new(plateau_steps),
-                ScalarArg::new(if config.adaptive_cooling { 1u32 } else { 0u32 }),
-                ScalarArg::new(config.target_acceptance),
                 ScalarArg::new(config.cooling_adjust),
+                ScalarArg::new(reheat_steps),
                 ArrayArg::from_raw_parts::<u32>(&self.orders_handle, order_len, 1),
                 ArrayArg::from_raw_parts::<u32>(&self.positions_handle, order_len, 1),
                 ArrayArg::from_raw_parts::<u32>(&self.best_orders_handle, order_len, 1),
                 ArrayArg::from_raw_parts::<u32>(&self.current_costs_handle, self.batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(&self.best_costs_handle, self.batch_size, 1),
-                ArrayArg::from_raw_parts::<f32>(&self.temperatures_handle, self.batch_size, 1),
                 ArrayArg::from_raw_parts::<f32>(&self.temp_floor_handle, self.batch_size, 1),
-                ArrayArg::from_raw_parts::<f32>(&self.cooling_handle, self.batch_size, 1),
+                ArrayArg::from_raw_parts::<u32>(&self.best_orders_costs_handle, self.batch_size, 1),
                 ArrayArg::from_raw_parts::<u32>(&self.rng_states_handle, self.batch_size, 1),
                 ArrayArg::from_raw_parts::<u32>(&self.stagnant_steps_handle, self.batch_size, 1),
             )
             .expect("minla SA kernel launch");
         }
 
-        let costs_bytes = self.client.read_one(self.best_costs_handle.clone());
+        let costs_bytes = self.client.read_one(self.best_orders_costs_handle.clone());
         let costs = u32::from_bytes(&costs_bytes);
         let mut best_cost = u32::MAX;
         let mut best_index = 0usize;
@@ -1242,6 +1216,43 @@ impl<R: Runtime> GpuSaRunnerState<R> {
                 best_cost = *cost;
                 best_index = idx;
             }
+        }
+
+        if best_cost != u32::MAX && best_cost < self.best_cost {
+            self.best_cost = best_cost;
+            self.best_version = self.best_version.saturating_add(1);
+        }
+
+        let reset_cap = config.initial_temp.max(MIN_ANNEAL_TEMP);
+        let reset_floor = config.temp_floor.max(MIN_ANNEAL_TEMP).min(reset_cap);
+        let stale_steps = if self.batch_size > 1 && best_cost != u32::MAX && self.node_count > 0 {
+            reheat_steps
+        } else {
+            0
+        };
+
+        unsafe {
+            minla_sa_reseed_kernel::launch::<R>(
+                &self.client,
+                CubeCount::new_1d(self.batch_size as u32),
+                CubeDim::new_1d(1),
+                ScalarArg::new(self.node_count as u32),
+                ScalarArg::new(best_index as u32),
+                ScalarArg::new(best_cost),
+                ScalarArg::new(stale_steps),
+                ScalarArg::new(self.best_version),
+                ScalarArg::new(reset_floor),
+                ArrayArg::from_raw_parts::<u32>(&self.orders_handle, order_len, 1),
+                ArrayArg::from_raw_parts::<u32>(&self.positions_handle, order_len, 1),
+                ArrayArg::from_raw_parts::<u32>(&self.best_orders_handle, order_len, 1),
+                ArrayArg::from_raw_parts::<u32>(&self.current_costs_handle, self.batch_size, 1),
+                ArrayArg::from_raw_parts::<u32>(&self.best_orders_costs_handle, self.batch_size, 1),
+                ArrayArg::from_raw_parts::<f32>(&self.temp_floor_handle, self.batch_size, 1),
+                ArrayArg::from_raw_parts::<u32>(&self.stagnant_steps_handle, self.batch_size, 1),
+                ArrayArg::from_raw_parts::<u32>(&self.reseeded_handle, self.batch_size, 1),
+                ArrayArg::from_raw_parts::<u32>(&self.seed_versions_handle, self.batch_size, 1),
+            )
+            .expect("minla SA reseed kernel launch");
         }
 
         Ok(GpuSaBatch {
@@ -1373,13 +1384,9 @@ fn gpu_sa_loop(problem: GpuSaProblem, sender: mpsc::Sender<GpuSaUpdate>) {
     let config = GpuSaConfig {
         seed,
         initial_temp,
-        cooling: SA_DEFAULT_COOLING,
-        floor_temp,
-        reheat_enabled: true,
-        reheat_plateau_batches: SA_REHEAT_PLATEAU_BATCHES,
-        adaptive_cooling: true,
-        target_acceptance: SA_DEFAULT_TARGET_ACCEPTANCE,
+        temp_floor: floor_temp,
         cooling_adjust: SA_DEFAULT_COOLING_ADJUST,
+        reseed_plateau_steps: SA_RESEED_PLATEAU_STEPS,
     };
 
     let device = WgpuDevice::default();
@@ -1437,48 +1444,30 @@ fn minla_sa_init_kernel(
     edge_count: u32,
     seed: u32,
     initial_temp: f32,
-    cooling: f32,
     floor_temp: f32,
     orders: &mut Array<u32>,
     positions: &mut Array<u32>,
     best_orders: &mut Array<u32>,
     current_costs: &mut Array<u32>,
-    best_costs: &mut Array<u32>,
-    temperatures: &mut Array<f32>,
+    best_orders_costs: &mut Array<u32>,
     temp_floors: &mut Array<f32>,
-    cooling_state: &mut Array<f32>,
     rng_states: &mut Array<u32>,
     stagnant_steps: &mut Array<u32>,
+    seed_versions: &mut Array<u32>,
 ) {
     let candidate = ABSOLUTE_POS;
     let node_count = node_count as usize;
     let edge_count = edge_count as usize;
-    let mut temp = initial_temp;
-    if temp < MIN_ANNEAL_TEMP {
-        temp = MIN_ANNEAL_TEMP;
-    }
-    let mut floor_temp = floor_temp;
-    if floor_temp < MIN_ANNEAL_TEMP {
-        floor_temp = MIN_ANNEAL_TEMP;
-    }
-    if floor_temp > temp {
-        floor_temp = temp;
-    }
-    let mut cooling = cooling;
-    if cooling < 0.90 {
-        cooling = 0.90;
-    } else if cooling > 0.9999 {
-        cooling = 0.9999;
-    }
+    let temp = initial_temp.max(MIN_ANNEAL_TEMP);
+    let floor_temp = floor_temp.max(MIN_ANNEAL_TEMP).min(temp);
 
     if node_count == 0 {
         current_costs[candidate] = 0;
-        best_costs[candidate] = 0;
-        temperatures[candidate] = temp;
+        best_orders_costs[candidate] = 0;
         temp_floors[candidate] = floor_temp;
-        cooling_state[candidate] = cooling;
         rng_states[candidate] = seed;
         stagnant_steps[candidate] = 0;
+        seed_versions[candidate] = 0;
     } else {
         let mut state = seed ^ candidate as u32;
         state = state * SEED_MIX;
@@ -1486,6 +1475,19 @@ fn minla_sa_init_kernel(
 
         for index in 0..node_count {
             orders[base + index] = index as u32;
+        }
+
+        if node_count > 1 {
+            for i in 0..node_count {
+                state = state * LCG_A + LCG_C;
+                let remaining = node_count - i;
+                let j = (state % remaining as u32) as usize + i;
+                let left = base + i;
+                let right = base + j;
+                let tmp = orders[left];
+                orders[left] = orders[right];
+                orders[right] = tmp;
+            }
         }
 
         for pos in 0..node_count {
@@ -1505,12 +1507,11 @@ fn minla_sa_init_kernel(
         }
 
         current_costs[candidate] = cost;
-        best_costs[candidate] = cost;
-        temperatures[candidate] = temp;
+        best_orders_costs[candidate] = cost;
         temp_floors[candidate] = floor_temp;
-        cooling_state[candidate] = cooling;
         rng_states[candidate] = state;
         stagnant_steps[candidate] = 0;
+        seed_versions[candidate] = 0;
 
         for idx in 0..node_count {
             best_orders[base + idx] = orders[base + idx];
@@ -1525,19 +1526,14 @@ fn minla_sa_kernel(
     adj_list: &Array<u32>,
     node_count: u32,
     steps: u32,
-    reheat_enabled: u32,
-    reheat_plateau_steps: u32,
-    adaptive_cooling: u32,
-    target_acceptance: f32,
     cooling_adjust: f32,
+    reheat_steps: u32,
     orders: &mut Array<u32>,
     positions: &mut Array<u32>,
     best_orders: &mut Array<u32>,
     current_costs: &mut Array<u32>,
-    best_costs: &mut Array<u32>,
-    temperatures: &mut Array<f32>,
     temp_floors: &mut Array<f32>,
-    cooling_state: &mut Array<f32>,
+    best_orders_costs: &mut Array<u32>,
     rng_states: &mut Array<u32>,
     stagnant_steps: &mut Array<u32>,
 ) {
@@ -1546,224 +1542,75 @@ fn minla_sa_kernel(
     let steps = steps as usize;
     if node_count == 0 {
         current_costs[candidate] = 0;
-        best_costs[candidate] = 0;
+        best_orders_costs[candidate] = 0;
     } else {
         let base = candidate * node_count;
         let mut state = rng_states[candidate];
         let mut current_cost = current_costs[candidate];
-        let mut best_cost = best_costs[candidate];
-        let mut temperature = temperatures[candidate];
-        if temperature < MIN_ANNEAL_TEMP {
-            temperature = MIN_ANNEAL_TEMP;
-        }
-        let mut temp_floor = temp_floors[candidate];
-        if temp_floor < MIN_ANNEAL_TEMP {
-            temp_floor = MIN_ANNEAL_TEMP;
-        }
-        let mut cooling = cooling_state[candidate];
-        if cooling < 0.90 {
-            cooling = 0.90;
-        } else if cooling > 0.9999 {
-            cooling = 0.9999;
-        }
-
-        let reheat_enabled = reheat_enabled != 0;
-        let adaptive_cooling = adaptive_cooling != 0;
-        let mut reheat_gain = cooling_adjust * 4.0;
-        if reheat_gain < 0.001 {
-            reheat_gain = 0.001;
-        } else if reheat_gain > 0.05 {
-            reheat_gain = 0.05;
-        }
-        let mut floor_decay = 1.0 - cooling_adjust * 2.0;
-        if floor_decay < 0.90 {
-            floor_decay = 0.90;
-        } else if floor_decay > 0.9999 {
-            floor_decay = 0.9999;
-        }
-        let mut target_acceptance = target_acceptance;
-        if target_acceptance < 0.05 {
-            target_acceptance = 0.05;
-        } else if target_acceptance > 0.95 {
-            target_acceptance = 0.95;
-        }
-        let mut cooling_adjust = cooling_adjust;
-        if cooling_adjust < 0.0001 {
-            cooling_adjust = 0.0001;
-        } else if cooling_adjust > 0.05 {
-            cooling_adjust = 0.05;
-        }
-        let mut interval_steps: u32 = 0;
-        let mut interval_accepts: u32 = 0;
+        let mut temp_floor = temp_floors[candidate].max(MIN_ANNEAL_TEMP);
+        let cooling_adjust = cooling_adjust.max(0.0001).min(0.05);
+        let reheat_gain = (cooling_adjust * 4.0).max(0.001).min(0.05);
+        let floor_decay = (1.0 - cooling_adjust * 2.0).max(0.90).min(0.9999);
         let mut stagnant = stagnant_steps[candidate];
-        let stagnation_scale = if reheat_plateau_steps > 0 {
-            reheat_plateau_steps
-        } else {
-            1u32.into()
-        };
+        let mut best_cost = best_orders_costs[candidate];
+        let reheat_steps = reheat_steps.max(1);
 
         if node_count > 1 && steps > 0 {
             for _ in 0..steps {
                 state = state * LCG_A + LCG_C;
-                let mut use_reverse: u32 = 0;
-                if node_count > 3 {
-                    let reverse_divisor: u32 = if temperature > 1.0 {
-                        32u32.into()
-                    } else if temperature > 0.2 {
-                        64u32.into()
-                    } else {
-                        128u32.into()
-                    };
-                    if (state % reverse_divisor) == 0 {
-                        use_reverse = 1;
+                let i = (state % node_count as u32) as usize;
+                state = state * LCG_A + LCG_C;
+                let mut j = (state % (node_count as u32 - 1)) as usize;
+                if j >= i {
+                    j += 1;
+                }
+
+                let left = base + i;
+                let right = base + j;
+                let node_i = orders[left];
+                let node_j = orders[right];
+                orders[left] = node_j;
+                orders[right] = node_i;
+                positions[base + node_j as usize] = i as u32;
+                positions[base + node_i as usize] = j as u32;
+
+                let node_i_usize = node_i as usize;
+                let node_j_usize = node_j as usize;
+                let pos_i = i as u32;
+                let pos_j = j as u32;
+                let mut delta_cost: i32 = 0;
+
+                let start_i = adj_offsets[node_i_usize] as usize;
+                let end_i = adj_offsets[node_i_usize + 1] as usize;
+                for idx in start_i..end_i {
+                    let neighbor = adj_list[idx] as usize;
+                    if neighbor != node_j_usize {
+                        let pos_n = positions[base + neighbor];
+                        let old = if pos_i > pos_n { pos_i - pos_n } else { pos_n - pos_i };
+                        let new = if pos_j > pos_n { pos_j - pos_n } else { pos_n - pos_j };
+                        delta_cost += new as i32 - old as i32;
                     }
                 }
 
-                let mut candidate_cost = current_cost;
-                let mut i = 0usize;
-                let mut j = 0usize;
-                let mut node_i = 0u32;
-                let mut node_j = 0u32;
-                let mut start = 0usize;
-                let mut end = 0usize;
-
-                if use_reverse != 0 {
-                    let base_max: usize = if node_count < 64 {
-                        node_count
-                    } else {
-                        64usize.into()
-                    };
-                    let temp_scale = temperature / (temperature + 1.0);
-                    let mut max_segment = if base_max > 2 {
-                        2 + ((base_max - 2) as f32 * temp_scale) as usize
-                    } else {
-                        base_max
-                    };
-                    if max_segment < 2 {
-                        max_segment = 2;
-                    }
-                    let mut len = max_segment;
-                    if max_segment > 2 {
-                        state = state * LCG_A + LCG_C;
-                        let span = (max_segment - 1) as u32;
-                        len = 2 + (state % span) as usize;
-                    }
-                    if len > node_count {
-                        len = node_count;
-                    }
-                    if len < 2 {
-                        use_reverse = 0;
-                    } else {
-                        state = state * LCG_A + LCG_C;
-                        let max_start = node_count - len + 1;
-                        start = (state % max_start as u32) as usize;
-                        end = start + len - 1;
-                        let start_pos = start as u32;
-                        let end_pos = end as u32;
-                        let mut delta_cost: i32 = 0;
-
-                        let mut pos = start;
-                        while pos <= end {
-                            let node = orders[base + pos] as usize;
-                            let pos_u = pos as u32;
-                            let new_pos = start_pos + end_pos - pos_u;
-                            let start_idx = adj_offsets[node] as usize;
-                            let end_idx = adj_offsets[node + 1] as usize;
-                            for idx in start_idx..end_idx {
-                                let neighbor = adj_list[idx] as usize;
-                                let neighbor_pos = positions[base + neighbor] as usize;
-                                if neighbor_pos < start || neighbor_pos > end {
-                                    let pos_n = neighbor_pos as u32;
-                                    let old = if pos_u > pos_n { pos_u - pos_n } else { pos_n - pos_u };
-                                    let new = if new_pos > pos_n { new_pos - pos_n } else { pos_n - new_pos };
-                                    delta_cost += new as i32 - old as i32;
-                                }
-                            }
-                            pos += 1;
-                        }
-
-                        let mut next_cost = current_cost as i32 + delta_cost;
-                        if next_cost < 0 {
-                            next_cost = 0;
-                        }
-                        candidate_cost = next_cost as u32;
-
-                        let mut left = start;
-                        let mut right = end;
-                        while left < right {
-                            let left_idx = base + left;
-                            let right_idx = base + right;
-                            let left_node = orders[left_idx];
-                            let right_node = orders[right_idx];
-                            orders[left_idx] = right_node;
-                            orders[right_idx] = left_node;
-                            positions[base + right_node as usize] = left as u32;
-                            positions[base + left_node as usize] = right as u32;
-                            left += 1;
-                            right -= 1;
-                        }
+                let start_j = adj_offsets[node_j_usize] as usize;
+                let end_j = adj_offsets[node_j_usize + 1] as usize;
+                for idx in start_j..end_j {
+                    let neighbor = adj_list[idx] as usize;
+                    if neighbor != node_i_usize {
+                        let pos_n = positions[base + neighbor];
+                        let old = if pos_j > pos_n { pos_j - pos_n } else { pos_n - pos_j };
+                        let new = if pos_i > pos_n { pos_i - pos_n } else { pos_n - pos_i };
+                        delta_cost += new as i32 - old as i32;
                     }
                 }
 
-                if use_reverse == 0 {
-                    state = state * LCG_A + LCG_C;
-                    i = (state % node_count as u32) as usize;
-                    state = state * LCG_A + LCG_C;
-                    j = (state % (node_count as u32 - 1)) as usize;
-                    if j >= i {
-                        j += 1;
-                    }
-
-                    let left = base + i;
-                    let right = base + j;
-                    node_i = orders[left];
-                    node_j = orders[right];
-                    orders[left] = node_j;
-                    orders[right] = node_i;
-                    positions[base + node_j as usize] = i as u32;
-                    positions[base + node_i as usize] = j as u32;
-
-                    let node_i_usize = node_i as usize;
-                    let node_j_usize = node_j as usize;
-                    let pos_i = i as u32;
-                    let pos_j = j as u32;
-                    let mut delta_cost: i32 = 0;
-
-                    let start_i = adj_offsets[node_i_usize] as usize;
-                    let end_i = adj_offsets[node_i_usize + 1] as usize;
-                    for idx in start_i..end_i {
-                        let neighbor = adj_list[idx] as usize;
-                        if neighbor != node_j_usize {
-                            let pos_n = positions[base + neighbor];
-                            let old = if pos_i > pos_n { pos_i - pos_n } else { pos_n - pos_i };
-                            let new = if pos_j > pos_n { pos_j - pos_n } else { pos_n - pos_j };
-                            delta_cost += new as i32 - old as i32;
-                        }
-                    }
-
-                    let start_j = adj_offsets[node_j_usize] as usize;
-                    let end_j = adj_offsets[node_j_usize + 1] as usize;
-                    for idx in start_j..end_j {
-                        let neighbor = adj_list[idx] as usize;
-                        if neighbor != node_i_usize {
-                            let pos_n = positions[base + neighbor];
-                            let old = if pos_j > pos_n { pos_j - pos_n } else { pos_n - pos_j };
-                            let new = if pos_i > pos_n { pos_i - pos_n } else { pos_n - pos_i };
-                            delta_cost += new as i32 - old as i32;
-                        }
-                    }
-
-                    let mut next_cost = current_cost as i32 + delta_cost;
-                    if next_cost < 0 {
-                        next_cost = 0;
-                    }
-                    candidate_cost = next_cost as u32;
-                }
+                let candidate_cost =
+                    (current_cost as i32 + delta_cost).max(0) as u32;
 
                 let delta = candidate_cost as f32 - current_cost as f32;
                 let mut accept = delta <= 0.0;
-                if !accept && temperature > MIN_ANNEAL_TEMP {
-                    let probability = (-delta / temperature).exp();
+                if !accept && temp_floor > MIN_ANNEAL_TEMP {
+                    let probability = (-delta / temp_floor).exp();
                     state = state * LCG_A + LCG_C;
                     let rand = state as f32 * INV_U32_MAX_PLUS1;
                     accept = rand < probability;
@@ -1771,88 +1618,95 @@ fn minla_sa_kernel(
 
                 if accept {
                     current_cost = candidate_cost;
-                    interval_accepts += 1;
                     if candidate_cost < best_cost {
                         best_cost = candidate_cost;
                         stagnant = 0;
                         for idx in 0..node_count {
                             best_orders[base + idx] = orders[base + idx];
                         }
-                        if reheat_enabled {
-                            temp_floor = temp_floor * floor_decay;
-                            if temp_floor < MIN_ANNEAL_TEMP {
-                                temp_floor = MIN_ANNEAL_TEMP;
-                            }
-                        }
+                        temp_floor = (temp_floor * floor_decay).max(MIN_ANNEAL_TEMP);
                     } else if stagnant < u32::MAX {
                         stagnant += 1;
                     }
                 } else {
-                    if use_reverse != 0 {
-                        let mut left = start;
-                        let mut right = end;
-                        while left < right {
-                            let left_idx = base + left;
-                            let right_idx = base + right;
-                            let left_node = orders[left_idx];
-                            let right_node = orders[right_idx];
-                            orders[left_idx] = right_node;
-                            orders[right_idx] = left_node;
-                            positions[base + right_node as usize] = left as u32;
-                            positions[base + left_node as usize] = right as u32;
-                            left += 1;
-                            right -= 1;
-                        }
-                    } else {
-                        let left = base + i;
-                        let right = base + j;
-                        orders[left] = node_i;
-                        orders[right] = node_j;
-                        positions[base + node_i as usize] = i as u32;
-                        positions[base + node_j as usize] = j as u32;
-                    }
+                    let left = base + i;
+                    let right = base + j;
+                    orders[left] = node_i;
+                    orders[right] = node_j;
+                    positions[base + node_i as usize] = i as u32;
+                    positions[base + node_j as usize] = j as u32;
                     if stagnant < u32::MAX {
                         stagnant += 1;
                     }
                 }
-                if reheat_enabled && stagnant > 0 {
-                    let ratio = stagnant as f32 / stagnation_scale as f32;
+                if stagnant > 0 {
+                    let ratio = stagnant as f32 / reheat_steps as f32;
                     let gain = reheat_gain * (ratio / (1.0 + ratio));
                     temp_floor = temp_floor * (1.0 + gain);
-                }
-
-                interval_steps += 1;
-                temperature = temperature * cooling;
-                if temperature < temp_floor {
-                    temperature = temp_floor;
-                }
-
-                if adaptive_cooling && interval_steps >= SA_ADAPT_INTERVAL {
-                    let acceptance = interval_accepts as f32 / interval_steps as f32;
-                    if acceptance > target_acceptance + 0.05 {
-                        cooling -= cooling_adjust;
-                        if cooling < 0.90 {
-                            cooling = 0.90;
-                        }
-                    } else if acceptance < target_acceptance - 0.05 {
-                        cooling += cooling_adjust;
-                        if cooling > 0.9999 {
-                            cooling = 0.9999;
-                        }
-                    }
-                    interval_steps = 0;
-                    interval_accepts = 0;
                 }
             }
         }
 
         current_costs[candidate] = current_cost;
-        best_costs[candidate] = best_cost;
-        temperatures[candidate] = temperature;
         temp_floors[candidate] = temp_floor;
-        cooling_state[candidate] = cooling;
+        best_orders_costs[candidate] = best_cost;
         rng_states[candidate] = state;
         stagnant_steps[candidate] = stagnant;
+    }
+}
+
+#[cfg(feature = "cubecl")]
+#[cube(launch)]
+fn minla_sa_reseed_kernel(
+    node_count: u32,
+    best_idx: u32,
+    best_cost: u32,
+    stale_steps: u32,
+    best_version: u32,
+    reset_floor: f32,
+    orders: &mut Array<u32>,
+    positions: &mut Array<u32>,
+    best_orders: &mut Array<u32>,
+    current_costs: &mut Array<u32>,
+    best_orders_costs: &mut Array<u32>,
+    temp_floors: &mut Array<f32>,
+    stagnant_steps: &mut Array<u32>,
+    reseeded_flags: &mut Array<u32>,
+    seed_versions: &mut Array<u32>,
+) {
+    let candidate = ABSOLUTE_POS;
+    let node_count = node_count as usize;
+    let best_idx = best_idx as usize;
+    if candidate == best_idx {
+        seed_versions[candidate] = best_version;
+    }
+    let should_reseed = stale_steps > 0
+        && candidate != best_idx
+        && stagnant_steps[candidate] >= stale_steps
+        && seed_versions[candidate] < best_version;
+    reseeded_flags[candidate] = 0;
+    if should_reseed {
+        reseeded_flags[candidate] = 1;
+    }
+    if should_reseed {
+        if node_count == 0 {
+            current_costs[candidate] = best_cost;
+            best_orders_costs[candidate] = best_cost;
+        } else {
+            let base = candidate * node_count;
+            let best_base = best_idx * node_count;
+            for idx in 0..node_count {
+                let node = best_orders[best_base + idx];
+                orders[base + idx] = node;
+                best_orders[base + idx] = node;
+                positions[base + node as usize] = idx as u32;
+            }
+            current_costs[candidate] = best_cost;
+            best_orders_costs[candidate] = best_cost;
+        }
+        temp_floors[candidate] = reset_floor;
+        stagnant_steps[candidate] = 0;
+        seed_versions[candidate] = best_version;
     }
 }
 
