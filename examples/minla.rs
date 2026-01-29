@@ -1608,47 +1608,33 @@ fn stress_color(t: f32) -> Color32 {
 }
 
 fn downsample_row(row: &[u32], target: usize) -> Vec<u32> {
-    if row.is_empty() || target == 0 {
-        return Vec::new();
-    }
-    if row.len() <= target {
-        return row.to_vec();
-    }
-    let mut out = Vec::with_capacity(target);
-    for idx in 0..target {
-        let start = idx * row.len() / target;
-        let end = (idx + 1) * row.len() / target;
-        let mut sum: u64 = 0;
-        for value in &row[start..end] {
-            sum += *value as u64;
-        }
-        let count = (end - start).max(1) as u64;
-        out.push((sum / count) as u32);
-    }
-    out
+    downsample_row_impl(row, target, |slice| {
+        let sum: u64 = slice.iter().map(|&value| value as u64).sum();
+        let count = slice.len().max(1) as u64;
+        (sum / count) as u32
+    })
 }
 
 fn downsample_mask(row: &[u32], target: usize) -> Vec<u8> {
+    downsample_row_impl(row, target, |slice| {
+        let active = slice.iter().filter(|&&value| value > 0).count() as f32;
+        let ratio = active / slice.len().max(1) as f32;
+        (ratio * 255.0).round() as u8
+    })
+}
+
+fn downsample_row_impl<T>(row: &[u32], target: usize, mut sample: impl FnMut(&[u32]) -> T) -> Vec<T> {
     if row.is_empty() || target == 0 {
         return Vec::new();
     }
     if row.len() <= target {
-        return row
-            .iter()
-            .map(|value| if *value > 0 { 255 } else { 0 })
-            .collect();
+        return row.iter().map(|value| sample(std::slice::from_ref(value))).collect();
     }
     let mut out = Vec::with_capacity(target);
     for idx in 0..target {
         let start = idx * row.len() / target;
         let end = (idx + 1) * row.len() / target;
-        let mut sum: u32 = 0;
-        for value in &row[start..end] {
-            sum = sum.saturating_add((*value > 0) as u32);
-        }
-        let count = (end - start).max(1) as f32;
-        let ratio = sum as f32 / count;
-        out.push((ratio * 255.0).round() as u8);
+        out.push(sample(&row[start..end]));
     }
     out
 }
