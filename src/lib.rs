@@ -35,6 +35,7 @@ use std::path::PathBuf;
 use std::ops::{Deref, DerefMut};
 use std::process::Command;
 use std::sync::Arc;
+use std::time::Duration;
 
 use dark_light::Mode;
 
@@ -192,6 +193,7 @@ pub struct NotebookConfig {
     title: String,
     editor: Option<EditorCommand>,
     headless_capture: Option<HeadlessCaptureConfig>,
+    headless_settle_timeout: Option<Duration>,
 }
 
 #[derive(Clone)]
@@ -199,6 +201,7 @@ struct HeadlessCaptureConfig {
     output_dir: PathBuf,
     card_width: f32,
     pixels_per_point: f32,
+    settle_timeout: Duration,
 }
 
 #[derive(Clone)]
@@ -258,6 +261,7 @@ impl<'a> DerefMut for CardCtx<'a> {
 const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
 const NOTEBOOK_MIN_HEIGHT: f32 = 360.0;
 const HEADLESS_DEFAULT_PIXELS_PER_POINT: f32 = 2.0;
+const HEADLESS_DEFAULT_SETTLE_TIMEOUT: Duration = Duration::from_millis(2000);
 
 impl Default for NotebookConfig {
     fn default() -> Self {
@@ -272,6 +276,7 @@ impl NotebookConfig {
             title,
             editor: editor_from_env(),
             headless_capture: None,
+            headless_settle_timeout: None,
         }
     }
 
@@ -281,10 +286,14 @@ impl NotebookConfig {
     }
 
     pub fn with_headless_capture(mut self, output_dir: impl Into<PathBuf>) -> Self {
+        let settle_timeout =
+            self.headless_settle_timeout
+                .unwrap_or(HEADLESS_DEFAULT_SETTLE_TIMEOUT);
         self.headless_capture = Some(HeadlessCaptureConfig {
             output_dir: output_dir.into(),
             card_width: NOTEBOOK_COLUMN_WIDTH,
             pixels_per_point: HEADLESS_DEFAULT_PIXELS_PER_POINT,
+            settle_timeout,
         });
         self
     }
@@ -299,11 +308,23 @@ impl NotebookConfig {
         } else {
             HEADLESS_DEFAULT_PIXELS_PER_POINT
         };
+        let settle_timeout =
+            self.headless_settle_timeout
+                .unwrap_or(HEADLESS_DEFAULT_SETTLE_TIMEOUT);
         self.headless_capture = Some(HeadlessCaptureConfig {
             output_dir: output_dir.into(),
             card_width: NOTEBOOK_COLUMN_WIDTH,
             pixels_per_point,
+            settle_timeout,
         });
+        self
+    }
+
+    pub fn with_headless_settle_timeout(mut self, timeout: Duration) -> Self {
+        self.headless_settle_timeout = Some(timeout);
+        if let Some(headless) = &mut self.headless_capture {
+            headless.settle_timeout = timeout;
+        }
         self
     }
 

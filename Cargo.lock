@@ -13,7 +13,6 @@ dependencies = [
  "eframe",
  "egui",
  "egui-wgpu",
- "egui_extras",
  "egui_plot",
  "gorbie-commonmark",
  "gorbie-macros",

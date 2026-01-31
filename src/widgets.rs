@@ -12,6 +12,12 @@ pub mod label;
 pub mod load;
 #[cfg(feature = "markdown")]
 pub mod markdown;
+#[cfg(feature = "polars")]
+mod table_layout;
+#[cfg(feature = "polars")]
+mod table_sizing;
+#[cfg(feature = "polars")]
+pub mod table;
 pub mod progress;
 pub mod slider;
 #[cfg(feature = "triblespace")]
@@ -23,6 +29,10 @@ pub use button::RadioButton;
 pub use button::ToggleButton;
 #[cfg(feature = "polars")]
 pub use dataframe::dataframe;
+#[cfg(feature = "polars")]
+pub use table::Column;
+#[cfg(feature = "polars")]
+pub use table::TableBuilder;
 pub use field::NumberField;
 pub use field::TextField;
 pub use histogram::Histogram;

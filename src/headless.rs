@@ -4,6 +4,7 @@ use dark_light::Mode;
 use eframe::egui;
 use egui_wgpu::wgpu;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 type HeadlessResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 const HEADLESS_PNG_PPI: f32 = 254.0;
@@ -24,6 +25,7 @@ struct HeadlessWgpuRunner {
     pixels_per_point: f32,
     target: Option<TargetBuffers>,
     time_seconds: f64,
+    settle_timeout: Duration,
 }
 
 impl HeadlessWgpuRunner {
@@ -77,6 +79,7 @@ impl HeadlessWgpuRunner {
             pixels_per_point: config.pixels_per_point,
             target: None,
             time_seconds: 0.0,
+            settle_timeout: config.settle_timeout,
         })
     }
 
@@ -84,7 +87,7 @@ impl HeadlessWgpuRunner {
         let mut index = 0;
         loop {
             let (mut output, measured_height) =
-                self.run_frame(core, index, NOTEBOOK_MIN_HEIGHT)?;
+                self.run_frame_until_settled(core, index, NOTEBOOK_MIN_HEIGHT)?;
             let Some(measured_height) = measured_height else {
                 break;
             };
@@ -96,7 +99,7 @@ impl HeadlessWgpuRunner {
                 (output, desired_height)
             } else {
                 let (mut output, measured_height) =
-                    self.run_frame(core, index, desired_height)?;
+                    self.run_frame_until_settled(core, index, desired_height)?;
                 let Some(measured_height) = measured_height else {
                     break;
                 };
@@ -110,6 +113,34 @@ impl HeadlessWgpuRunner {
             index += 1;
         }
         Ok(())
+    }
+
+    fn run_frame_until_settled(
+        &mut self,
+        core: &mut NotebookCore,
+        index: usize,
+        height: f32,
+    ) -> HeadlessResult<(egui::FullOutput, Option<f32>)> {
+        let start = Instant::now();
+        let mut textures_delta = egui::TexturesDelta::default();
+        let (mut output, mut measured_height) = self.run_frame(core, index, height)?;
+        loop {
+            textures_delta.append(std::mem::take(&mut output.textures_delta));
+            let repaint_delay = min_repaint_delay(&output);
+            let wants_repaint = repaint_delay < Duration::MAX;
+
+            if !wants_repaint || start.elapsed() >= self.settle_timeout {
+                output.textures_delta = textures_delta;
+                return Ok((output, measured_height));
+            }
+
+            if repaint_delay > Duration::ZERO {
+                std::thread::sleep(repaint_delay.min(Duration::from_millis(16)));
+            }
+            let (next_output, next_height) = self.run_frame(core, index, height)?;
+            output = next_output;
+            measured_height = next_height;
+        }
     }
 
     fn run_frame(
@@ -410,4 +441,13 @@ fn color32_to_wgpu(color: egui::Color32) -> wgpu::Color {
 
 fn height_close(a: f32, b: f32) -> bool {
     (a - b).abs() <= 0.5
+}
+
+fn min_repaint_delay(output: &egui::FullOutput) -> Duration {
+    output
+        .viewport_output
+        .values()
+        .map(|viewport| viewport.repaint_delay)
+        .min()
+        .unwrap_or(Duration::MAX)
 }

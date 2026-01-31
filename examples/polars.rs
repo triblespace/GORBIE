@@ -3,7 +3,6 @@
 //! [dependencies]
 //! GORBIE = { path = "..", features = ["polars"] }
 //! egui = "0.33"
-//! egui_extras = "0.33"
 //! polars = "0.50.0"
 //! parking_lot = "0.12.3"
 //! ```

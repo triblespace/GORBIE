@@ -70,6 +70,7 @@ pub fn notebook(attr: TokenStream, item: TokenStream) -> TokenStream {
             let mut __gorbie_headless = false;
             let mut __gorbie_headless_out_dir: Option<std::path::PathBuf> = None;
             let mut __gorbie_headless_scale: Option<f32> = None;
+            let mut __gorbie_headless_wait_ms: Option<u64> = None;
             let mut __gorbie_args = std::env::args().skip(1);
             while let Some(arg) = __gorbie_args.next() {
                 match arg.as_str() {
@@ -100,6 +101,22 @@ pub fn notebook(attr: TokenStream, item: TokenStream) -> TokenStream {
                             return;
                         }
                     }
+                    "--headless-wait-ms" => {
+                        if let Some(wait_ms) = __gorbie_args.next() {
+                            match wait_ms.parse::<u64>() {
+                                Ok(value) => {
+                                    __gorbie_headless_wait_ms = Some(value);
+                                }
+                                _ => {
+                                    eprintln!("--headless-wait-ms expects a non-negative integer");
+                                    return;
+                                }
+                            }
+                        } else {
+                            eprintln!("--headless-wait-ms expects a number");
+                            return;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -111,6 +128,10 @@ pub fn notebook(attr: TokenStream, item: TokenStream) -> TokenStream {
                 } else {
                     __gorbie_notebook_owner.with_headless_capture(out_dir)
                 };
+                if let Some(wait_ms) = __gorbie_headless_wait_ms {
+                    __gorbie_notebook_owner = __gorbie_notebook_owner
+                        .with_headless_settle_timeout(std::time::Duration::from_millis(wait_ms));
+                }
             }
             __gorbie_notebook_owner
                 .run(|__gorbie_notebook_ctx| {

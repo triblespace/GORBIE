@@ -127,7 +127,8 @@ To export cards without opening an interactive notebook, pass `--headless`. Each
 is rendered to a PNG and saved as `card_0001.png`, `card_0002.png`, ... in the output
 directory (default: `./gorbie_capture`). You can override the directory with `--out-dir`.
 The renderer runs fully offscreen (no window is created). Use `--scale` to control the
-pixels-per-point (default: 2.0).
+pixels-per-point (default: 2.0). Use `--headless-wait-ms` to wait for repaint requests
+to settle before capturing each card (default: 2000ms).
 
 `cargo run --example pile_inspector --features triblespace -- --headless --out-dir ./captures --scale 2`
 
@@ -135,7 +136,7 @@ pixels-per-point (default: 2.0).
 # Feature Flags
 GORBIE! defaults to a lean build with `markdown` enabled. Add extras as needed:
 - `markdown`: rich Markdown rendering with `md!` and `note!` (default).
-- `polars`: dataframe widget (Polars + egui_extras).
+- `polars`: dataframe widget (Polars + GORBIE table).
 - `triblespace`: Triblespace widgets and visualizations.
 - `cubecl`: GPU simulated-annealing ordering for the entity inspector (use with `triblespace`).
 
