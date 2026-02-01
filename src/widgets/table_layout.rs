@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use eframe::egui::{self, Id, Pos2, Rect, Response, Sense, Ui, UiBuilder, emath::GuiRounding as _};
+use eframe::egui::{self, emath::GuiRounding as _, Id, Pos2, Rect, Response, Sense, Ui, UiBuilder};
 
 #[derive(Clone, Copy)]
 pub(crate) enum CellSize {
@@ -137,19 +137,21 @@ impl<'l> StripLayout<'l> {
         }
 
         if flags.selected {
-            self.ui.painter().rect_stroke(
-                gapless_rect,
-                egui::CornerRadius::ZERO,
-                self.ui.visuals().selection.stroke,
-                egui::StrokeKind::Outside,
-            );
+            let line_color = self.ui.visuals().text_color();
+            let stroke = egui::Stroke::new(1.0, line_color);
+            let y_bottom = gapless_rect.bottom();
+            self.ui
+                .painter()
+                .hline(gapless_rect.x_range(), y_bottom, stroke);
+            self.ui
+                .painter()
+                .hline(gapless_rect.x_range(), y_bottom - 2.0, stroke);
         } else if flags.hovered && self.sense.interactive() {
-            self.ui.painter().rect_stroke(
-                gapless_rect,
-                egui::CornerRadius::ZERO,
-                self.ui.visuals().widgets.hovered.bg_stroke,
-                egui::StrokeKind::Outside,
-            );
+            let line_color = self.ui.visuals().text_color();
+            let stroke = egui::Stroke::new(1.0, line_color);
+            self.ui
+                .painter()
+                .hline(gapless_rect.x_range(), gapless_rect.bottom(), stroke);
         }
 
         let mut child_ui = self.cell(flags, max_rect, child_ui_id_salt, add_cell_contents);
@@ -231,8 +233,7 @@ impl<'l> StripLayout<'l> {
         }
 
         if flags.selected {
-            let stroke_color = child_ui.style().visuals.selection.stroke.color;
-            child_ui.style_mut().visuals.override_text_color = Some(stroke_color);
+            child_ui.style_mut().visuals.override_text_color = None;
         }
 
         if flags.overline {
