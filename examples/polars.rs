@@ -14,10 +14,17 @@ use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::widgets::{dataframe, load_auto};
 use GORBIE::NotebookCtx;
+use egui::Margin;
 
 #[notebook]
 fn main(nb: &mut NotebookCtx) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
+    let dataframe_padding = Margin {
+        left: padding.left,
+        right: padding.right,
+        top: padding.top,
+        bottom: 0,
+    };
     nb.view(|ui| {
         md!(
             ui,
@@ -29,7 +36,7 @@ In this notebook we're going to use the `polars` crate to create a simple datafr
         "dataframe",
         ComputedState::<Option<DataFrame>>::default(),
         move |ui, value| {
-            with_padding(ui, padding, |ui| {
+            with_padding(ui, dataframe_padding, |ui| {
                 let df = load_auto(ui, value, Option::is_none, || {
                     let df = CsvReadOptions::default()
                         .try_into_reader_with_file_path(Some("./assets/datasets/iris.csv".into()))

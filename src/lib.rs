@@ -575,6 +575,9 @@ impl Notebook {
 impl eframe::App for Notebook {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.update_app_icon(ctx);
+        ctx.style_mut(|style| {
+            style.visuals.clip_rect_margin = 0.0;
+        });
 
         #[cfg(feature = "telemetry")]
         let _telemetry_frame = tracing::info_span!("frame").entered();
@@ -629,14 +632,36 @@ impl eframe::App for Notebook {
                     paint_dot_grid(ui, right_margin_paint, scroll_y);
 
                     ui.scope_builder(egui::UiBuilder::new().max_rect(column_rect), |ui| {
+                        // Keep column/background fills from painting into the margins when
+                        // a too-wide widget forces a larger layout rect.
+                        let restore_clip_rect = ui.clip_rect();
+                        let column_clip_rect = egui::Rect::from_min_max(
+                            egui::pos2(column_rect.min.x, restore_clip_rect.min.y),
+                            egui::pos2(column_rect.max.x, restore_clip_rect.max.y),
+                        );
+                        ui.set_clip_rect(column_clip_rect);
+
                         ui.set_min_size(column_rect.size());
                         ui.set_max_width(column_rect.width());
 
                         let fill = ui.visuals().window_fill;
 
-                        let column_inner_margin = egui::Margin::symmetric(0, 12);
-                        let mut divider_ys: Vec<f32> = Vec::new();
-
+                        let card_gap = ui
+                            .visuals()
+                            .widgets
+                            .noninteractive
+                            .bg_stroke
+                            .width
+                            .max(1.0);
+                        let card_gap_i8 = card_gap
+                            .round()
+                            .clamp(0.0, i8::MAX as f32) as i8;
+                        let column_inner_margin = egui::Margin {
+                            left: 0,
+                            right: 0,
+                            top: 12,
+                            bottom: card_gap_i8,
+                        };
                         let column_frame = egui::Frame::new()
                             .fill(fill)
                             .stroke(egui::Stroke::NONE)
@@ -680,6 +705,7 @@ impl eframe::App for Notebook {
                                 runtime.sync_len(notebook.cards.len());
                                 let store = notebook.state_store.clone();
 
+                                let default_item_spacing = ui.style().spacing.item_spacing;
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
                                 let mut floating_elements: Vec<FloatingElement> = Vec::new();
                                 let mut dragged_layer_ids: Vec<egui::LayerId> = Vec::new();
@@ -688,6 +714,7 @@ impl eframe::App for Notebook {
                                     FloatingAnchor,
                                     egui::Pos2,
                                 )> = Vec::new();
+                                let cards_len = notebook.cards.len();
                                 for (i, entry) in notebook.cards.iter_mut().enumerate() {
                                     let card_identity = entry.identity;
                                     runtime.ensure_card_identity(i, card_identity);
@@ -798,7 +825,24 @@ impl eframe::App for Notebook {
                                                 egui::vec2(card_width, inner_rect.height()),
                                             )
                                         };
-                                        divider_ys.push(card_rect.top());
+                                        if i + 1 < cards_len {
+                                            let separator_top = card_rect.bottom().ceil();
+                                            let cursor_top = ui.cursor().top();
+                                            if separator_top > cursor_top {
+                                                ui.add_space(separator_top - cursor_top);
+                                            }
+                                            let (gap_rect, _) = ui.allocate_exact_size(
+                                                egui::vec2(card_width, card_gap),
+                                                egui::Sense::hover(),
+                                            );
+                                            let stroke = ui
+                                                .visuals()
+                                                .widgets
+                                                .noninteractive
+                                                .bg_stroke;
+                                            ui.painter()
+                                                .rect_filled(gap_rect, 0.0, stroke.color);
+                                        }
 
                                         let show_detach_button = !*card_detached;
                                         let show_open_button = show_detach_button
@@ -1302,6 +1346,7 @@ impl eframe::App for Notebook {
                                         }
                                     }
                                 }
+                                ui.style_mut().spacing.item_spacing = default_item_spacing;
 
                                 for layer_id in dragged_layer_ids {
                                     ui.ctx().move_to_top(layer_id);
@@ -1321,30 +1366,15 @@ impl eframe::App for Notebook {
                                 }
 
                             });
+                        ui.set_clip_rect(restore_clip_rect);
                         let frame_rect = column_frame.response.rect;
                         let frame_rect = egui::Rect::from_min_max(
                             egui::pos2(column_rect.min.x, frame_rect.min.y),
                             egui::pos2(column_rect.max.x, frame_rect.max.y),
                         );
-                        let divider_x_range = frame_rect.x_range();
                         let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
-                        let height = stroke.width.max(1.0);
                         ui.painter()
                             .rect_stroke(frame_rect, 0.0, stroke, egui::StrokeKind::Inside);
-                        let restore_clip_rect = ui.clip_rect();
-                        let divider_clip_rect = egui::Rect::from_min_max(
-                            egui::pos2(frame_rect.min.x, restore_clip_rect.min.y),
-                            egui::pos2(frame_rect.max.x, restore_clip_rect.max.y),
-                        );
-                        ui.set_clip_rect(divider_clip_rect);
-                        for y in divider_ys {
-                            let rect = egui::Rect::from_min_max(
-                                egui::pos2(divider_x_range.min, y - height / 2.0),
-                                egui::pos2(divider_x_range.max, y + height / 2.0),
-                            );
-                            ui.painter().rect_filled(rect, 0.0, stroke.color);
-                        }
-                        ui.set_clip_rect(restore_clip_rect);
                     });
                 });
         });

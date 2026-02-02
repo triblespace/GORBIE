@@ -902,9 +902,6 @@ impl Table<'_> {
                 ui.spacing_mut().item_spacing.y = 0.0;
             }
 
-            // Prevent body content from painting into the header area.
-            ui.style_mut().visuals.clip_rect_margin = 0.0;
-
             let mut clip_rect = ui.clip_rect();
             if body_top > clip_rect.min.y {
                 clip_rect.min.y = body_top;

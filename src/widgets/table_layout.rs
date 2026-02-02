@@ -123,6 +123,8 @@ impl<'l> StripLayout<'l> {
         add_cell_contents: impl FnOnce(&mut Ui),
     ) -> (Rect, Response) {
         let max_rect = self.cell_rect(&width, &height);
+        let underline_width = 1.0;
+        let underline_gap = underline_width * 2.0;
 
         // Make sure we don't have a gap in the stripe/frame/selection background:
         let item_spacing = self.ui.spacing().item_spacing;
@@ -138,20 +140,24 @@ impl<'l> StripLayout<'l> {
 
         if flags.selected {
             let line_color = self.ui.visuals().text_color();
-            let stroke = egui::Stroke::new(1.0, line_color);
-            let y_bottom = gapless_rect.bottom();
+            let stroke = egui::Stroke::new(underline_width, line_color);
+            let y_bottom = (gapless_rect.bottom() - underline_width * 0.5).max(gapless_rect.top());
             self.ui
                 .painter()
                 .hline(gapless_rect.x_range(), y_bottom, stroke);
             self.ui
                 .painter()
-                .hline(gapless_rect.x_range(), y_bottom - 2.0, stroke);
+                .hline(gapless_rect.x_range(), y_bottom - underline_gap, stroke);
         } else if flags.hovered && self.sense.interactive() {
             let line_color = self.ui.visuals().text_color();
-            let stroke = egui::Stroke::new(1.0, line_color);
+            let stroke = egui::Stroke::new(underline_width, line_color);
             self.ui
                 .painter()
-                .hline(gapless_rect.x_range(), gapless_rect.bottom(), stroke);
+                .hline(
+                    gapless_rect.x_range(),
+                    (gapless_rect.bottom() - underline_width * 0.5).max(gapless_rect.top()),
+                    stroke,
+                );
         }
 
         let mut child_ui = self.cell(flags, max_rect, child_ui_id_salt, add_cell_contents);

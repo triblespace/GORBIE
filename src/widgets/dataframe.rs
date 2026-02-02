@@ -1,8 +1,9 @@
 use crate::widgets::{Column, TableBuilder, TextField};
 use eframe::egui;
 use egui::{Align, FontId, Layout, Margin, RichText, TextStyle};
-use polars::prelude::{DataFrame, IntoLazy};
+use polars::prelude::{DataFrame, DataType, IntoLazy, Series};
 use polars::sql::SQLContext;
+use std::collections::HashMap;
 
 pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
     let nr_cols = df.width();
@@ -24,12 +25,21 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
         .unwrap_or(14.0);
     let body_font = FontId::monospace((base_mono - 2.0).max(9.0));
     let header_font = FontId::monospace(base_mono.max(10.0));
+    let type_font = FontId::monospace((base_mono - 4.0).max(8.0));
     let body_height = ui.fonts_mut(|fonts| fonts.row_height(&body_font));
     let header_text_height = ui.fonts_mut(|fonts| fonts.row_height(&header_font));
+    let type_text_height = ui.fonts_mut(|fonts| fonts.row_height(&type_font));
     let row_height = body_height.max(10.0);
     let cell_padding_x = 4.0;
     let header_pad_y = 2.0;
-    let header_height = header_text_height + header_pad_y * 2.0;
+    let header_gap = 2.0;
+    let header_viz_height = (row_height * 0.9).max(12.0);
+    let header_height = header_pad_y * 2.0
+        + header_text_height
+        + header_gap
+        + type_text_height
+        + header_gap
+        + header_viz_height;
     let filter_state_id = ui.id().with("dataframe_filter_state");
     let filter_state =
         ui.data_mut(|data| data.get_temp::<DataframeFilterState>(filter_state_id))
@@ -40,10 +50,16 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
             .unwrap_or_default();
 
     let summary_color = crate::themes::blend(body_text, base_fill, 0.55);
+    let stat_color = crate::themes::blend(body_text, base_fill, 0.3);
 
     egui::Frame::new()
         .fill(base_fill)
-        .inner_margin(Margin::same(4))
+        .inner_margin(Margin {
+            left: 4,
+            right: 4,
+            top: 4,
+            bottom: 0,
+        })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             let mut next_filter_state = filter_state.clone();
@@ -82,6 +98,7 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                 .collect();
             let active_nr_cols = active_df.width();
             let active_nr_rows = active_df.height();
+            let previews = load_column_previews(ui, active_df, query, &active_cols);
 
             let display_rows = active_nr_rows;
             if let Some(selected_row) = next_selection_state.row {
@@ -131,6 +148,31 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
             } else {
                 ui.label(RichText::new(summary).color(summary_color));
             }
+
+            if let Some(selected_row) = next_selection_state.row {
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new(format!("Selected row {selected_row}"))
+                        .color(summary_color),
+                );
+                ui.add_space(2.0);
+                ui.horizontal_wrapped(|ui| {
+                    for col_name in &active_cols {
+                        if let Ok(column) = active_df.column(col_name.as_str()) {
+                            if let Ok(value) = column.get(selected_row) {
+                                ui.label(
+                                    RichText::new(format!("{col_name}: {value}"))
+                                        .color(body_text)
+                                        .font(body_font.clone()),
+                                );
+                            }
+                        }
+                    }
+                });
+            } else if query_active && display_rows == 0 {
+                ui.add_space(6.0);
+                ui.label(RichText::new("No rows returned").color(summary_color));
+            }
             ui.add_space(4.0);
 
             let spacing_x = ui.spacing().item_spacing.x;
@@ -153,6 +195,7 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                 .cell_layout(Layout::left_to_right(Align::Min))
                 .dense_rows(true)
                 .header_body_gap(0.0)
+                .min_scrolled_height(0.0)
                 .sense(egui::Sense::click_and_drag());
 
             for min_width in &column_mins {
@@ -160,27 +203,47 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
             }
 
             let table = table.header(header_height, |mut header| {
-                for head in &active_cols {
+                for (index, head) in active_cols.iter().enumerate() {
+                    let preview = previews.get(index);
                     header.col(|ui| {
                         let desired_size = egui::vec2(ui.available_width(), header_height);
-                        let (rect, response) = ui.allocate_exact_size(
+                        let (rect, _response) = ui.allocate_exact_size(
                             desired_size,
                             egui::Sense::hover(),
                         );
+                        let content_rect =
+                            rect.shrink2(egui::vec2(cell_padding_x, 0.0));
                         let mut header_ui = ui.new_child(
                             egui::UiBuilder::new()
-                                .max_rect(rect)
+                                .max_rect(content_rect)
                                 .layout(Layout::top_down(Align::Min)),
                         );
                         header_ui.add_space(header_pad_y);
-                        header_ui.add_space(cell_padding_x);
                         header_ui.label(
                             RichText::new(head.to_string())
                                 .color(header_text)
                                 .font(header_font.clone())
                                 .strong(),
                         );
-                        let _ = response;
+                        header_ui.add_space(header_gap);
+                        if let Some(preview) = preview {
+                            header_ui.label(
+                                RichText::new(preview.dtype.clone())
+                                    .color(summary_color)
+                                    .font(type_font.clone()),
+                            );
+                            header_ui.add_space(header_gap);
+                            let (viz_rect, _) = header_ui.allocate_exact_size(
+                                egui::vec2(header_ui.available_width(), header_viz_height),
+                                egui::Sense::hover(),
+                            );
+                            paint_column_preview(
+                                header_ui.painter(),
+                                viz_rect,
+                                preview,
+                                stat_color,
+                            );
+                        }
                     });
                 }
             });
@@ -219,30 +282,6 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                 });
             });
 
-            if let Some(selected_row) = next_selection_state.row {
-                ui.add_space(6.0);
-                ui.label(
-                    RichText::new(format!("Selected row {selected_row}"))
-                        .color(summary_color),
-                );
-                ui.add_space(2.0);
-                ui.horizontal_wrapped(|ui| {
-                    for col_name in &active_cols {
-                        if let Ok(column) = active_df.column(col_name.as_str()) {
-                            if let Ok(value) = column.get(selected_row) {
-                                ui.label(
-                                    RichText::new(format!("{col_name}: {value}"))
-                                        .color(body_text)
-                                        .font(body_font.clone()),
-                                );
-                            }
-                        }
-                    }
-                });
-            } else if query_active && display_rows == 0 {
-                ui.add_space(6.0);
-                ui.label(RichText::new("No rows returned").color(summary_color));
-            }
 
             if next_filter_state != filter_state {
                 ui.data_mut(|data| data.insert_temp(filter_state_id, next_filter_state));
@@ -256,6 +295,286 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
 #[derive(Clone, Default, PartialEq)]
 struct DataframeFilterState {
     query: String,
+}
+
+#[derive(Clone, PartialEq)]
+struct DataframePreviewKey {
+    query: String,
+    rows: usize,
+    cols: usize,
+    schema: Vec<(String, String)>,
+}
+
+#[derive(Clone, Default)]
+struct DataframePreviewCache {
+    key: Option<DataframePreviewKey>,
+    previews: Vec<ColumnPreview>,
+}
+
+#[derive(Clone)]
+struct ColumnPreview {
+    dtype: String,
+    kind: PreviewKind,
+    bars: Vec<f32>,
+}
+
+#[derive(Clone, Copy)]
+enum PreviewKind {
+    Numeric,
+    Categorical,
+}
+
+fn load_column_previews(
+    ui: &mut egui::Ui,
+    df: &DataFrame,
+    query: &str,
+    columns: &[String],
+) -> Vec<ColumnPreview> {
+    let preview_id = ui.id().with("dataframe_preview_cache");
+    let mut cache =
+        ui.data_mut(|data| data.get_temp::<DataframePreviewCache>(preview_id))
+            .unwrap_or_default();
+    let schema = df
+        .get_columns()
+        .iter()
+        .map(|column| {
+            let series = column.as_materialized_series();
+            (
+                series.name().to_string(),
+                format!("{:?}", series.dtype()).to_lowercase(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let key = DataframePreviewKey {
+        query: query.to_string(),
+        rows: df.height(),
+        cols: df.width(),
+        schema,
+    };
+
+    if cache.key.as_ref() != Some(&key) {
+        cache.previews = columns
+            .iter()
+            .map(|name| {
+                df.column(name.as_str())
+                    .map(|column| compute_preview(column.as_materialized_series()))
+                    .unwrap_or_else(|_| ColumnPreview {
+                        dtype: "unknown".to_string(),
+                        kind: PreviewKind::Categorical,
+                        bars: Vec::new(),
+                    })
+            })
+            .collect();
+        cache.key = Some(key);
+        ui.data_mut(|data| data.insert_temp(preview_id, cache.clone()));
+    }
+
+    cache.previews
+}
+
+fn compute_preview(series: &Series) -> ColumnPreview {
+    let dtype = format!("{:?}", series.dtype()).to_lowercase();
+    if is_numeric_dtype(series.dtype()) {
+        ColumnPreview {
+            dtype,
+            kind: PreviewKind::Numeric,
+            bars: histogram_numeric(series, 12),
+        }
+    } else if matches!(series.dtype(), DataType::Boolean) {
+        ColumnPreview {
+            dtype,
+            kind: PreviewKind::Categorical,
+            bars: histogram_boolean(series),
+        }
+    } else {
+        ColumnPreview {
+            dtype,
+            kind: PreviewKind::Categorical,
+            bars: histogram_categorical(series, 6),
+        }
+    }
+}
+
+fn is_numeric_dtype(dtype: &DataType) -> bool {
+    matches!(
+        dtype,
+        DataType::Int8
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64
+            | DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64
+            | DataType::Float32
+            | DataType::Float64
+            | DataType::Date
+            | DataType::Datetime(_, _)
+            | DataType::Duration(_)
+            | DataType::Time
+    )
+}
+
+fn histogram_numeric(series: &Series, bins: usize) -> Vec<f32> {
+    let bins = bins.max(2);
+    let casted = match series.cast(&DataType::Float64) {
+        Ok(series) => series,
+        Err(_) => return vec![0.0; bins],
+    };
+    let values = match casted.f64() {
+        Ok(values) => values,
+        Err(_) => return vec![0.0; bins],
+    };
+
+    let mut min = f64::INFINITY;
+    let mut max = f64::NEG_INFINITY;
+    let mut sample = Vec::new();
+    for value in values.into_iter().flatten() {
+        if value.is_finite() {
+            min = min.min(value);
+            max = max.max(value);
+            sample.push(value);
+        }
+    }
+    if sample.is_empty() {
+        return vec![0.0; bins];
+    }
+    if (max - min).abs() < f64::EPSILON {
+        let mut out = vec![0.0; bins];
+        out[bins / 2] = 1.0;
+        return out;
+    }
+
+    let stride = (sample.len() / 2048).max(1);
+    let mut counts = vec![0u32; bins];
+    for (idx, value) in sample.iter().enumerate() {
+        if idx % stride != 0 {
+            continue;
+        }
+        let t = ((*value - min) / (max - min)).clamp(0.0, 1.0);
+        let bin = (t * bins as f64).floor().min((bins - 1) as f64) as usize;
+        counts[bin] += 1;
+    }
+
+    normalize_counts_max(counts)
+}
+
+fn histogram_boolean(series: &Series) -> Vec<f32> {
+    let bools = match series.bool() {
+        Ok(values) => values,
+        Err(_) => return vec![0.0, 0.0],
+    };
+    let mut counts = [0u32; 2];
+    for value in bools.into_iter().flatten() {
+        if value {
+            counts[1] += 1;
+        } else {
+            counts[0] += 1;
+        }
+    }
+    normalize_counts_total(counts.to_vec())
+}
+
+fn histogram_categorical(series: &Series, max_bars: usize) -> Vec<f32> {
+    let max_bars = max_bars.max(2);
+    let mut counts: HashMap<String, u32> = HashMap::new();
+    let mut seen = 0usize;
+    let sample_limit = 2048usize;
+    let mut push_value = |value: String| {
+        *counts.entry(value).or_insert(0) += 1;
+    };
+
+    if let Some(strings) = series.try_str() {
+        for value in strings.into_iter().flatten() {
+            push_value(value.to_string());
+            seen += 1;
+            if seen >= sample_limit {
+                break;
+            }
+        }
+    } else {
+        for value in series.iter() {
+            push_value(format!("{value}"));
+            seen += 1;
+            if seen >= sample_limit {
+                break;
+            }
+        }
+    }
+
+    if counts.is_empty() {
+        return vec![0.0; max_bars];
+    }
+
+    let mut items: Vec<(String, u32)> = counts.into_iter().collect();
+    items.sort_by(|a, b| b.1.cmp(&a.1));
+    items.truncate(max_bars);
+    let counts: Vec<u32> = items.into_iter().map(|(_, count)| count).collect();
+    normalize_counts_total(counts)
+}
+
+fn normalize_counts_max(counts: Vec<u32>) -> Vec<f32> {
+    let max = counts.iter().copied().max().unwrap_or(0).max(1) as f32;
+    counts
+        .into_iter()
+        .map(|count| (count as f32) / max)
+        .collect()
+}
+
+fn normalize_counts_total(counts: Vec<u32>) -> Vec<f32> {
+    let total: f32 = counts.iter().map(|count| *count as f32).sum();
+    let total = total.max(1.0);
+    counts
+        .into_iter()
+        .map(|count| (count as f32) / total)
+        .collect()
+}
+
+fn paint_column_preview(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    preview: &ColumnPreview,
+    color: egui::Color32,
+) {
+    if rect.width() <= 0.0 || rect.height() <= 0.0 || preview.bars.is_empty() {
+        return;
+    }
+    let bar_count = preview.bars.len().max(1);
+    let bar_width = rect.width() / bar_count as f32;
+    if matches!(preview.kind, PreviewKind::Categorical) {
+        let mut x = rect.min.x;
+        let gap = 1.0;
+        for value in &preview.bars {
+            let width = rect.width() * value.clamp(0.0, 1.0);
+            if width <= 0.0 {
+                continue;
+            }
+            let seg_rect = egui::Rect::from_min_max(
+                egui::pos2(x, rect.min.y),
+                egui::pos2((x + width).min(rect.max.x), rect.max.y),
+            );
+            painter.rect_filled(seg_rect, 0.0, color);
+            x = (seg_rect.right() + gap).min(rect.max.x);
+            if x >= rect.max.x {
+                break;
+            }
+        }
+        let baseline = egui::Rect::from_min_max(
+            egui::pos2(rect.min.x, rect.max.y - 1.0),
+            egui::pos2(rect.max.x, rect.max.y),
+        );
+        painter.rect_filled(baseline, 0.0, color);
+        return;
+    }
+
+    for (i, value) in preview.bars.iter().enumerate() {
+        let height = rect.height() * value.clamp(0.0, 1.0);
+        let x0 = rect.min.x + i as f32 * bar_width;
+        let x1 = x0 + bar_width;
+        let y0 = rect.max.y - height;
+        let bar_rect = egui::Rect::from_min_max(egui::pos2(x0, y0), egui::pos2(x1, rect.max.y));
+        painter.rect_filled(bar_rect, 0.0, color);
+    }
 }
 
 #[derive(Clone, Default, PartialEq)]
