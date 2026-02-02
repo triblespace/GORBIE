@@ -4,8 +4,9 @@
 //! Takes all available height, so if you want something below the table, put it in a strip.
 
 use eframe::egui::{
-    self, Align, Id, NumExt as _, Rangef, Rect, Response, ScrollArea, Ui, Vec2, Vec2b,
+    self,
     scroll_area::{ScrollAreaOutput, ScrollBarVisibility, ScrollSource},
+    Align, Id, NumExt as _, Rangef, Rect, Response, ScrollArea, Ui, Vec2, Vec2b,
 };
 
 use super::table_layout::{CellDirection, CellSize, StripLayout, StripLayoutFlags};
@@ -654,6 +655,61 @@ struct TableState {
 }
 
 impl TableState {
+    fn clamp_widths_to_available(
+        columns: &[Column],
+        widths: &mut [f32],
+        available_width: f32,
+        spacing_x: f32,
+    ) {
+        if widths.is_empty() {
+            return;
+        }
+
+        let available_for_columns =
+            (available_width - spacing_x * (widths.len().saturating_sub(1) as f32)).max(0.0);
+        let mut sum: f32 = widths.iter().sum();
+        if sum <= available_for_columns || sum <= 0.0 {
+            return;
+        }
+
+        let min_sum: f32 = columns.iter().map(|c| c.width_range.min).sum();
+        if min_sum >= available_for_columns {
+            let scale = available_for_columns / sum;
+            for (width, column) in widths.iter_mut().zip(columns) {
+                let scaled = *width * scale;
+                *width = scaled.min(column.width_range.max);
+            }
+            return;
+        }
+
+        let scale = available_for_columns / sum;
+        for (width, column) in widths.iter_mut().zip(columns) {
+            let scaled = *width * scale;
+            *width = scaled.clamp(column.width_range.min, column.width_range.max);
+        }
+
+        sum = widths.iter().sum();
+        if sum <= available_for_columns {
+            return;
+        }
+
+        let excess = sum - available_for_columns;
+        let mut reducible = 0.0;
+        for (width, column) in widths.iter().zip(columns) {
+            reducible += (*width - column.width_range.min).max(0.0);
+        }
+        if reducible <= 0.0 {
+            return;
+        }
+
+        for (width, column) in widths.iter_mut().zip(columns) {
+            let slack = (*width - column.width_range.min).max(0.0);
+            if slack > 0.0 {
+                *width -= excess * (slack / reducible);
+            }
+        }
+    }
+
     /// Return true if we should do a sizing pass.
     fn load(
         ui: &Ui,
@@ -713,6 +769,13 @@ impl TableState {
             }
             state.column_widths = sizing.to_lengths(available_width, ui.spacing().item_spacing.x);
         }
+
+        Self::clamp_widths_to_available(
+            columns,
+            &mut state.column_widths,
+            available_width,
+            ui.spacing().item_spacing.x,
+        );
 
         (is_sizing_pass, state)
     }
@@ -794,6 +857,7 @@ impl Table<'_> {
             sense,
             dense_rows,
         } = self;
+        let table_width = available_width;
 
         let TableScrollOptions {
             vscroll,
@@ -859,19 +923,19 @@ impl Table<'_> {
 
                 let layout = StripLayout::new(ui, CellDirection::Horizontal, cell_layout, sense);
 
-            add_body_contents(TableBody {
-                layout,
-                columns: columns_ref,
-                widths: widths_ref,
-                max_used_widths: max_used_widths_ref,
-                striped,
-                row_index: 0,
-                y_range: clip_rect.y_range(),
-                scroll_to_row: scroll_to_row.map(|(r, _)| r),
-                scroll_to_y_range: &mut scroll_to_y_range,
-                hovered_row_index,
-                hovered_row_index_id,
-            });
+                add_body_contents(TableBody {
+                    layout,
+                    columns: columns_ref,
+                    widths: widths_ref,
+                    max_used_widths: max_used_widths_ref,
+                    striped,
+                    row_index: 0,
+                    y_range: clip_rect.y_range(),
+                    scroll_to_row: scroll_to_row.map(|(r, _)| r),
+                    scroll_to_y_range: &mut scroll_to_y_range,
+                    hovered_row_index,
+                    hovered_row_index_id,
+                });
 
                 if scroll_to_row.is_some() && scroll_to_y_range.is_none() {
                     // TableBody::row didn't find the correct row, so scroll to the bottom:
@@ -890,16 +954,30 @@ impl Table<'_> {
         let bottom = ui.min_rect().bottom();
 
         let spacing_x = ui.spacing().item_spacing.x;
+        let total_spacing = spacing_x * (state.column_widths.len().saturating_sub(1) as f32);
+        let mut width_snapshot = state.column_widths.clone();
+        let resize_drag_id = state_id.with("resize_column_drag");
+        if !ui.input(|i| i.pointer.any_down()) {
+            ui.data_mut(|data| data.remove_temp::<ColumnResizeDrag>(resize_drag_id));
+        }
+        let drag_anchor = ui.data_mut(|data| data.get_temp::<ColumnResizeDrag>(resize_drag_id));
+        let drag_anchor_index = drag_anchor.as_ref().map(|state| state.column_index);
         let mut x = cursor_position.x - spacing_x * 0.5;
-        for (i, column_width) in state.column_widths.iter_mut().enumerate() {
+        let width_count = state.column_widths.len();
+        for i in 0..width_count {
+            let (left, right) = state.column_widths.split_at_mut(i + 1);
+            let (left_cols, column_slice) = left.split_at_mut(i);
+            let column_width = &mut column_slice[0];
             let column = &columns[i];
             let column_is_resizable = column.resizable.unwrap_or(resizable);
             let width_range = column.width_range;
+            let freeze_width = drag_anchor_index.is_some_and(|index| i > index);
 
             let is_last_column = i + 1 == columns.len();
             if is_last_column
                 && column.initial_width == InitialColumnSize::Remainder
                 && !ui.is_sizing_pass()
+                && !freeze_width
             {
                 // If the last column is 'remainder', then let it fill the remainder!
                 let eps = 0.1; // just to avoid some rounding errors.
@@ -908,28 +986,31 @@ impl Table<'_> {
                     *column_width = column_width.at_least(max_used_widths[i]);
                 }
                 *column_width = width_range.clamp(*column_width);
+                width_snapshot[i] = *column_width;
                 break;
             }
 
-            if ui.is_sizing_pass() {
+            if !freeze_width && ui.is_sizing_pass() {
                 if column.clip {
                     // If we clip, we don't need to be as wide as the max used width
                     *column_width = column_width.min(max_used_widths[i]);
                 } else {
                     *column_width = max_used_widths[i];
                 }
-            } else if !column.clip {
+            } else if !freeze_width && !column.clip {
                 // Unless we clip we don't want to shrink below the
                 // size that was actually used:
                 *column_width = column_width.at_least(max_used_widths[i]);
             }
-            *column_width = width_range.clamp(*column_width);
+            if !freeze_width {
+                *column_width = width_range.clamp(*column_width);
+            }
 
             x += *column_width + spacing_x;
 
-            if column.is_auto() && (is_sizing_pass || !column_is_resizable) {
+            if !freeze_width && column.is_auto() && (is_sizing_pass || !column_is_resizable) {
                 *column_width = width_range.clamp(max_used_widths[i]);
-            } else if column_is_resizable {
+            } else if column_is_resizable && !is_last_column {
                 let column_resize_id = state_id.with("resize_column").with(i);
 
                 let mut p0 = egui::pos2(x, table_top);
@@ -945,24 +1026,131 @@ impl Table<'_> {
                     *column_width = width_range.clamp(max_used_widths[i]);
                 } else if resize_response.dragged() {
                     if let Some(pointer) = ui.ctx().pointer_latest_pos() {
-                        let mut new_width = *column_width + pointer.x - x;
-                        if !column.clip {
-                            // Unless we clip we don't want to shrink below the
-                            // size that was actually used.
-                            // However, we still want to allow content that shrinks when you try
-                            // to make the column less wide, so we allow some small shrinkage each frame:
-                            // big enough to allow shrinking over time, small enough not to look ugly when
-                            // shrinking fails. This is a bit of a HACK around immediate mode.
-                            let max_shrinkage_per_frame = 8.0;
-                            new_width =
-                                new_width.at_least(max_used_widths[i] - max_shrinkage_per_frame);
+                        let mut drag_state =
+                            ui.data_mut(|data| data.get_temp::<ColumnResizeDrag>(resize_drag_id));
+                        if resize_response.drag_started() {
+                            let mut start_widths = width_snapshot.clone();
+                            start_widths[i] = *column_width;
+                            for (j, width) in right.iter().enumerate() {
+                                start_widths[i + 1 + j] = *width;
+                            }
+                            let state = ColumnResizeDrag {
+                                column_index: i,
+                                start_x: pointer.x,
+                                start_widths,
+                            };
+                            ui.data_mut(|data| data.insert_temp(resize_drag_id, state.clone()));
+                            drag_state = Some(state);
                         }
-                        new_width = width_range.clamp(new_width);
+                        if let Some(state) =
+                            drag_state.as_ref().filter(|state| state.column_index == i)
+                        {
+                            let start_widths = &state.start_widths;
+                            for (j, width) in left_cols.iter_mut().enumerate() {
+                                *width = start_widths[j];
+                                width_snapshot[j] = *width;
+                            }
+                            *column_width = start_widths[i];
+                            width_snapshot[i] = *column_width;
+                            for (j, width) in right.iter_mut().enumerate() {
+                                *width = start_widths[i + 1 + j];
+                                width_snapshot[i + 1 + j] = *width;
+                            }
 
-                        let x = x - *column_width + new_width;
+                            let columns_left = &columns[..i];
+                            let columns_right = &columns[i + 1..];
+
+                            let mut delta = pointer.x - state.start_x;
+                            if !column.clip {
+                                let max_shrinkage_per_frame = 8.0;
+                                let min_allowed = (max_used_widths[i] - max_shrinkage_per_frame)
+                                    .max(width_range.min);
+                                if start_widths[i] + delta < min_allowed {
+                                    delta = min_allowed - start_widths[i];
+                                }
+                            }
+
+                            let start_boundary_x = {
+                                let mut sum = 0.0;
+                                for width in start_widths.iter().take(i + 1) {
+                                    sum += *width;
+                                }
+                                cursor_position.x - spacing_x * 0.5
+                                    + sum
+                                    + spacing_x * ((i + 1) as f32)
+                            };
+
+                            let applied_delta;
+                            if delta >= 0.0 {
+                                let max_increase = (width_range.max - start_widths[i]).max(0.0);
+                                let mut desired = delta.min(max_increase);
+                                let total_sum: f32 = start_widths.iter().sum();
+                                let free_space = (table_width - total_spacing - total_sum).max(0.0);
+                                let right_slack = sum_slack_to_min(right, columns_right, resizable);
+                                let allowed = free_space + right_slack;
+                                if desired > allowed {
+                                    desired = allowed;
+                                }
+
+                                *column_width = start_widths[i] + desired;
+                                width_snapshot[i] = *column_width;
+
+                                let mut remaining = (desired - free_space).max(0.0);
+                                remaining = shrink_forward(
+                                    right,
+                                    columns_right,
+                                    i + 1,
+                                    resizable,
+                                    &mut width_snapshot,
+                                    remaining,
+                                );
+                                let _ = remaining;
+
+                                applied_delta = desired;
+                            } else {
+                                let mut desired = -delta;
+                                let left_shrink =
+                                    sum_slack_to_min(left_cols, columns_left, resizable)
+                                        + (start_widths[i] - width_range.min).max(0.0);
+                                let right_grow = sum_room_to_max(right, columns_right, resizable);
+                                let allowed = left_shrink.min(right_grow);
+                                if desired > allowed {
+                                    desired = allowed;
+                                }
+
+                                let mut remaining = desired;
+                                let min_i = width_range.min;
+                                let slack_i = (start_widths[i] - min_i).max(0.0);
+                                let take_i = slack_i.min(remaining);
+                                *column_width = start_widths[i] - take_i;
+                                width_snapshot[i] = *column_width;
+                                remaining -= take_i;
+
+                                remaining = shrink_reverse(
+                                    left_cols,
+                                    columns_left,
+                                    0,
+                                    resizable,
+                                    &mut width_snapshot,
+                                    remaining,
+                                );
+                                let _ = remaining;
+
+                                let _ = grow_forward(
+                                    right,
+                                    columns_right,
+                                    i + 1,
+                                    resizable,
+                                    &mut width_snapshot,
+                                    desired,
+                                );
+
+                                applied_delta = -desired;
+                            }
+
+                            x = start_boundary_x + applied_delta;
+                        }
                         (p0.x, p1.x) = (x, x);
-
-                        *column_width = new_width;
                     }
                 }
 
@@ -986,6 +1174,7 @@ impl Table<'_> {
                 ui.painter().line_segment([p0, p1], stroke);
             }
 
+            width_snapshot[i] = *column_width;
             available_width -= *column_width + spacing_x;
         }
 
@@ -1025,6 +1214,115 @@ pub struct TableBody<'a> {
 
     /// Used to store the hovered row index between frames.
     hovered_row_index_id: egui::Id,
+}
+
+fn sum_slack_to_min(widths: &[f32], cols: &[Column], resizable_default: bool) -> f32 {
+    widths
+        .iter()
+        .zip(cols)
+        .filter(|(_, col)| col.resizable.unwrap_or(resizable_default))
+        .map(|(width, col)| (width - col.width_range.min).max(0.0))
+        .sum()
+}
+
+fn sum_room_to_max(widths: &[f32], cols: &[Column], resizable_default: bool) -> f32 {
+    widths
+        .iter()
+        .zip(cols)
+        .filter(|(_, col)| col.resizable.unwrap_or(resizable_default))
+        .map(|(width, col)| (col.width_range.max - width).max(0.0))
+        .sum()
+}
+
+fn shrink_forward(
+    widths: &mut [f32],
+    cols: &[Column],
+    offset: usize,
+    resizable_default: bool,
+    width_snapshot: &mut [f32],
+    mut remaining: f32,
+) -> f32 {
+    for idx in 0..widths.len() {
+        let col = &cols[idx];
+        if !col.resizable.unwrap_or(resizable_default) {
+            continue;
+        }
+        let slack = (widths[idx] - col.width_range.min).max(0.0);
+        if slack <= 0.0 {
+            continue;
+        }
+        let take = slack.min(remaining);
+        widths[idx] -= take;
+        width_snapshot[offset + idx] = widths[idx];
+        remaining -= take;
+        if remaining <= 0.0 {
+            break;
+        }
+    }
+    remaining
+}
+
+fn shrink_reverse(
+    widths: &mut [f32],
+    cols: &[Column],
+    offset: usize,
+    resizable_default: bool,
+    width_snapshot: &mut [f32],
+    mut remaining: f32,
+) -> f32 {
+    for idx in (0..widths.len()).rev() {
+        let col = &cols[idx];
+        if !col.resizable.unwrap_or(resizable_default) {
+            continue;
+        }
+        let slack = (widths[idx] - col.width_range.min).max(0.0);
+        if slack <= 0.0 {
+            continue;
+        }
+        let take = slack.min(remaining);
+        widths[idx] -= take;
+        width_snapshot[offset + idx] = widths[idx];
+        remaining -= take;
+        if remaining <= 0.0 {
+            break;
+        }
+    }
+    remaining
+}
+
+fn grow_forward(
+    widths: &mut [f32],
+    cols: &[Column],
+    offset: usize,
+    resizable_default: bool,
+    width_snapshot: &mut [f32],
+    mut remaining: f32,
+) -> f32 {
+    for idx in 0..widths.len() {
+        let col = &cols[idx];
+        if !col.resizable.unwrap_or(resizable_default) {
+            continue;
+        }
+        let room = (col.width_range.max - widths[idx]).max(0.0);
+        if room <= 0.0 {
+            continue;
+        }
+        let give = room.min(remaining);
+        widths[idx] += give;
+        width_snapshot[offset + idx] = widths[idx];
+        remaining -= give;
+        if remaining <= 0.0 {
+            break;
+        }
+    }
+    remaining
+}
+
+#[derive(Clone, Default)]
+struct ColumnResizeDrag {
+    column_index: usize,
+    start_x: f32,
+    start_widths: Vec<f32>,
 }
 
 impl<'a> TableBody<'a> {

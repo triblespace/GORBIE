@@ -18,11 +18,13 @@
 
 pub mod cards;
 pub mod dataflow;
+mod headless;
 pub mod prelude;
 pub mod state;
+#[cfg(feature = "telemetry")]
+pub mod telemetry;
 pub mod themes;
 pub mod widgets;
-mod headless;
 
 pub use gorbie_macros::notebook;
 
@@ -31,8 +33,8 @@ use crate::themes::industrial_fonts;
 use crate::themes::industrial_light;
 use eframe::egui::{self};
 use std::any::TypeId;
-use std::path::PathBuf;
 use std::ops::{Deref, DerefMut};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
@@ -220,6 +222,9 @@ struct Notebook {
     core: NotebookCore,
     icons: Option<AppIcons>,
     icon_is_dark: Option<bool>,
+    #[cfg(feature = "telemetry")]
+    #[allow(dead_code)] // kept alive to flush/close the telemetry sink on shutdown
+    telemetry: Option<telemetry::Telemetry>,
 }
 
 /// Frame-scoped notebook builder used to collect cards in immediate mode.
@@ -286,9 +291,9 @@ impl NotebookConfig {
     }
 
     pub fn with_headless_capture(mut self, output_dir: impl Into<PathBuf>) -> Self {
-        let settle_timeout =
-            self.headless_settle_timeout
-                .unwrap_or(HEADLESS_DEFAULT_SETTLE_TIMEOUT);
+        let settle_timeout = self
+            .headless_settle_timeout
+            .unwrap_or(HEADLESS_DEFAULT_SETTLE_TIMEOUT);
         self.headless_capture = Some(HeadlessCaptureConfig {
             output_dir: output_dir.into(),
             card_width: NOTEBOOK_COLUMN_WIDTH,
@@ -308,9 +313,9 @@ impl NotebookConfig {
         } else {
             HEADLESS_DEFAULT_PIXELS_PER_POINT
         };
-        let settle_timeout =
-            self.headless_settle_timeout
-                .unwrap_or(HEADLESS_DEFAULT_SETTLE_TIMEOUT);
+        let settle_timeout = self
+            .headless_settle_timeout
+            .unwrap_or(HEADLESS_DEFAULT_SETTLE_TIMEOUT);
         self.headless_capture = Some(HeadlessCaptureConfig {
             output_dir: output_dir.into(),
             card_width: NOTEBOOK_COLUMN_WIDTH,
@@ -378,10 +383,14 @@ impl NotebookConfig {
                 cc.egui_ctx
                     .set_style_of(egui::Theme::Dark, industrial_dark());
 
+                #[cfg(feature = "telemetry")]
+                let telemetry_title = config.title.clone();
                 Ok(Box::new(Notebook {
                     core: NotebookCore::new(config, body),
                     icons,
                     icon_is_dark: None,
+                    #[cfg(feature = "telemetry")]
+                    telemetry: telemetry::Telemetry::install_global_from_env(&telemetry_title),
                 }))
             }),
         )
@@ -451,12 +460,7 @@ impl NotebookCtx {
     }
 
     #[track_caller]
-    pub fn state<K, T, F>(
-        &mut self,
-        key: &K,
-        init: T,
-        function: F,
-    ) -> state::StateId<T>
+    pub fn state<K, T, F>(&mut self, key: &K, init: T, function: F) -> state::StateId<T>
     where
         K: std::hash::Hash + ?Sized,
         T: Send + Sync + 'static,
@@ -572,7 +576,14 @@ impl eframe::App for Notebook {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.update_app_icon(ctx);
 
-        let mut notebook = self.core.build_notebook();
+        #[cfg(feature = "telemetry")]
+        let _telemetry_frame = tracing::info_span!("frame").entered();
+
+        let mut notebook = {
+            #[cfg(feature = "telemetry")]
+            let _build_span = tracing::info_span!("build_notebook").entered();
+            self.core.build_notebook()
+        };
         let config = &self.core.config;
 
         let state_id = config.state_id();
@@ -759,6 +770,20 @@ impl eframe::App for Notebook {
                                                     clip_rect.max.y,
                                                 ),
                                             );
+                                            #[cfg(feature = "telemetry")]
+                                            let _card_span = {
+                                                let source = entry
+                                                    .source
+                                                    .as_ref()
+                                                    .map(|s| s.file_line_column())
+                                                    .unwrap_or_default();
+                                                tracing::info_span!(
+                                                    "card",
+                                                    card_index = i as u64,
+                                                    source = source.as_str()
+                                                )
+                                                .entered()
+                                            };
                                             let inner_rect = draw_card_body(
                                                 ui,
                                                 card_width,
@@ -1013,6 +1038,11 @@ impl eframe::App for Notebook {
 
                                                 let card_width = draw.width;
                                                 let detached_id = draw.area_id;
+                                                let placeholder_height = runtime
+                                                    .card_placeholder_sizes
+                                                    .get(draw.index)
+                                                    .map(|size| size.y)
+                                                    .unwrap_or(0.0);
                                                 let card: &mut dyn cards::Card = notebook
                                                     .cards
                                                     .get_mut(draw.index)
@@ -1058,20 +1088,31 @@ impl eframe::App for Notebook {
                                                             .inner_margin(egui::Margin::ZERO);
                                                         let background_idx =
                                                             ui.painter().add(egui::Shape::Noop);
-                                                        let max_rect =
-                                                            egui::Rect::from_min_max(
-                                                                ui.min_rect().min,
-                                                                egui::pos2(
-                                                                    ui.min_rect().min.x
-                                                                        + card_width,
-                                                                    ui.max_rect().max.y,
-                                                                ),
-                                                            );
+                                                        let min_y = ui.min_rect().min.y;
+                                                        let max_y = ui
+                                                            .max_rect()
+                                                            .max
+                                                            .y
+                                                            .max(min_y + placeholder_height);
+                                                        let max_rect = egui::Rect::from_min_max(
+                                                            ui.min_rect().min,
+                                                            egui::pos2(
+                                                                ui.min_rect().min.x
+                                                                    + card_width,
+                                                                max_y,
+                                                            ),
+                                                        );
                                                         let inner = ui.scope_builder(
                                                             egui::UiBuilder::new()
                                                                 .max_rect(max_rect),
                                                             |ui| {
                                                                 ui.reset_style();
+                                                                if placeholder_height > 0.0 {
+                                                                    ui.set_min_size(egui::vec2(
+                                                                        card_width,
+                                                                        placeholder_height,
+                                                                    ));
+                                                                }
                                                                 ui.set_width(card_width);
                                                                 let restore_clip_rect =
                                                                     ui.clip_rect();
@@ -1094,6 +1135,12 @@ impl eframe::App for Notebook {
                                                                 ui.set_clip_rect(card_clip_rect);
                                                                 let mut ctx =
                                                                     CardCtx::new(ui, store.as_ref());
+                                                                #[cfg(feature = "telemetry")]
+                                                                let _detached_span = tracing::info_span!(
+                                                                    "detached_draw",
+                                                                    card_index = draw.index as u64
+                                                                )
+                                                                .entered();
                                                                 card.draw(&mut ctx);
                                                                 ui.set_clip_rect(
                                                                     restore_clip_rect,
@@ -1315,6 +1362,15 @@ fn draw_card_body(
     store: &state::StateStore,
     clip_rect: Option<egui::Rect>,
 ) -> egui::Rect {
+    // Clamp *all* painting (including the frame fill) to the column rect.
+    // Without this, a too-wide widget can expand the frame and paint into the
+    // notebook margins, covering the dot grid.
+    let restore_clip = clip_rect.map(|rect| {
+        let restore = ui.clip_rect();
+        ui.set_clip_rect(rect);
+        restore
+    });
+
     let inner = egui::Frame::group(ui.style())
         .stroke(egui::Stroke::NONE)
         .corner_radius(0.0)
@@ -1322,17 +1378,14 @@ fn draw_card_body(
         .show(ui, |ui| {
             ui.reset_style();
             ui.set_width(card_width);
-            let restore_clip = clip_rect.map(|rect| {
-                let restore = ui.clip_rect();
-                ui.set_clip_rect(rect);
-                restore
-            });
+            ui.set_max_width(card_width);
             let mut ctx = CardCtx::new(ui, store);
             card.draw(&mut ctx);
-            if let Some(restore) = restore_clip {
-                ui.set_clip_rect(restore);
-            }
         });
+
+    if let Some(restore) = restore_clip {
+        ui.set_clip_rect(restore);
+    }
     inner.response.rect
 }
 

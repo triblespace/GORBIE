@@ -1,14 +1,12 @@
-use crate::widgets::{Button, Column, TableBuilder, TextField};
+use crate::widgets::{Column, TableBuilder, TextField};
 use eframe::egui;
-use egui::{Align, Align2, FontId, Layout, Margin, RichText, TextStyle};
-use polars::prelude::{
-    DataFrame, IdxCa, IdxSize, IntoSeries, NamedFrom, SortMultipleOptions,
-};
+use egui::{Align, FontId, Layout, Margin, RichText, TextStyle};
+use polars::prelude::{DataFrame, IntoLazy};
+use polars::sql::SQLContext;
 
 pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
     let nr_cols = df.width();
     let nr_rows = df.height();
-    let cols = &df.get_column_names();
     if nr_cols == 0 {
         ui.label("Empty dataframe");
         return;
@@ -30,32 +28,8 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
     let header_text_height = ui.fonts_mut(|fonts| fonts.row_height(&header_font));
     let row_height = body_height.max(10.0);
     let cell_padding_x = 4.0;
-    let header_height = header_text_height + 2.0;
-    let sort_marker_text = " ↑88";
-    let sort_marker_width = ui.fonts_mut(|fonts| {
-        fonts
-            .layout_no_wrap(sort_marker_text.to_string(), header_font.clone(), header_text)
-            .size()
-            .x
-    });
-
-    let header_min_widths: Vec<f32> = cols
-        .iter()
-        .map(|head| {
-            ui.fonts_mut(|fonts| {
-                fonts
-                    .layout_no_wrap(head.to_string(), header_font.clone(), header_text)
-                    .size()
-                    .x
-                    + sort_marker_width
-            })
-        })
-        .collect();
-
-    let sort_state_id = ui.id().with("dataframe_sort_state");
-    let sort_state =
-        ui.data_mut(|data| data.get_temp::<DataframeSortState>(sort_state_id))
-            .unwrap_or_default();
+    let header_pad_y = 2.0;
+    let header_height = header_text_height + header_pad_y * 2.0;
     let filter_state_id = ui.id().with("dataframe_filter_state");
     let filter_state =
         ui.data_mut(|data| data.get_temp::<DataframeFilterState>(filter_state_id))
@@ -74,110 +48,89 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
             ui.set_width(ui.available_width());
             let mut next_filter_state = filter_state.clone();
             let mut next_selection_state = selection_state.clone();
-
-            let clear_label = "clear";
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Filter").color(summary_color));
-                let show_clear = !next_filter_state.query.is_empty();
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.set_width(ui.available_width());
-                    let clear_button = Button::new(clear_label).small();
-                    let clear_response = if show_clear {
-                        ui.add(clear_button)
-                    } else {
-                        ui.add_enabled(false, clear_button)
-                    };
-                    if show_clear && clear_response.clicked() {
-                        next_filter_state.query.clear();
-                    }
-                    let text_width = ui.available_width().max(120.0);
-                    let text_height = ui.spacing().interact_size.y;
-                    let (rect, _) = ui.allocate_exact_size(
-                        egui::vec2(text_width, text_height),
-                        egui::Sense::hover(),
-                    );
-                    let mut text_ui = ui.new_child(
-                        egui::UiBuilder::new()
-                            .max_rect(rect)
-                            .layout(Layout::left_to_right(Align::Center))
-                            .id_salt(ui.id().with("dataframe_filter_input")),
-                    );
-                    text_ui.spacing_mut().text_edit_width = rect.width();
-                    text_ui.add(TextField::singleline(&mut next_filter_state.query));
-                });
-            });
+            let text_width = ui.available_width().max(120.0);
+            ui.spacing_mut().text_edit_width = text_width;
+            ui.spacing_mut().interact_size.y = row_height;
+            let query_response = ui
+                .push_id("dataframe_filter_input", |ui| {
+                    ui.add(TextField::multiline(&mut next_filter_state.query).rows(1))
+                })
+                .inner;
+            if !query_response.has_focus() && next_filter_state.query.trim().is_empty() {
+                next_filter_state.query = DEFAULT_QUERY.to_string();
+            }
 
             let query = next_filter_state.query.trim();
-            let filter_active = !query.is_empty();
-            let query_lower = query.to_lowercase();
-            let row_order = if !sort_state.keys.is_empty() || filter_active {
-                let mut order = (0..nr_rows).collect::<Vec<_>>();
-
-                if filter_active {
-                    order.retain(|&row_index| {
-                        cols.iter().any(|col_name| {
-                            if let Ok(column) = df.column(col_name.as_str()) {
-                                if let Ok(value) = column.get(row_index) {
-                                    let value_text = value.to_string().to_lowercase();
-                                    return value_text.contains(&query_lower);
-                                }
-                            }
-                            false
-                        })
-                    });
-                }
-
-                if !sort_state.keys.is_empty() && !order.is_empty() {
-                    let idx_values =
-                        order.iter().map(|value| *value as IdxSize).collect::<Vec<_>>();
-                    let idx = IdxCa::new("idx".into(), idx_values.clone());
-                    if let Ok(mut subset) = df.take(&idx) {
-                        let row_id_series = IdxCa::new("__row_id".into(), idx_values);
-                        let _ = subset.with_column(row_id_series.into_series());
-                        let sort_cols: Vec<_> = sort_state
-                            .keys
-                            .iter()
-                            .filter_map(|key| cols.get(key.column).map(|name| (*name).clone()))
-                            .collect();
-                        let descending: Vec<bool> =
-                            sort_state.keys.iter().map(|key| key.descending).collect();
-                        if !sort_cols.is_empty() {
-                            let options = SortMultipleOptions::new()
-                                .with_order_descending_multi(descending);
-                            if let Ok(sorted) = subset.sort(sort_cols, options) {
-                                if let Ok(row_ids) = sorted.column("__row_id") {
-                                    if let Ok(idxs) = row_ids.idx() {
-                                        order = idxs
-                                            .into_no_null_iter()
-                                            .map(|value| value as usize)
-                                            .collect();
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Some(order)
-            } else {
-                None
-            };
-            let display_rows = row_order.as_ref().map_or(nr_rows, |order| order.len());
-            if let Some(selected_row) = next_selection_state.row {
-                if let Some(order) = row_order.as_ref() {
-                    if !order.contains(&selected_row) {
-                        next_selection_state.row = None;
-                    }
+            let query_active = !query.is_empty() && !is_default_query(query);
+            let mut query_error: Option<String> = None;
+            let mut sql_df: Option<DataFrame> = None;
+            if query_active {
+                let sql = build_sql_query(query);
+                let mut ctx = SQLContext::new();
+                ctx.register("self", df.clone().lazy());
+                match ctx.execute(&sql).and_then(|lf| lf.collect()) {
+                    Ok(result) => sql_df = Some(result),
+                    Err(err) => query_error = Some(err.to_string()),
                 }
             }
 
-            let summary = if filter_active {
-                format!("{display_rows} of {nr_rows} rows × {nr_cols} columns")
+            let active_df = sql_df.as_ref().unwrap_or(df);
+            let active_cols: Vec<String> = active_df
+                .get_column_names()
+                .iter()
+                .map(|name| name.to_string())
+                .collect();
+            let active_nr_cols = active_df.width();
+            let active_nr_rows = active_df.height();
+
+            let display_rows = active_nr_rows;
+            if let Some(selected_row) = next_selection_state.row {
+                if selected_row >= active_nr_rows {
+                    next_selection_state.row = None;
+                }
+            }
+
+            let header_min_widths: Vec<f32> = active_cols
+                .iter()
+                .map(|head| {
+                    ui.fonts_mut(|fonts| {
+                        fonts
+                            .layout_no_wrap(
+                                head.to_string(),
+                                header_font.clone(),
+                                header_text,
+                            )
+                            .size()
+                            .x
+                    })
+                })
+                .collect();
+
+            let rows_filtered = active_nr_rows != nr_rows;
+            let cols_filtered = active_nr_cols != nr_cols;
+            let summary = if rows_filtered || cols_filtered {
+                let rows_text = if rows_filtered {
+                    format!("{display_rows} of {nr_rows} rows")
+                } else {
+                    format!("{nr_rows} rows")
+                };
+                let cols_text = if cols_filtered {
+                    format!("{active_nr_cols} of {nr_cols} columns")
+                } else {
+                    format!("{nr_cols} columns")
+                };
+                format!("{rows_text} × {cols_text}")
             } else {
                 format!("{nr_rows} rows × {nr_cols} columns")
             };
             ui.add_space(4.0);
-            ui.label(RichText::new(summary).color(summary_color));
+            if let Some(error) = query_error.as_deref() {
+                ui.label(
+                    RichText::new(format!("Query error: {error}")).color(summary_color),
+                );
+            } else {
+                ui.label(RichText::new(summary).color(summary_color));
+            }
             ui.add_space(4.0);
 
             let spacing_x = ui.spacing().item_spacing.x;
@@ -185,7 +138,7 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                 .iter()
                 .map(|min_width| min_width + cell_padding_x * 2.0)
                 .collect();
-            let spacing_total = spacing_x * (nr_cols.saturating_sub(1) as f32);
+            let spacing_total = spacing_x * (active_nr_cols.saturating_sub(1) as f32);
             let available_for_columns = (ui.available_width() - spacing_total).max(0.0);
             let min_total: f32 = column_mins.iter().sum();
             if min_total > available_for_columns && available_for_columns > 0.0 {
@@ -206,24 +159,20 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                 table = table.column(Column::remainder().at_least(*min_width).clip(true));
             }
 
-            let mut next_sort_state = sort_state.clone();
             let table = table.header(header_height, |mut header| {
-                for (col_idx, head) in cols.iter().enumerate() {
+                for head in &active_cols {
                     header.col(|ui| {
-                        let key_index = sort_state
-                            .keys
-                            .iter()
-                            .position(|key| key.column == col_idx);
                         let desired_size = egui::vec2(ui.available_width(), header_height);
                         let (rect, response) = ui.allocate_exact_size(
                             desired_size,
-                            egui::Sense::click(),
+                            egui::Sense::hover(),
                         );
                         let mut header_ui = ui.new_child(
                             egui::UiBuilder::new()
                                 .max_rect(rect)
-                                .layout(Layout::left_to_right(Align::Center)),
+                                .layout(Layout::top_down(Align::Min)),
                         );
+                        header_ui.add_space(header_pad_y);
                         header_ui.add_space(cell_padding_x);
                         header_ui.label(
                             RichText::new(head.to_string())
@@ -231,80 +180,23 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                                 .font(header_font.clone())
                                 .strong(),
                         );
-                        if let Some(sort_pos) = key_index {
-                            let descending = sort_state.keys[sort_pos].descending;
-                            let arrow = if descending { "↓" } else { "↑" };
-                            let marker = if sort_state.keys.len() > 1 {
-                                format!("{arrow}{}", sort_pos + 1)
-                            } else {
-                                arrow.to_string()
-                            };
-                            let marker_pos = egui::pos2(
-                                rect.max.x - cell_padding_x,
-                                rect.center().y,
-                            );
-                            ui.painter().text(
-                                marker_pos,
-                                Align2::RIGHT_CENTER,
-                                marker,
-                                header_font.clone(),
-                                header_text,
-                            );
-                        }
-
-                        if response.clicked() {
-                            let shift = ui.input(|i| i.modifiers.shift);
-                            if shift {
-                                if let Some(existing) = key_index {
-                                    if sort_state.keys[existing].descending {
-                                        next_sort_state.keys.remove(existing);
-                                    } else {
-                                        next_sort_state.keys[existing].descending = true;
-                                    }
-                                } else {
-                                    next_sort_state.keys.push(SortKey {
-                                        column: col_idx,
-                                        descending: false,
-                                    });
-                                }
-                            } else if let Some(existing) = key_index {
-                                if existing == 0 && !sort_state.keys[existing].descending {
-                                    next_sort_state.keys[existing].descending = true;
-                                } else if existing == 0 {
-                                    next_sort_state.keys.clear();
-                                } else {
-                                    next_sort_state.keys.clear();
-                                    next_sort_state.keys.push(SortKey {
-                                        column: col_idx,
-                                        descending: false,
-                                    });
-                                }
-                            } else {
-                                next_sort_state.keys.clear();
-                                next_sort_state.keys.push(SortKey {
-                                    column: col_idx,
-                                    descending: false,
-                                });
-                            }
-                        }
+                        let _ = response;
                     });
                 }
             });
-            let row_order_ref = row_order.as_deref();
             table.body(|body| {
                 body.rows(row_height, display_rows, |mut row| {
                     let row_index = row.index();
-                    let row_index = row_order_ref.map_or(row_index, |order| order[row_index]);
                     let is_selected = next_selection_state.row == Some(row_index);
                     row.set_selected(is_selected);
-                    for col in cols {
+                    for col in &active_cols {
                         row.col(|ui| {
                             ui.allocate_ui_with_layout(
                                 egui::vec2(ui.available_width(), row_height),
                                 Layout::left_to_right(Align::Min),
                                 |ui| {
                                     ui.add_space(cell_padding_x);
-                                    if let Ok(column) = &df.column(col.as_str()) {
+                                    if let Ok(column) = &active_df.column(col.as_str()) {
                                         if let Ok(value) = column.get(row_index) {
                                             ui.label(
                                                 RichText::new(format!("{value}"))
@@ -327,9 +219,6 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                 });
             });
 
-            if next_sort_state != sort_state {
-                ui.data_mut(|data| data.insert_temp(sort_state_id, next_sort_state));
-            }
             if let Some(selected_row) = next_selection_state.row {
                 ui.add_space(6.0);
                 ui.label(
@@ -338,8 +227,8 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                 );
                 ui.add_space(2.0);
                 ui.horizontal_wrapped(|ui| {
-                    for col_name in cols {
-                        if let Ok(column) = df.column(col_name.as_str()) {
+                    for col_name in &active_cols {
+                        if let Ok(column) = active_df.column(col_name.as_str()) {
                             if let Ok(value) = column.get(selected_row) {
                                 ui.label(
                                     RichText::new(format!("{col_name}: {value}"))
@@ -350,9 +239,9 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                         }
                     }
                 });
-            } else if filter_active && display_rows == 0 {
+            } else if query_active && display_rows == 0 {
                 ui.add_space(6.0);
-                ui.label(RichText::new("No rows match this filter").color(summary_color));
+                ui.label(RichText::new("No rows returned").color(summary_color));
             }
 
             if next_filter_state != filter_state {
@@ -365,17 +254,6 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
 }
 
 #[derive(Clone, Default, PartialEq)]
-struct DataframeSortState {
-    keys: Vec<SortKey>,
-}
-
-#[derive(Clone, PartialEq)]
-struct SortKey {
-    column: usize,
-    descending: bool,
-}
-
-#[derive(Clone, Default, PartialEq)]
 struct DataframeFilterState {
     query: String,
 }
@@ -384,3 +262,13 @@ struct DataframeFilterState {
 struct DataframeSelectionState {
     row: Option<usize>,
 }
+
+fn build_sql_query(raw: &str) -> String {
+    raw.trim().to_string()
+}
+
+fn is_default_query(query: &str) -> bool {
+    query.trim().eq_ignore_ascii_case(DEFAULT_QUERY)
+}
+
+const DEFAULT_QUERY: &str = "select * from self";

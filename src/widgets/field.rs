@@ -224,6 +224,7 @@ fn lcd_text_edit(
     expand_width: bool,
     desired_width: f32,
     desired_height_rows: usize,
+    max_rows: Option<usize>,
     min_size: Vec2,
     margin: Margin,
     align: Align2,
@@ -265,8 +266,17 @@ fn lcd_text_edit(
     } else {
         galley.size().x.max(wrap_width)
     };
-    let desired_height = (desired_height_rows.at_least(1) as f32) * row_height;
-    let desired_inner_size = vec2(desired_inner_width, galley.size().y.max(desired_height));
+    let min_rows = desired_height_rows.at_least(1);
+    let max_rows = max_rows.map(|rows| rows.max(min_rows));
+    let desired_height = (min_rows as f32) * row_height;
+    let desired_inner_height = match max_rows {
+        Some(max_rows) => {
+            let max_height = (max_rows as f32) * row_height;
+            desired_height.max(galley.size().y.min(max_height))
+        }
+        None => galley.size().y.max(desired_height),
+    };
+    let desired_inner_size = vec2(desired_inner_width, desired_inner_height);
     let desired_outer_size = (desired_inner_size + margin.sum()).at_least(min_size);
     let (_auto_id, outer_rect) = ui.allocate_space(desired_outer_size);
     let rect = outer_rect - margin;
@@ -818,6 +828,7 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
                 false,
                 desired_width,
                 1,
+                None,
                 ui.spacing().interact_size,
                 margin,
                 Align2::CENTER_CENTER,
@@ -953,6 +964,8 @@ pub struct TextField<'a> {
     text: &'a mut dyn egui::TextBuffer,
     multiline: bool,
     gorbie_style: Option<GorbieTextFieldStyle>,
+    rows: Option<usize>,
+    max_rows: Option<usize>,
 }
 
 impl<'a> TextField<'a> {
@@ -961,6 +974,8 @@ impl<'a> TextField<'a> {
             text,
             multiline: false,
             gorbie_style: None,
+            rows: None,
+            max_rows: None,
         }
     }
 
@@ -969,7 +984,19 @@ impl<'a> TextField<'a> {
             text,
             multiline: true,
             gorbie_style: None,
+            rows: None,
+            max_rows: None,
         }
+    }
+
+    pub fn rows(mut self, rows: usize) -> Self {
+        self.rows = Some(rows.max(1));
+        self
+    }
+
+    pub fn max_rows(mut self, rows: usize) -> Self {
+        self.max_rows = Some(rows.max(1));
+        self
     }
 }
 
@@ -979,6 +1006,8 @@ impl Widget for TextField<'_> {
             text,
             multiline,
             gorbie_style,
+            rows,
+            max_rows,
         } = self;
 
         let enabled = ui.is_enabled();
@@ -1012,6 +1041,7 @@ impl Widget for TextField<'_> {
             Align2::LEFT_CENTER
         };
 
+        let min_rows = if multiline { rows.unwrap_or(4) } else { 1 };
         let output = lcd_text_edit(
             ui,
             ui.next_auto_id(),
@@ -1019,7 +1049,8 @@ impl Widget for TextField<'_> {
             multiline,
             ui.layout().horizontal_justify(),
             ui.spacing().text_edit_width,
-            if multiline { 4 } else { 1 },
+            min_rows,
+            max_rows,
             ui.spacing().interact_size,
             margin,
             align,
