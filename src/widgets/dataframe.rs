@@ -1,7 +1,7 @@
 use crate::widgets::{Column, TableBuilder, TextField};
 use eframe::egui;
 use egui::{Align, FontId, Layout, Margin, RichText, TextStyle};
-use polars::prelude::{DataFrame, DataType, IntoLazy, Series};
+use polars::prelude::{AnyValue, DataFrame, DataType, IntoLazy, Series};
 use polars::sql::SQLContext;
 use std::collections::HashMap;
 
@@ -51,6 +51,7 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
 
     let summary_color = crate::themes::blend(body_text, base_fill, 0.55);
     let stat_color = crate::themes::blend(body_text, base_fill, 0.3);
+    let null_color = crate::themes::blend(body_text, base_fill, 0.4);
 
     egui::Frame::new()
         .fill(base_fill)
@@ -152,7 +153,7 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
             if let Some(selected_row) = next_selection_state.row {
                 ui.add_space(6.0);
                 ui.label(
-                    RichText::new(format!("Selected row {selected_row}"))
+                    RichText::new(format!("Selected row {}", selected_row + 1))
                         .color(summary_color),
                 );
                 ui.add_space(2.0);
@@ -197,7 +198,6 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                 .header_body_gap(0.0)
                 .min_scrolled_height(0.0)
                 .sense(egui::Sense::click_and_drag());
-
             for min_width in &column_mins {
                 table = table.column(Column::remainder().at_least(*min_width).clip(true));
             }
@@ -261,9 +261,11 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                                     ui.add_space(cell_padding_x);
                                     if let Ok(column) = &active_df.column(col.as_str()) {
                                         if let Ok(value) = column.get(row_index) {
+                                            let (text, is_null) = format_cell_value(value);
+                                            let color = if is_null { null_color } else { body_text };
                                             ui.label(
-                                                RichText::new(format!("{value}"))
-                                                    .color(body_text)
+                                                RichText::new(text)
+                                                    .color(color)
                                                     .font(body_font.clone()),
                                             );
                                         }
@@ -591,3 +593,12 @@ fn is_default_query(query: &str) -> bool {
 }
 
 const DEFAULT_QUERY: &str = "select * from self";
+
+fn format_cell_value(value: AnyValue<'_>) -> (String, bool) {
+    match value {
+        AnyValue::Null => ("∅".to_string(), true),
+        AnyValue::Float32(value) if value.is_nan() => ("NaN".to_string(), true),
+        AnyValue::Float64(value) if value.is_nan() => ("NaN".to_string(), true),
+        other => (format!("{other}"), false),
+    }
+}
