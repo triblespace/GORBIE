@@ -12,7 +12,7 @@ use cubecl::server::Handle;
 use cubecl::wgpu::{WgpuDevice, WgpuRuntime};
 use egui::{Color32, ColorImage, DragValue, Vec2};
 use egui_plot::{Legend, Line, Plot, PlotPoints};
-use std::collections::{HashSet, hash_map::DefaultHasher};
+use std::collections::{hash_map::DefaultHasher, HashSet};
 use std::f32::consts::TAU;
 use std::hash::{Hash, Hasher};
 use std::sync::{
@@ -25,16 +25,7 @@ use GORBIE::prelude::*;
 use GORBIE::themes::{self, GorbieToggleButtonStyle};
 
 const NODE_NAMES: [&str; 10] = [
-    "source",
-    "parse",
-    "ast",
-    "types",
-    "solver",
-    "layout",
-    "render",
-    "widgets",
-    "cache",
-    "io",
+    "source", "parse", "ast", "types", "solver", "layout", "render", "widgets", "cache", "io",
 ];
 
 const PRESET_EDGES: [(usize, usize); 14] = [
@@ -430,12 +421,8 @@ impl<R: Runtime> BatchRunnerState<R> {
             Some(len) if len > 0 => len,
             _ => return BatchResult::failed("batch too large for graph size"),
         };
-        let orders_handle = self
-            .client
-            .empty(orders_len * std::mem::size_of::<u32>());
-        let positions_handle = self
-            .client
-            .empty(orders_len * std::mem::size_of::<u32>());
+        let orders_handle = self.client.empty(orders_len * std::mem::size_of::<u32>());
+        let positions_handle = self.client.empty(orders_len * std::mem::size_of::<u32>());
 
         unsafe {
             minla_cost_kernel::launch::<R>(
@@ -587,7 +574,10 @@ impl<R: Runtime> AnnealRunnerState<R> {
             .current_costs_handle
             .as_ref()
             .expect("current costs handle");
-        let best_orders_handle = self.best_orders_handle.as_ref().expect("best orders handle");
+        let best_orders_handle = self
+            .best_orders_handle
+            .as_ref()
+            .expect("best orders handle");
         let best_orders_costs_handle = self
             .best_orders_costs_handle
             .as_ref()
@@ -628,11 +618,7 @@ impl<R: Runtime> AnnealRunnerState<R> {
                 ArrayArg::from_raw_parts::<u32>(positions_handle, orders_len, 1),
                 ArrayArg::from_raw_parts::<u32>(current_costs_handle, request.batch_size, 1),
                 ArrayArg::from_raw_parts::<u32>(best_orders_handle, orders_len, 1),
-                ArrayArg::from_raw_parts::<u32>(
-                    best_orders_costs_handle,
-                    request.batch_size,
-                    1,
-                ),
+                ArrayArg::from_raw_parts::<u32>(best_orders_costs_handle, request.batch_size, 1),
                 ArrayArg::from_raw_parts::<f32>(temp_floor_handle, request.batch_size, 1),
                 ArrayArg::from_raw_parts::<u32>(rng_states_handle, request.batch_size, 1),
                 ArrayArg::from_raw_parts::<u32>(stagnant_steps_handle, request.batch_size, 1),
@@ -680,11 +666,7 @@ impl<R: Runtime> AnnealRunnerState<R> {
                 ArrayArg::from_raw_parts::<u32>(positions_handle, orders_len, 1),
                 ArrayArg::from_raw_parts::<u32>(best_orders_handle, orders_len, 1),
                 ArrayArg::from_raw_parts::<u32>(current_costs_handle, request.batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(
-                    best_orders_costs_handle,
-                    request.batch_size,
-                    1,
-                ),
+                ArrayArg::from_raw_parts::<u32>(best_orders_costs_handle, request.batch_size, 1),
                 ArrayArg::from_raw_parts::<f32>(temp_floor_handle, request.batch_size, 1),
                 ArrayArg::from_raw_parts::<u32>(stagnant_steps_handle, request.batch_size, 1),
                 ArrayArg::from_raw_parts::<u32>(reseeded_handle, request.batch_size, 1),
@@ -702,8 +684,10 @@ impl<R: Runtime> AnnealRunnerState<R> {
         if request.capture_stress {
             let stress_handle = self.stress_handle.as_ref().expect("stress handle");
             let best_order_handle = self.best_order_handle.as_ref().expect("best order handle");
-            let best_positions_handle =
-                self.best_positions_handle.as_ref().expect("best positions handle");
+            let best_positions_handle = self
+                .best_positions_handle
+                .as_ref()
+                .expect("best positions handle");
             unsafe {
                 minla_select_best_order_kernel::launch::<R>(
                     &self.client,
@@ -861,12 +845,22 @@ impl<R: Runtime> AnnealRunnerState<R> {
             None
         };
         let old_positions_handle = if grow {
-            Some(self.positions_handle.as_ref().expect("positions handle").clone())
+            Some(
+                self.positions_handle
+                    .as_ref()
+                    .expect("positions handle")
+                    .clone(),
+            )
         } else {
             None
         };
         let old_best_orders_handle = if grow {
-            Some(self.best_orders_handle.as_ref().expect("best orders handle").clone())
+            Some(
+                self.best_orders_handle
+                    .as_ref()
+                    .expect("best orders handle")
+                    .clone(),
+            )
         } else {
             None
         };
@@ -901,7 +895,12 @@ impl<R: Runtime> AnnealRunnerState<R> {
             None
         };
         let old_rng_states_handle = if grow {
-            Some(self.rng_states_handle.as_ref().expect("rng states handle").clone())
+            Some(
+                self.rng_states_handle
+                    .as_ref()
+                    .expect("rng states handle")
+                    .clone(),
+            )
         } else {
             None
         };
@@ -944,7 +943,10 @@ impl<R: Runtime> AnnealRunnerState<R> {
 
         let orders_handle = self.orders_handle.as_ref().expect("orders handle");
         let positions_handle = self.positions_handle.as_ref().expect("positions handle");
-        let best_orders_handle = self.best_orders_handle.as_ref().expect("best orders handle");
+        let best_orders_handle = self
+            .best_orders_handle
+            .as_ref()
+            .expect("best orders handle");
         let current_costs_handle = self
             .current_costs_handle
             .as_ref()
@@ -953,10 +955,7 @@ impl<R: Runtime> AnnealRunnerState<R> {
             .best_orders_costs_handle
             .as_ref()
             .expect("best orders cost handle");
-        let temp_floor_handle = self
-            .temp_floor_handle
-            .as_ref()
-            .expect("temp floor handle");
+        let temp_floor_handle = self.temp_floor_handle.as_ref().expect("temp floor handle");
         let rng_states_handle = self.rng_states_handle.as_ref().expect("rng states handle");
         let stagnant_steps_handle = self
             .stagnant_steps_handle
@@ -1025,11 +1024,7 @@ impl<R: Runtime> AnnealRunnerState<R> {
                     ArrayArg::from_raw_parts::<u32>(&old_orders_handle, old_order_len, 1),
                     ArrayArg::from_raw_parts::<u32>(&old_positions_handle, old_order_len, 1),
                     ArrayArg::from_raw_parts::<u32>(&old_best_orders_handle, old_order_len, 1),
-                    ArrayArg::from_raw_parts::<u32>(
-                        &old_current_costs_handle,
-                        old_batch_size,
-                        1,
-                    ),
+                    ArrayArg::from_raw_parts::<u32>(&old_current_costs_handle, old_batch_size, 1),
                     ArrayArg::from_raw_parts::<u32>(
                         &old_best_orders_costs_handle,
                         old_batch_size,
@@ -1037,11 +1032,7 @@ impl<R: Runtime> AnnealRunnerState<R> {
                     ),
                     ArrayArg::from_raw_parts::<f32>(&old_temp_floor_handle, old_batch_size, 1),
                     ArrayArg::from_raw_parts::<u32>(&old_rng_states_handle, old_batch_size, 1),
-                    ArrayArg::from_raw_parts::<u32>(
-                        &old_stagnant_steps_handle,
-                        old_batch_size,
-                        1,
-                    ),
+                    ArrayArg::from_raw_parts::<u32>(&old_stagnant_steps_handle, old_batch_size, 1),
                     ArrayArg::from_raw_parts::<u32>(&old_seed_versions_handle, old_batch_size, 1),
                     ArrayArg::from_raw_parts::<u32>(orders_handle, order_len, 1),
                     ArrayArg::from_raw_parts::<u32>(positions_handle, order_len, 1),
@@ -1106,10 +1097,11 @@ fn process_request<R: Runtime>(
         if runner.is_none() {
             *runner = Some(init(&request.graph));
         }
-        runner
-            .as_mut()
-            .expect("runner missing")
-            .run(&request.graph, request.batch_size, request.seed)
+        runner.as_mut().expect("runner missing").run(
+            &request.graph,
+            request.batch_size,
+            request.seed,
+        )
     }));
     match result {
         Ok(batch) => batch,
@@ -1129,10 +1121,7 @@ fn process_anneal_request<R: Runtime>(
         if runner.is_none() {
             *runner = Some(init(&request.graph));
         }
-        runner
-            .as_mut()
-            .expect("runner missing")
-            .run(&request)
+        runner.as_mut().expect("runner missing").run(&request)
     }));
     match result {
         Ok(batch) => batch,
@@ -1143,10 +1132,7 @@ fn process_anneal_request<R: Runtime>(
     }
 }
 
-fn wgpu_worker_loop(
-    requests: mpsc::Receiver<BatchRequest>,
-    results: mpsc::Sender<BatchResult>,
-) {
+fn wgpu_worker_loop(requests: mpsc::Receiver<BatchRequest>, results: mpsc::Sender<BatchResult>) {
     let mut runner: Option<BatchRunnerState<WgpuRuntime>> = None;
     for request in requests {
         let batch = process_request(&mut runner, request, build_wgpu_runner);
@@ -1394,8 +1380,7 @@ fn apply_difficulty(config: &mut GraphConfig, difficulty: f32) {
 
     let min_nodes = 4usize;
     let max_nodes = MAX_NODE_COUNT;
-    let nodes = min_nodes
-        + ((max_nodes - min_nodes) as f32 * d.powf(1.4)).round() as usize;
+    let nodes = min_nodes + ((max_nodes - min_nodes) as f32 * d.powf(1.4)).round() as usize;
     config.node_count = nodes.clamp(2, MAX_NODE_COUNT);
 
     let max_edges = max_edges(config.node_count).min(MAX_EDGE_COUNT);
@@ -1513,7 +1498,6 @@ fn build_graph(config: &GraphConfig) -> GraphData {
     }
 }
 
-
 #[derive(Clone, Debug)]
 struct AnnealConfig {
     steps_per_batch: u32,
@@ -1566,7 +1550,11 @@ fn estimate_initial_temp(graph: &GraphData, seed: u64) -> f32 {
     };
     let target = DEFAULT_TARGET_ACCEPTANCE.clamp(0.05, 0.95);
     let denom = -target.ln();
-    let temp = if denom > 0.0 { avg_delta / denom } else { avg_delta };
+    let temp = if denom > 0.0 {
+        avg_delta / denom
+    } else {
+        avg_delta
+    };
     temp.clamp(0.1, 100_000.0)
 }
 
@@ -1594,11 +1582,23 @@ fn adjust_to_target(current: u32, elapsed_ms: u128, target_ms: u32, min: u32, ma
 }
 
 fn adjust_batch_size(current: u32, elapsed_ms: u128, target_ms: u32) -> u32 {
-    adjust_to_target(current, elapsed_ms, target_ms, MIN_BATCH_SIZE, MAX_BATCH_SIZE)
+    adjust_to_target(
+        current,
+        elapsed_ms,
+        target_ms,
+        MIN_BATCH_SIZE,
+        MAX_BATCH_SIZE,
+    )
 }
 
 fn adjust_steps_per_batch(current: u32, elapsed_ms: u128, target_ms: u32) -> u32 {
-    adjust_to_target(current, elapsed_ms, target_ms, MIN_ANNEAL_STEPS, MAX_ANNEAL_STEPS)
+    adjust_to_target(
+        current,
+        elapsed_ms,
+        target_ms,
+        MIN_ANNEAL_STEPS,
+        MAX_ANNEAL_STEPS,
+    )
 }
 
 fn stress_color(t: f32) -> Color32 {
@@ -1623,12 +1623,19 @@ fn downsample_mask(row: &[u32], target: usize) -> Vec<u8> {
     })
 }
 
-fn downsample_row_impl<T>(row: &[u32], target: usize, mut sample: impl FnMut(&[u32]) -> T) -> Vec<T> {
+fn downsample_row_impl<T>(
+    row: &[u32],
+    target: usize,
+    mut sample: impl FnMut(&[u32]) -> T,
+) -> Vec<T> {
     if row.is_empty() || target == 0 {
         return Vec::new();
     }
     if row.len() <= target {
-        return row.iter().map(|value| sample(std::slice::from_ref(value))).collect();
+        return row
+            .iter()
+            .map(|value| sample(std::slice::from_ref(value)))
+            .collect();
     }
     let mut out = Vec::with_capacity(target);
     for idx in 0..target {
@@ -1692,11 +1699,7 @@ impl StressHeatmap {
         self.change_rows = vec![0; width.saturating_mul(height)];
         self.max_value = 0.0;
         let image = ColorImage::new([width, height], vec![Color32::BLACK; width * height]);
-        self.texture = Some(ctx.load_texture(
-            "minla_stress",
-            image,
-            egui::TextureOptions::NEAREST,
-        ));
+        self.texture = Some(ctx.load_texture("minla_stress", image, egui::TextureOptions::NEAREST));
         self.touched_texture = None;
     }
 
@@ -1707,7 +1710,10 @@ impl StressHeatmap {
         if self.touched_texture.is_some() {
             return;
         }
-        let touched = ColorImage::new([self.width, self.height], vec![Color32::BLACK; self.width * self.height]);
+        let touched = ColorImage::new(
+            [self.width, self.height],
+            vec![Color32::BLACK; self.width * self.height],
+        );
         self.touched_texture = Some(ctx.load_texture(
             "minla_stress_touched",
             touched,
@@ -1732,11 +1738,7 @@ impl StressHeatmap {
         if downsampled.len() != self.width {
             return;
         }
-        let row_max = downsampled
-            .iter()
-            .copied()
-            .max()
-            .unwrap_or(0) as f32;
+        let row_max = downsampled.iter().copied().max().unwrap_or(0) as f32;
         if self.max_value <= 0.0 {
             self.max_value = row_max.max(1.0);
         } else {
@@ -1974,8 +1976,12 @@ impl AnnealState {
             }
             if batch.graph_id == self.graph_id {
                 if let Some(row) = batch.stress_row.as_deref() {
-                    self.stress
-                        .push_row(row, batch.change_row.as_deref(), batch.touched_active, ctx);
+                    self.stress.push_row(
+                        row,
+                        batch.change_row.as_deref(),
+                        batch.touched_active,
+                        ctx,
+                    );
                 }
                 self.record_batch(&batch, target_ms);
                 self.last = batch;
@@ -2006,11 +2012,8 @@ impl AnnealState {
             self.history.drain(0..drop);
         }
         if batch.elapsed_ms > 0 && batch.steps > 0 {
-            self.config.steps_per_batch = adjust_steps_per_batch(
-                batch.steps,
-                batch.elapsed_ms,
-                target_ms,
-            );
+            self.config.steps_per_batch =
+                adjust_steps_per_batch(batch.steps, batch.elapsed_ms, target_ms);
         }
         self.tune_chains(batch);
     }
@@ -2059,7 +2062,6 @@ impl AnnealState {
             self.chain_count = next;
         }
     }
-
 }
 
 #[cube(launch)]
@@ -2263,8 +2265,16 @@ fn minla_sa_kernel(
                     let neighbor = adj_list[idx] as usize;
                     if neighbor != node_j_usize {
                         let pos_n = positions[base + neighbor];
-                        let old = if pos_i > pos_n { pos_i - pos_n } else { pos_n - pos_i };
-                        let new = if pos_j > pos_n { pos_j - pos_n } else { pos_n - pos_j };
+                        let old = if pos_i > pos_n {
+                            pos_i - pos_n
+                        } else {
+                            pos_n - pos_i
+                        };
+                        let new = if pos_j > pos_n {
+                            pos_j - pos_n
+                        } else {
+                            pos_n - pos_j
+                        };
                         delta_cost += new as i32 - old as i32;
                     }
                 }
@@ -2275,14 +2285,21 @@ fn minla_sa_kernel(
                     let neighbor = adj_list[idx] as usize;
                     if neighbor != node_i_usize {
                         let pos_n = positions[base + neighbor];
-                        let old = if pos_j > pos_n { pos_j - pos_n } else { pos_n - pos_j };
-                        let new = if pos_i > pos_n { pos_i - pos_n } else { pos_n - pos_i };
+                        let old = if pos_j > pos_n {
+                            pos_j - pos_n
+                        } else {
+                            pos_n - pos_j
+                        };
+                        let new = if pos_i > pos_n {
+                            pos_i - pos_n
+                        } else {
+                            pos_n - pos_i
+                        };
                         delta_cost += new as i32 - old as i32;
                     }
                 }
 
-                let candidate_cost =
-                    (current_cost as i32 + delta_cost).max(0) as u32;
+                let candidate_cost = (current_cost as i32 + delta_cost).max(0) as u32;
 
                 let delta = candidate_cost as f32 - current_cost as f32;
                 let mut accept = delta <= 0.0;
@@ -2381,7 +2398,11 @@ fn minla_stress_kernel(
         for idx in start..end {
             let neighbor = adj_list[idx] as usize;
             let pos_v = positions[neighbor] as u32;
-            sum += if pos_u > pos_v { pos_u - pos_v } else { pos_v - pos_u };
+            sum += if pos_u > pos_v {
+                pos_u - pos_v
+            } else {
+                pos_v - pos_u
+            };
         }
         let stress = if normalize != 0 && degree > 0 {
             sum / degree
@@ -2547,9 +2568,7 @@ The first run can be slow while CubeCL builds shaders.
             if config.auto_batch {
                 ui.horizontal(|ui| {
                     ui.label("target");
-                    ui.add(
-                        widgets::Slider::new(&mut config.target_batch_ms, 10..=500).text("ms"),
-                    );
+                    ui.add(widgets::Slider::new(&mut config.target_batch_ms, 10..=500).text("ms"));
                 });
             }
             ui.label("backend: wgpu");
@@ -2595,8 +2614,7 @@ The first run can be slow while CubeCL builds shaders.
                 }
                 ui.add_enabled(
                     !preset,
-                    widgets::Slider::new(&mut config.graph.edge_count, 0..=max_edges)
-                        .text("edges"),
+                    widgets::Slider::new(&mut config.graph.edge_count, 0..=max_edges).text("edges"),
                 );
             } else {
                 ui.label("Pattern, nodes, and edges follow the difficulty curve.");
@@ -2606,7 +2624,10 @@ The first run can be slow while CubeCL builds shaders.
                 ui.label("seed");
                 ui.add(DragValue::new(&mut config.graph.seed).speed(1));
                 if ui
-                    .add_enabled(!(manual && config.graph.pattern == GraphPattern::Preset), widgets::Button::new("Regenerate"))
+                    .add_enabled(
+                        !(manual && config.graph.pattern == GraphPattern::Preset),
+                        widgets::Button::new("Regenerate"),
+                    )
                     .clicked()
                 {
                     config.graph.seed = config.graph.seed.wrapping_add(1);
@@ -2633,9 +2654,7 @@ The first run can be slow while CubeCL builds shaders.
                 ui,
                 &format!(
                     "Baseline cost (identity order): `{}` for `{}` nodes and `{}` edges.",
-                    baseline_cost,
-                    config.graph_data.node_count,
-                    config.graph_data.edge_count
+                    baseline_cost, config.graph_data.node_count, config.graph_data.edge_count
                 ),
             );
         });
