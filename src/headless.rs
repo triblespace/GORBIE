@@ -9,7 +9,10 @@ use std::time::{Duration, Instant};
 type HeadlessResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 const HEADLESS_PNG_PPI: f32 = 254.0;
 
-pub(super) fn run_headless(mut core: NotebookCore, config: HeadlessCaptureConfig) -> HeadlessResult<()> {
+pub(super) fn run_headless(
+    mut core: NotebookCore,
+    config: HeadlessCaptureConfig,
+) -> HeadlessResult<()> {
     let mut runner = HeadlessWgpuRunner::new(config)?;
     runner.capture_cards(&mut core)
 }
@@ -44,13 +47,11 @@ impl HeadlessWgpuRunner {
         ctx.set_theme(theme);
 
         let instance = wgpu::Instance::default();
-        let adapter = pollster::block_on(instance.request_adapter(
-            &wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: None,
-                force_fallback_adapter: false,
-            },
-        ))?;
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }))?;
         let device_desc = wgpu::DeviceDescriptor {
             label: Some("gorbie_headless_device"),
             required_features: wgpu::Features::empty(),
@@ -149,10 +150,8 @@ impl HeadlessWgpuRunner {
         index: usize,
         height: f32,
     ) -> HeadlessResult<(egui::FullOutput, Option<f32>)> {
-        let screen_rect = egui::Rect::from_min_size(
-            egui::Pos2::ZERO,
-            egui::vec2(self.card_width, height),
-        );
+        let screen_rect =
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(self.card_width, height));
         let mut raw_input = egui::RawInput {
             screen_rect: Some(screen_rect),
             max_texture_side: Some(self.device.limits().max_texture_dimension_2d as usize),
@@ -160,7 +159,10 @@ impl HeadlessWgpuRunner {
             ..Default::default()
         };
         {
-            let viewport = raw_input.viewports.entry(raw_input.viewport_id).or_default();
+            let viewport = raw_input
+                .viewports
+                .entry(raw_input.viewport_id)
+                .or_default();
             viewport.native_pixels_per_point = Some(self.pixels_per_point);
             viewport.inner_rect = Some(screen_rect);
             viewport.outer_rect = Some(screen_rect);
@@ -195,9 +197,7 @@ impl HeadlessWgpuRunner {
                 .update_texture(&self.device, &self.queue, *id, delta);
         }
 
-        let clipped_primitives =
-            self.ctx
-                .tessellate(shapes, pixels_per_point);
+        let clipped_primitives = self.ctx.tessellate(shapes, pixels_per_point);
         let screen_descriptor = egui_wgpu::ScreenDescriptor {
             size_in_pixels: [width, height],
             pixels_per_point,
@@ -256,10 +256,9 @@ impl HeadlessWgpuRunner {
     }
 
     fn ensure_target(&mut self, width: u32, height: u32) -> HeadlessResult<()> {
-        let needs_resize = self
-            .target
-            .as_ref()
-            .map_or(true, |target| target.dims.width != width || target.dims.height != height);
+        let needs_resize = self.target.as_ref().map_or(true, |target| {
+            target.dims.width != width || target.dims.height != height
+        });
         if needs_resize {
             self.target = Some(TargetBuffers::new(
                 &self.device,
@@ -274,12 +273,7 @@ impl HeadlessWgpuRunner {
     fn save_capture(&self, index: usize, image: &RenderedImage) -> HeadlessResult<()> {
         let filename = format!("card_{:04}.png", index + 1);
         let path = self.output_dir.join(filename);
-        write_png_rgba(
-            &path,
-            image.width,
-            image.height,
-            &image.pixels,
-        )?;
+        write_png_rgba(&path, image.width, image.height, &image.pixels)?;
         Ok(())
     }
 }
@@ -386,7 +380,8 @@ impl BufferDimensions {
         let bytes_per_pixel = 4;
         let unpadded_bytes_per_row = width * bytes_per_pixel;
         let alignment = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let padded_bytes_per_row = ((unpadded_bytes_per_row + alignment - 1) / alignment) * alignment;
+        let padded_bytes_per_row =
+            ((unpadded_bytes_per_row + alignment - 1) / alignment) * alignment;
         Self {
             width,
             height,
@@ -406,12 +401,7 @@ struct RenderedImage {
     pixels: Vec<u8>,
 }
 
-fn write_png_rgba(
-    path: &Path,
-    width: u32,
-    height: u32,
-    data: &[u8],
-) -> std::io::Result<()> {
+fn write_png_rgba(path: &Path, width: u32, height: u32, data: &[u8]) -> std::io::Result<()> {
     let file = std::fs::File::create(path)?;
     let mut encoder = png::Encoder::new(file, width, height);
     encoder.set_color(png::ColorType::Rgba);

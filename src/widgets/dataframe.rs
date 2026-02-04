@@ -1,13 +1,150 @@
-use crate::widgets::{Column, TableBuilder, TextField};
+use crate::widgets::{Button, Column, TableBuilder, TextField};
 use eframe::egui;
 use egui::{Align, FontId, Layout, Margin, RichText, TextStyle};
-use polars::prelude::{AnyValue, DataFrame, DataType, IntoLazy, Series};
+use polars::prelude::{
+    AnyValue, CsvWriter, DataFrame, DataType, IntoLazy, PlSmallStr, SerWriter, Series,
+    SeriesMethods, SortMultipleOptions,
+};
 use polars::sql::SQLContext;
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fs;
 
-pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
+pub fn data_summary_tiny(ui: &mut egui::Ui, active_df: &DataFrame, total_df: &DataFrame) {
+    let visuals = ui.visuals();
+    let base_fill = visuals.panel_fill;
+    let body_text = visuals.widgets.inactive.fg_stroke.color;
+    let base_mono = ui
+        .style()
+        .text_styles
+        .get(&TextStyle::Monospace)
+        .map(|font| font.size)
+        .unwrap_or(14.0);
+    let small_font = FontId::monospace((base_mono - 2.0).max(9.0));
+    let summary_color = crate::themes::blend(body_text, base_fill, 0.55);
+
+    let rows = active_df.height();
+    let cols = active_df.width();
+    let total_rows = total_df.height();
+    let total_cols = total_df.width();
+    let totals = if rows != total_rows || cols != total_cols {
+        Some((total_rows, total_cols))
+    } else {
+        None
+    };
+    let summary = format_overview(rows, cols, totals);
+    ui.label(
+        RichText::new(summary)
+            .font(small_font)
+            .color(summary_color),
+    );
+}
+
+pub fn data_export_tiny(ui: &mut egui::Ui, df: &DataFrame) {
+    let visuals = ui.visuals();
+    let base_fill = visuals.panel_fill;
+    let body_text = visuals.widgets.inactive.fg_stroke.color;
+    let base_mono = ui
+        .style()
+        .text_styles
+        .get(&TextStyle::Monospace)
+        .map(|font| font.size)
+        .unwrap_or(14.0);
+    let small_font = FontId::monospace((base_mono - 2.0).max(9.0));
+    let summary_color = crate::themes::blend(body_text, base_fill, 0.55);
+
+    let export_state_id = ui.id().with("dataframe_export_state");
+    let mut state =
+        ui.data_mut(|data| data.get_temp::<DataExportState>(export_state_id))
+            .unwrap_or_default();
+
+    let mut copy_clicked = false;
+    let mut save_clicked = false;
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new("Export")
+                .font(small_font.clone())
+                .color(summary_color),
+        );
+        ui.add(TextField::singleline(&mut state.path));
+        copy_clicked = ui.add(Button::new("copy csv")).clicked();
+        save_clicked = ui.add(Button::new("save")).clicked();
+    });
+
+    if copy_clicked || save_clicked {
+        let mut buffer = Vec::new();
+        let mut export_df = df.clone();
+        if let Err(err) = CsvWriter::new(&mut buffer).finish(&mut export_df) {
+            state.status = Some(format!("Export failed: {err}"));
+        } else if copy_clicked {
+            let text = String::from_utf8_lossy(&buffer).to_string();
+            ui.ctx().copy_text(text);
+            state.status = Some(format!("Copied {} rows", df.height()));
+        } else if save_clicked {
+            let path = if state.path.trim().is_empty() {
+                "data.csv".to_string()
+            } else {
+                state.path.trim().to_string()
+            };
+            match fs::write(&path, &buffer) {
+                Ok(()) => {
+                    state.path = path.clone();
+                    state.status = Some(format!("Saved {path}"));
+                }
+                Err(err) => {
+                    state.status = Some(format!("Save failed: {err}"));
+                }
+            }
+        }
+    }
+
+    if let Some(status) = state.status.as_ref() {
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new(status)
+                .font(small_font.clone())
+                .color(summary_color),
+        );
+    }
+
+    ui.data_mut(|data| data.insert_temp(export_state_id, state));
+}
+
+#[derive(Clone)]
+struct DataExportState {
+    path: String,
+    status: Option<String>,
+}
+
+impl Default for DataExportState {
+    fn default() -> Self {
+        Self {
+            path: "data.csv".to_string(),
+            status: None,
+        }
+    }
+}
+
+fn format_overview(rows: usize, cols: usize, totals: Option<(usize, usize)>) -> String {
+    if let Some((total_rows, total_cols)) = totals {
+        let rows_text = if rows != total_rows {
+            format!("{rows} of {total_rows} rows")
+        } else {
+            format!("{rows} rows")
+        };
+        let cols_text = if cols != total_cols {
+            format!("{cols} of {total_cols} columns")
+        } else {
+            format!("{cols} columns")
+        };
+        format!("{rows_text} × {cols_text}")
+    } else {
+        format!("{rows} rows × {cols} columns")
+    }
+}
+
+pub fn dataframe_summary(ui: &mut egui::Ui, df: &DataFrame) {
     let nr_cols = df.width();
-    let nr_rows = df.height();
     if nr_cols == 0 {
         ui.label("Empty dataframe");
         return;
@@ -23,12 +160,211 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
         .get(&TextStyle::Monospace)
         .map(|font| font.size)
         .unwrap_or(14.0);
-    let body_font = FontId::monospace((base_mono - 2.0).max(9.0));
-    let header_font = FontId::monospace(base_mono.max(10.0));
-    let type_font = FontId::monospace((base_mono - 4.0).max(8.0));
-    let body_height = ui.fonts_mut(|fonts| fonts.row_height(&body_font));
-    let header_text_height = ui.fonts_mut(|fonts| fonts.row_height(&header_font));
-    let type_text_height = ui.fonts_mut(|fonts| fonts.row_height(&type_font));
+    let base_font = FontId::monospace(base_mono.max(10.0));
+    let small_font = FontId::monospace((base_mono - 2.0).max(9.0));
+
+    let summary_color = crate::themes::blend(body_text, base_fill, 0.55);
+    let stat_color = crate::themes::blend(body_text, base_fill, 0.25);
+
+    let summaries = summarize_dataframe(df);
+    let row_height = ui.fonts_mut(|fonts| fonts.row_height(&base_font)).max(10.0);
+    let header_height = ui.fonts_mut(|fonts| fonts.row_height(&small_font)).max(8.0) + 2.0;
+    let cell_padding_x = 6.0;
+
+    let label_width = |text: &str, font: &FontId| {
+        ui.fonts_mut(|fonts| fonts.layout_no_wrap(text.to_string(), font.clone(), header_text))
+            .size()
+            .x
+    };
+    let max_width = |values: &[String], font: &FontId| {
+        values
+            .iter()
+            .map(|text| label_width(text, font))
+            .fold(0.0, f32::max)
+    };
+    let name_width = max_width(
+        &summaries.iter().map(|s| s.name.clone()).collect::<Vec<_>>(),
+        &base_font,
+    )
+    .max(label_width("column", &small_font));
+    let dtype_width = max_width(
+        &summaries.iter().map(|s| s.dtype.clone()).collect::<Vec<_>>(),
+        &small_font,
+    )
+    .max(label_width("type", &small_font));
+    let nulls_width = max_width(
+        &summaries.iter().map(|s| s.nulls.clone()).collect::<Vec<_>>(),
+        &small_font,
+    )
+    .max(label_width("nulls", &small_font));
+
+    let column_width = name_width + cell_padding_x * 2.0;
+    let type_width = dtype_width + cell_padding_x * 2.0;
+    let nulls_width = nulls_width + cell_padding_x * 2.0;
+
+    egui::Frame::new()
+        .fill(base_fill)
+        .inner_margin(Margin {
+            left: 4,
+            right: 4,
+            top: 4,
+            bottom: 4,
+        })
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            let mut table = TableBuilder::new(ui)
+                .resizable(false)
+                .cell_layout(Layout::left_to_right(Align::Min))
+                .dense_rows(true)
+                .header_body_gap(0.0)
+                .min_scrolled_height(0.0)
+                .vscroll(false)
+                .sense(egui::Sense::hover());
+
+            table = table
+                .column(Column::exact(column_width).clip(true))
+                .column(Column::exact(type_width).clip(true))
+                .column(Column::exact(nulls_width).clip(true))
+                .column(Column::remainder().clip(true));
+
+            let table = table.header(header_height, |mut header| {
+                header.col(|ui| {
+                    ui.add_space(cell_padding_x);
+                    ui.label(
+                        RichText::new("column")
+                            .font(small_font.clone())
+                            .color(summary_color),
+                    );
+                });
+                header.col(|ui| {
+                    ui.add_space(cell_padding_x);
+                    ui.label(
+                        RichText::new("type")
+                            .font(small_font.clone())
+                            .color(summary_color),
+                    );
+                });
+                header.col(|ui| {
+                    ui.add_space(cell_padding_x);
+                    ui.label(
+                        RichText::new("nulls")
+                            .font(small_font.clone())
+                            .color(summary_color),
+                    );
+                });
+                header.col(|ui| {
+                    ui.add_space(cell_padding_x);
+                    ui.label(
+                        RichText::new("stats")
+                            .font(small_font.clone())
+                            .color(summary_color),
+                    );
+                });
+            });
+
+            table.body(|body| {
+                body.rows(row_height, summaries.len(), |mut row| {
+                    let summary = &summaries[row.index()];
+                    row.col(|ui| {
+                        ui.add_space(cell_padding_x);
+                        ui.label(
+                            RichText::new(summary.name.clone())
+                                .font(base_font.clone())
+                                .color(header_text),
+                        );
+                    });
+                    row.col(|ui| {
+                        ui.add_space(cell_padding_x);
+                        ui.label(
+                            RichText::new(summary.dtype.clone())
+                                .font(small_font.clone())
+                                .color(summary_color),
+                        );
+                    });
+                    row.col(|ui| {
+                        ui.add_space(cell_padding_x);
+                        ui.label(
+                            RichText::new(summary.nulls.clone())
+                                .font(small_font.clone())
+                                .color(summary_color),
+                        );
+                    });
+                    row.col(|ui| {
+                        ui.add_space(cell_padding_x);
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(summary.stats.clone())
+                                    .font(base_font.clone())
+                                    .color(stat_color),
+                            )
+                            .truncate(),
+                        );
+                    });
+                });
+            });
+        });
+}
+
+pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) -> Result<DataFrame, String> {
+    let filter_state_id = ui.id().with("dataframe_filter_state");
+    let mut filter_state =
+        ui.data_mut(|data| data.get_temp::<DataframeFilterState>(filter_state_id))
+            .unwrap_or_default();
+    let selection_state_id = ui.id().with("dataframe_selection_state");
+    let mut selection_state =
+        ui.data_mut(|data| data.get_temp::<DataframeSelectionState>(selection_state_id))
+            .unwrap_or_default();
+
+    let prev_filter_state = filter_state.clone();
+    let prev_selection_state = selection_state.clone();
+
+    let result = dataframe_core(
+        ui,
+        df,
+        &mut filter_state.query,
+        &mut selection_state.row,
+    );
+
+    let _ = (filter_state.query.clone(), selection_state.row);
+
+    if filter_state != prev_filter_state {
+        ui.data_mut(|data| data.insert_temp(filter_state_id, filter_state));
+    }
+    if selection_state != prev_selection_state {
+        ui.data_mut(|data| data.insert_temp(selection_state_id, selection_state));
+    }
+
+    let _ = ();
+    result
+}
+
+fn dataframe_core(
+    ui: &mut egui::Ui,
+    df: &DataFrame,
+    query: &mut String,
+    selection: &mut Option<usize>,
+) -> Result<DataFrame, String> {
+    let nr_cols = df.width();
+    if nr_cols == 0 {
+        ui.label("Empty dataframe");
+        return Ok(df.clone());
+    }
+
+    let visuals = ui.visuals();
+    let base_fill = visuals.panel_fill;
+    let header_text = visuals.widgets.noninteractive.fg_stroke.color;
+    let body_text = visuals.widgets.inactive.fg_stroke.color;
+    let base_mono = ui
+        .style()
+        .text_styles
+        .get(&TextStyle::Monospace)
+        .map(|font| font.size)
+        .unwrap_or(14.0);
+    let base_font = FontId::monospace(base_mono.max(10.0));
+    let small_font = FontId::monospace((base_mono - 2.0).max(9.0));
+    let body_height = ui.fonts_mut(|fonts| fonts.row_height(&base_font));
+    let header_text_height = ui.fonts_mut(|fonts| fonts.row_height(&base_font));
+    let type_text_height = ui.fonts_mut(|fonts| fonts.row_height(&small_font));
     let row_height = body_height.max(10.0);
     let cell_padding_x = 4.0;
     let header_pad_y = 2.0;
@@ -40,18 +376,12 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
         + type_text_height
         + header_gap
         + header_viz_height;
-    let filter_state_id = ui.id().with("dataframe_filter_state");
-    let filter_state =
-        ui.data_mut(|data| data.get_temp::<DataframeFilterState>(filter_state_id))
-            .unwrap_or_default();
-    let selection_state_id = ui.id().with("dataframe_selection_state");
-    let selection_state =
-        ui.data_mut(|data| data.get_temp::<DataframeSelectionState>(selection_state_id))
-            .unwrap_or_default();
 
     let summary_color = crate::themes::blend(body_text, base_fill, 0.55);
     let stat_color = crate::themes::blend(body_text, base_fill, 0.3);
     let null_color = crate::themes::blend(body_text, base_fill, 0.4);
+
+    let mut sql_result: Result<DataFrame, String> = Ok(df.clone());
 
     egui::Frame::new()
         .fill(base_fill)
@@ -63,31 +393,37 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
         })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            let mut next_filter_state = filter_state.clone();
-            let mut next_selection_state = selection_state.clone();
+            let mut next_query = query.clone();
+            let mut next_selection = *selection;
             let text_width = ui.available_width().max(120.0);
             ui.spacing_mut().text_edit_width = text_width;
             ui.spacing_mut().interact_size.y = row_height;
             let query_response = ui
                 .push_id("dataframe_filter_input", |ui| {
-                    ui.add(TextField::multiline(&mut next_filter_state.query).rows(1))
+                    ui.add(TextField::multiline(&mut next_query).rows(1))
                 })
                 .inner;
-            if !query_response.has_focus() && next_filter_state.query.trim().is_empty() {
-                next_filter_state.query = DEFAULT_QUERY.to_string();
+            if !query_response.has_focus() && next_query.trim().is_empty() {
+                next_query = DEFAULT_QUERY.to_string();
             }
 
-            let query = next_filter_state.query.trim();
-            let query_active = !query.is_empty() && !is_default_query(query);
-            let mut query_error: Option<String> = None;
+            let query_text = next_query.trim();
+            let eval_query = if query_text.is_empty() {
+                DEFAULT_QUERY
+            } else {
+                query_text
+            };
             let mut sql_df: Option<DataFrame> = None;
-            if query_active {
-                let sql = build_sql_query(query);
-                let mut ctx = SQLContext::new();
-                ctx.register("self", df.clone().lazy());
-                match ctx.execute(&sql).and_then(|lf| lf.collect()) {
-                    Ok(result) => sql_df = Some(result),
-                    Err(err) => query_error = Some(err.to_string()),
+            let sql = build_sql_query(eval_query);
+            let mut ctx = SQLContext::new();
+            ctx.register("self", df.clone().lazy());
+            match ctx.execute(&sql).and_then(|lf| lf.collect()) {
+                Ok(result) => {
+                    sql_df = Some(result.clone());
+                    sql_result = Ok(result);
+                }
+                Err(err) => {
+                    sql_result = Err(err.to_string());
                 }
             }
 
@@ -99,12 +435,12 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                 .collect();
             let active_nr_cols = active_df.width();
             let active_nr_rows = active_df.height();
-            let previews = load_column_previews(ui, active_df, query, &active_cols);
+            let previews = load_column_previews(ui, active_df, eval_query, &active_cols);
 
             let display_rows = active_nr_rows;
-            if let Some(selected_row) = next_selection_state.row {
+            if let Some(selected_row) = next_selection {
                 if selected_row >= active_nr_rows {
-                    next_selection_state.row = None;
+                    next_selection = None;
                 }
             }
 
@@ -113,47 +449,33 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                 .map(|head| {
                     ui.fonts_mut(|fonts| {
                         fonts
-                            .layout_no_wrap(
-                                head.to_string(),
-                                header_font.clone(),
-                                header_text,
-                            )
+                            .layout_no_wrap(head.to_string(), base_font.clone(), header_text)
                             .size()
                             .x
                     })
                 })
                 .collect();
 
-            let rows_filtered = active_nr_rows != nr_rows;
-            let cols_filtered = active_nr_cols != nr_cols;
-            let summary = if rows_filtered || cols_filtered {
-                let rows_text = if rows_filtered {
-                    format!("{display_rows} of {nr_rows} rows")
-                } else {
-                    format!("{nr_rows} rows")
-                };
-                let cols_text = if cols_filtered {
-                    format!("{active_nr_cols} of {nr_cols} columns")
-                } else {
-                    format!("{nr_cols} columns")
-                };
-                format!("{rows_text} × {cols_text}")
-            } else {
-                format!("{nr_rows} rows × {nr_cols} columns")
-            };
             ui.add_space(4.0);
-            if let Some(error) = query_error.as_deref() {
+            let mut wrote_status = false;
+            if let Err(error) = sql_result.as_ref() {
                 ui.label(
-                    RichText::new(format!("Query error: {error}")).color(summary_color),
+                    RichText::new(format!("Query error: {error}"))
+                        .font(small_font.clone())
+                        .color(summary_color),
                 );
-            } else {
-                ui.label(RichText::new(summary).color(summary_color));
+                wrote_status = true;
             }
 
-            if let Some(selected_row) = next_selection_state.row {
-                ui.add_space(6.0);
+            if let Some(selected_row) = next_selection {
+                if wrote_status {
+                    ui.add_space(6.0);
+                } else {
+                    ui.add_space(4.0);
+                }
                 ui.label(
                     RichText::new(format!("Selected row {}", selected_row + 1))
+                        .font(small_font.clone())
                         .color(summary_color),
                 );
                 ui.add_space(2.0);
@@ -164,15 +486,23 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                                 ui.label(
                                     RichText::new(format!("{col_name}: {value}"))
                                         .color(body_text)
-                                        .font(body_font.clone()),
+                                        .font(base_font.clone()),
                                 );
                             }
                         }
                     }
                 });
-            } else if query_active && display_rows == 0 {
-                ui.add_space(6.0);
-                ui.label(RichText::new("No rows returned").color(summary_color));
+            } else if display_rows == 0 {
+                if wrote_status {
+                    ui.add_space(6.0);
+                } else {
+                    ui.add_space(4.0);
+                }
+                ui.label(
+                    RichText::new("No rows returned")
+                        .font(small_font.clone())
+                        .color(summary_color),
+                );
             }
             ui.add_space(4.0);
 
@@ -222,7 +552,7 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                         header_ui.label(
                             RichText::new(head.to_string())
                                 .color(header_text)
-                                .font(header_font.clone())
+                                .font(base_font.clone())
                                 .strong(),
                         );
                         header_ui.add_space(header_gap);
@@ -230,7 +560,7 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                             header_ui.label(
                                 RichText::new(preview.dtype.clone())
                                     .color(summary_color)
-                                    .font(type_font.clone()),
+                                    .font(small_font.clone()),
                             );
                             header_ui.add_space(header_gap);
                             let (viz_rect, _) = header_ui.allocate_exact_size(
@@ -250,7 +580,7 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
             table.body(|body| {
                 body.rows(row_height, display_rows, |mut row| {
                     let row_index = row.index();
-                    let is_selected = next_selection_state.row == Some(row_index);
+                    let is_selected = next_selection == Some(row_index);
                     row.set_selected(is_selected);
                     for col in &active_cols {
                         row.col(|ui| {
@@ -266,7 +596,7 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                                             ui.label(
                                                 RichText::new(text)
                                                     .color(color)
-                                                    .font(body_font.clone()),
+                                                    .font(base_font.clone()),
                                             );
                                         }
                                     }
@@ -275,7 +605,7 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                         });
                     }
                     if row.response().clicked() {
-                        next_selection_state.row = if is_selected {
+                        next_selection = if is_selected {
                             None
                         } else {
                             Some(row_index)
@@ -284,14 +614,11 @@ pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) {
                 });
             });
 
-
-            if next_filter_state != filter_state {
-                ui.data_mut(|data| data.insert_temp(filter_state_id, next_filter_state));
-            }
-            if next_selection_state != selection_state {
-                ui.data_mut(|data| data.insert_temp(selection_state_id, next_selection_state));
-            }
+            *query = next_query;
+            *selection = next_selection;
         });
+
+    sql_result
 }
 
 #[derive(Clone, Default, PartialEq)]
@@ -479,39 +806,11 @@ fn histogram_boolean(series: &Series) -> Vec<f32> {
 
 fn histogram_categorical(series: &Series, max_bars: usize) -> Vec<f32> {
     let max_bars = max_bars.max(2);
-    let mut counts: HashMap<String, u32> = HashMap::new();
-    let mut seen = 0usize;
-    let sample_limit = 2048usize;
-    let mut push_value = |value: String| {
-        *counts.entry(value).or_insert(0) += 1;
-    };
-
-    if let Some(strings) = series.try_str() {
-        for value in strings.into_iter().flatten() {
-            push_value(value.to_string());
-            seen += 1;
-            if seen >= sample_limit {
-                break;
-            }
-        }
-    } else {
-        for value in series.iter() {
-            push_value(format!("{value}"));
-            seen += 1;
-            if seen >= sample_limit {
-                break;
-            }
-        }
-    }
-
-    if counts.is_empty() {
+    let top_values = top_value_samples(series, max_bars);
+    if top_values.is_empty() {
         return vec![0.0; max_bars];
     }
-
-    let mut items: Vec<(String, u32)> = counts.into_iter().collect();
-    items.sort_by(|a, b| b.1.cmp(&a.1));
-    items.truncate(max_bars);
-    let counts: Vec<u32> = items.into_iter().map(|(_, count)| count).collect();
+    let counts: Vec<u32> = top_values.into_iter().map(|(_, count)| count).collect();
     normalize_counts_total(counts)
 }
 
@@ -584,12 +883,10 @@ struct DataframeSelectionState {
     row: Option<usize>,
 }
 
+
+
 fn build_sql_query(raw: &str) -> String {
     raw.trim().to_string()
-}
-
-fn is_default_query(query: &str) -> bool {
-    query.trim().eq_ignore_ascii_case(DEFAULT_QUERY)
 }
 
 const DEFAULT_QUERY: &str = "select * from self";
@@ -600,5 +897,204 @@ fn format_cell_value(value: AnyValue<'_>) -> (String, bool) {
         AnyValue::Float32(value) if value.is_nan() => ("NaN".to_string(), true),
         AnyValue::Float64(value) if value.is_nan() => ("NaN".to_string(), true),
         other => (format!("{other}"), false),
+    }
+}
+
+#[derive(Clone)]
+struct ColumnSummary {
+    name: String,
+    dtype: String,
+    nulls: String,
+    stats: String,
+}
+
+fn summarize_dataframe(df: &DataFrame) -> Vec<ColumnSummary> {
+    let row_count = df.height();
+    df.get_column_names()
+        .iter()
+        .filter_map(|name| df.column(name).ok())
+        .map(|column| summarize_series(column.as_materialized_series(), row_count))
+        .collect()
+}
+
+fn summarize_series(series: &Series, row_count: usize) -> ColumnSummary {
+    let dtype = format!("{:?}", series.dtype()).to_lowercase();
+    let nulls = series.null_count();
+    let null_pct = if row_count > 0 {
+        (nulls as f32 / row_count as f32) * 100.0
+    } else {
+        0.0
+    };
+    let nulls_text = format!("{nulls} ({null_pct:.1}%)");
+
+    let stats = if matches!(series.dtype(), DataType::Boolean) {
+        summarize_boolean(series)
+    } else if is_numeric_dtype(series.dtype()) {
+        summarize_numeric(series)
+    } else {
+        summarize_categorical(series)
+    };
+
+    ColumnSummary {
+        name: series.name().to_string(),
+        dtype,
+        nulls: nulls_text,
+        stats,
+    }
+}
+
+fn summarize_numeric(series: &Series) -> String {
+    let min = series.min::<f64>().ok().flatten();
+    let max = series.max::<f64>().ok().flatten();
+    let mean = series.mean();
+    format!(
+        "min {} · mean {} · max {}",
+        format_float_option(min),
+        format_float_option(mean),
+        format_float_option(max)
+    )
+}
+
+fn summarize_boolean(series: &Series) -> String {
+    let mut true_count = 0u32;
+    let mut false_count = 0u32;
+    if let Ok(values) = series.bool() {
+        for value in values.into_iter().flatten() {
+            if value {
+                true_count += 1;
+            } else {
+                false_count += 1;
+            }
+        }
+    }
+    format!("true {true_count} · false {false_count}")
+}
+
+fn summarize_categorical(series: &Series) -> String {
+    let unique = series.n_unique().ok();
+    let top_values = top_value_samples(series, 3);
+    let mut parts = Vec::new();
+    if let Some(unique) = unique {
+        parts.push(format!("unique {unique}"));
+    }
+    if !top_values.is_empty() {
+        let top = top_values
+            .into_iter()
+            .map(|(value, count)| format!("{value} ({count})"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("top {top}"));
+    }
+    if parts.is_empty() {
+        "—".to_string()
+    } else {
+        parts.join(" · ")
+    }
+}
+
+fn top_value_samples(series: &Series, limit: usize) -> Vec<(String, u32)> {
+    if limit == 0 {
+        return Vec::new();
+    }
+    let count_name = if series.name().as_str() == "count" {
+        PlSmallStr::from_static("__count")
+    } else {
+        PlSmallStr::from_static("count")
+    };
+    if let Ok(mut counts_df) = series.value_counts(false, false, count_name.clone(), false) {
+        let value_name = series.name().clone();
+        let sort_options =
+            SortMultipleOptions::default().with_order_descending_multi([true, false]);
+        if let Ok(sorted) = counts_df.sort([count_name.clone(), value_name.clone()], sort_options)
+        {
+            counts_df = sorted;
+        }
+        let values = match counts_df.column(value_name.as_str()) {
+            Ok(values) => values.as_materialized_series(),
+            Err(_) => return Vec::new(),
+        };
+        let counts = match counts_df.column(count_name.as_str()) {
+            Ok(counts) => counts.as_materialized_series(),
+            Err(_) => return Vec::new(),
+        };
+        let mut items = Vec::with_capacity(limit);
+        for (value, count) in values.iter().zip(counts.iter()) {
+            let value = match value {
+                AnyValue::Null => continue,
+                other => other,
+            };
+            let count = match count {
+                AnyValue::UInt32(value) => value,
+                AnyValue::UInt64(value) => value.min(u32::MAX as u64) as u32,
+                AnyValue::Int32(value) if value >= 0 => value as u32,
+                AnyValue::Int64(value) if value >= 0 => value.min(u32::MAX as i64) as u32,
+                AnyValue::UInt16(value) => value as u32,
+                AnyValue::UInt8(value) => value as u32,
+                AnyValue::Int16(value) if value >= 0 => value as u32,
+                AnyValue::Int8(value) if value >= 0 => value as u32,
+                _ => continue,
+            };
+            items.push((format!("{value}"), count));
+            if items.len() >= limit {
+                break;
+            }
+        }
+        return items;
+    }
+    let mut counts: HashMap<String, u32> = HashMap::new();
+    let iter_series = if series.chunks().len() == 1 {
+        Cow::Borrowed(series)
+    } else {
+        Cow::Owned(series.rechunk())
+    };
+    let total = iter_series.len();
+    let stride = (total / 2048).max(1);
+    for (idx, value) in iter_series.iter().enumerate() {
+        if idx % stride != 0 {
+            continue;
+        }
+        let value = match value {
+            AnyValue::Null => continue,
+            other => other,
+        };
+        let key = format!("{value}");
+        *counts.entry(key).or_insert(0) += 1;
+    }
+    let mut items: Vec<(String, u32)> = counts.into_iter().collect();
+    items.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    items.truncate(limit);
+    items
+}
+
+fn format_float_option(value: Option<f64>) -> String {
+    value.map(format_float_compact).unwrap_or_else(|| "—".to_string())
+}
+
+fn format_float_compact(value: f64) -> String {
+    if !value.is_finite() {
+        return "NaN".to_string();
+    }
+    let abs = value.abs();
+    let raw = if abs >= 1_000_000.0 || (abs > 0.0 && abs < 0.001) {
+        format!("{value:.2e}")
+    } else if abs >= 10_000.0 {
+        format!("{value:.0}")
+    } else if abs >= 1_000.0 {
+        format!("{value:.1}")
+    } else {
+        format!("{value:.3}")
+    };
+    trim_float(raw)
+}
+
+fn trim_float(raw: String) -> String {
+    if !raw.contains('.') {
+        return raw;
+    }
+    let trimmed = raw.trim_end_matches('0').trim_end_matches('.');
+    if trimmed.is_empty() {
+        "0".to_string()
+    } else {
+        trimmed.to_string()
     }
 }

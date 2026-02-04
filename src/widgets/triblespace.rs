@@ -12,6 +12,8 @@ use triblespace::core::value::{RawValue, Value, VALUE_LEN};
 
 pub mod commit_history;
 pub mod entity_inspector;
+pub mod pile_repo;
+#[cfg(feature = "gloss")]
 pub mod pile_overview;
 
 pub use commit_history::CommitHistoryResponse;
@@ -23,11 +25,20 @@ pub use entity_inspector::EntityInspectorResponse;
 pub use entity_inspector::EntityInspectorStats;
 pub use entity_inspector::EntityInspectorWidget;
 pub use entity_inspector::EntityOrder;
+pub use pile_repo::PileRepoResponse;
+pub use pile_repo::PileRepoState;
+pub use pile_repo::PileRepoWidget;
+#[cfg(feature = "gloss")]
 pub use pile_overview::PileOverviewData;
+#[cfg(feature = "gloss")]
 pub use pile_overview::PileOverviewPalette;
+#[cfg(feature = "gloss")]
 pub use pile_overview::PileOverviewResponse;
+#[cfg(feature = "gloss")]
 pub use pile_overview::PileOverviewState;
+#[cfg(feature = "gloss")]
 pub use pile_overview::PileOverviewTuning;
+#[cfg(feature = "gloss")]
 pub use pile_overview::PileOverviewWidget;
 
 type CommitHandle = Value<Handle<Blake3, SimpleArchive>>;

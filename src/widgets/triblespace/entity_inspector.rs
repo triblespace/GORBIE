@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
 #[cfg(feature = "cubecl")]
 use std::sync::mpsc;
+use std::sync::Arc;
 #[cfg(feature = "cubecl")]
 use std::sync::Mutex;
 #[cfg(feature = "cubecl")]
@@ -658,24 +658,34 @@ where
                 .with(data_fingerprint)
                 .with(metadata_fingerprint)
         });
-        let graph = cached_entity_graph(
-            ui,
-            cache_id,
-            self.data,
-            self.metadata,
-            self.name_cache,
-            self.formatter_cache,
-        );
+        let graph = {
+            #[cfg(feature = "telemetry")]
+            let _graph_span = tracing::info_span!("entity_inspector_graph").entered();
+            cached_entity_graph(
+                ui,
+                cache_id,
+                self.data,
+                self.metadata,
+                self.name_cache,
+                self.formatter_cache,
+            )
+        };
         let selection_before = *self.selection;
         if let Some(first) = graph.nodes.first().map(|node| node.id) {
             if !graph.id_to_index.contains_key(self.selection) {
                 *self.selection = first;
             }
         }
-        let (layout, routed_edges, stats) =
-            compute_inspector(ui, cache_id, graph.as_ref(), self.columns, self.order);
-        let response =
-            paint_entity_inspector(ui, graph.as_ref(), self.selection, &layout, &routed_edges);
+        let (layout, routed_edges, stats) = {
+            #[cfg(feature = "telemetry")]
+            let _layout_span = tracing::info_span!("entity_inspector_layout").entered();
+            compute_inspector(ui, cache_id, graph.as_ref(), self.columns, self.order)
+        };
+        let response = {
+            #[cfg(feature = "telemetry")]
+            let _paint_span = tracing::info_span!("entity_inspector_paint").entered();
+            paint_entity_inspector(ui, graph.as_ref(), self.selection, &layout, &routed_edges)
+        };
         let selection_changed = *self.selection != selection_before;
         EntityInspectorResponse {
             response,
@@ -748,8 +758,7 @@ fn entity_order(
         EntityOrder::Id => (0..graph.nodes.len()).collect(),
         #[cfg(feature = "cubecl")]
         EntityOrder::Anneal => {
-            gpu_sa_order(ui, cache_id, graph)
-                .unwrap_or_else(|| (0..graph.nodes.len()).collect())
+            gpu_sa_order(ui, cache_id, graph).unwrap_or_else(|| (0..graph.nodes.len()).collect())
         }
     }
 }
@@ -1009,7 +1018,11 @@ fn estimate_initial_temp(problem: &GpuSaProblem, seed: u64, target_acceptance: f
     };
     let target = target_acceptance.clamp(0.05, 0.95);
     let denom = -target.ln();
-    let temp = if denom > 0.0 { avg_delta / denom } else { avg_delta };
+    let temp = if denom > 0.0 {
+        avg_delta / denom
+    } else {
+        avg_delta
+    };
     temp.clamp(0.1, 100_000.0)
 }
 
@@ -1124,11 +1137,7 @@ impl<R: Runtime> GpuSaRunnerState<R> {
                 &client,
                 CubeCount::new_1d(batch_size as u32),
                 CubeDim::new_1d(1),
-                ArrayArg::from_raw_parts::<u32>(
-                    &edges_handle,
-                    problem.edges_flat.len(),
-                    1,
-                ),
+                ArrayArg::from_raw_parts::<u32>(&edges_handle, problem.edges_flat.len(), 1),
                 ScalarArg::new(problem.node_count as u32),
                 ScalarArg::new(problem.edges.len() as u32),
                 ScalarArg::new(seed32),
@@ -1181,16 +1190,8 @@ impl<R: Runtime> GpuSaRunnerState<R> {
                 &self.client,
                 CubeCount::new_1d(self.batch_size as u32),
                 CubeDim::new_1d(1),
-                ArrayArg::from_raw_parts::<u32>(
-                    &self.adj_offsets_handle,
-                    self.node_count + 1,
-                    1,
-                ),
-                ArrayArg::from_raw_parts::<u32>(
-                    &self.adj_list_handle,
-                    self.adj_list_len,
-                    1,
-                ),
+                ArrayArg::from_raw_parts::<u32>(&self.adj_offsets_handle, self.node_count + 1, 1),
+                ArrayArg::from_raw_parts::<u32>(&self.adj_list_handle, self.adj_list_len, 1),
                 ScalarArg::new(self.node_count as u32),
                 ScalarArg::new(steps),
                 ScalarArg::new(config.cooling_adjust),
@@ -1279,15 +1280,10 @@ impl<R: Runtime> GpuSaRunnerState<R> {
             .map(|&val| val as usize)
             .collect()
     }
-
 }
 
 #[cfg(feature = "cubecl")]
-fn gpu_sa_order(
-    ui: &mut Ui,
-    cache_id: egui::Id,
-    graph: &EntityGraph,
-) -> Option<Vec<usize>> {
+fn gpu_sa_order(ui: &mut Ui, cache_id: egui::Id, graph: &EntityGraph) -> Option<Vec<usize>> {
     if graph.nodes.is_empty() {
         return Some(Vec::new());
     }
@@ -1311,18 +1307,16 @@ fn gpu_sa_order(
             let mut latest = None;
             let mut disconnected = false;
             match receiver.lock() {
-                Ok(guard) => {
-                    loop {
-                        match guard.try_recv() {
-                            Ok(update) => latest = Some(update),
-                            Err(mpsc::TryRecvError::Empty) => break,
-                            Err(mpsc::TryRecvError::Disconnected) => {
-                                disconnected = true;
-                                break;
-                            }
+                Ok(guard) => loop {
+                    match guard.try_recv() {
+                        Ok(update) => latest = Some(update),
+                        Err(mpsc::TryRecvError::Empty) => break,
+                        Err(mpsc::TryRecvError::Disconnected) => {
+                            disconnected = true;
+                            break;
                         }
                     }
-                }
+                },
                 Err(_) => {
                     disconnected = true;
                 }
@@ -1390,14 +1384,14 @@ fn gpu_sa_loop(problem: GpuSaProblem, sender: mpsc::Sender<GpuSaUpdate>) {
     };
 
     let device = WgpuDevice::default();
-    let mut runner = match GpuSaRunnerState::<WgpuRuntime>::new(device, &problem, batch_size, &config)
-    {
-        Ok(runner) => runner,
-        Err(err) => {
-            eprintln!("gpu-sa: init failed: {err}");
-            return;
-        }
-    };
+    let mut runner =
+        match GpuSaRunnerState::<WgpuRuntime>::new(device, &problem, batch_size, &config) {
+            Ok(runner) => runner,
+            Err(err) => {
+                eprintln!("gpu-sa: init failed: {err}");
+                return;
+            }
+        };
 
     let mut best_cost = u32::MAX;
     let mut steps = SA_DEFAULT_STEPS;
@@ -1416,16 +1410,11 @@ fn gpu_sa_loop(problem: GpuSaProblem, sender: mpsc::Sender<GpuSaUpdate>) {
             let order = runner.read_best_order(batch.best_index);
             best_cost = batch.best_cost;
             plateau_ms = 0;
-            if sender
-                .send(GpuSaUpdate { order })
-                .is_err()
-            {
+            if sender.send(GpuSaUpdate { order }).is_err() {
                 break;
             }
         } else {
-            let elapsed_ms = batch
-                .elapsed_ms
-                .min(u128::from(u64::MAX)) as u64;
+            let elapsed_ms = batch.elapsed_ms.min(u128::from(u64::MAX)) as u64;
             plateau_ms = plateau_ms.saturating_add(elapsed_ms);
             if plateau_ms >= SA_STOP_AFTER_PLATEAU_MS {
                 break;
@@ -1586,8 +1575,16 @@ fn minla_sa_kernel(
                     let neighbor = adj_list[idx] as usize;
                     if neighbor != node_j_usize {
                         let pos_n = positions[base + neighbor];
-                        let old = if pos_i > pos_n { pos_i - pos_n } else { pos_n - pos_i };
-                        let new = if pos_j > pos_n { pos_j - pos_n } else { pos_n - pos_j };
+                        let old = if pos_i > pos_n {
+                            pos_i - pos_n
+                        } else {
+                            pos_n - pos_i
+                        };
+                        let new = if pos_j > pos_n {
+                            pos_j - pos_n
+                        } else {
+                            pos_n - pos_j
+                        };
                         delta_cost += new as i32 - old as i32;
                     }
                 }
@@ -1598,14 +1595,21 @@ fn minla_sa_kernel(
                     let neighbor = adj_list[idx] as usize;
                     if neighbor != node_i_usize {
                         let pos_n = positions[base + neighbor];
-                        let old = if pos_j > pos_n { pos_j - pos_n } else { pos_n - pos_j };
-                        let new = if pos_i > pos_n { pos_i - pos_n } else { pos_n - pos_i };
+                        let old = if pos_j > pos_n {
+                            pos_j - pos_n
+                        } else {
+                            pos_n - pos_j
+                        };
+                        let new = if pos_i > pos_n {
+                            pos_i - pos_n
+                        } else {
+                            pos_n - pos_i
+                        };
                         delta_cost += new as i32 - old as i32;
                     }
                 }
 
-                let candidate_cost =
-                    (current_cost as i32 + delta_cost).max(0) as u32;
+                let candidate_cost = (current_cost as i32 + delta_cost).max(0) as u32;
 
                 let delta = candidate_cost as f32 - current_cost as f32;
                 let mut accept = delta <= 0.0;

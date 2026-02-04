@@ -495,12 +495,9 @@ where
             (ui.spacing().interact_size.y - 6.0).at_least(14.0)
         };
         let gap = (padding.x * 0.8).at_least(6.0);
-        let max_text_width = (ui.available_width()
-            - padding.x * 2.0
-            - indicator_size
-            - gap
-            - shadow_inset.x)
-            .at_least(0.0);
+        let max_text_width =
+            (ui.available_width() - padding.x * 2.0 - indicator_size - gap - shadow_inset.x)
+                .at_least(0.0);
         let galley = text.into_galley(
             ui,
             Some(egui::TextWrapMode::Truncate),
@@ -545,7 +542,11 @@ where
         let prepress = enabled && !is_down && (response.hovered() || response.has_focus());
 
         let fill = if enabled { base_fill } else { disabled_fill };
-        let stroke_color = if enabled && selected { gstyle.accent } else { outline };
+        let stroke_color = if enabled && selected {
+            gstyle.accent
+        } else {
+            outline
+        };
 
         let body_rect_up =
             Rect::from_min_max(outer_rect.min, outer_rect.max - shadow_inset).intersect(outer_rect);

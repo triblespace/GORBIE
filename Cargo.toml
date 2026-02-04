@@ -1,7 +1,7 @@
 [package]
 name = "GORBIE"
 description = "GORBIE! Is a minimalist notebook library for Rust."
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 authors = ["Jan-Paul Bultmann <jp@bultmann.eu>"]
 license = "MIT OR Apache-2.0"
@@ -27,7 +27,7 @@ include = [
 ]
 
 [dependencies]
-gorbie-macros = { version = "0.2.1", path = "gorbie-macros" }
+gorbie-macros = { version = "0.2.1" }
 eframe = { version = "0.33", features = ["persistence", "wgpu"] }
 egui = { version = "0.33", features = ["color-hex"] }
 egui-wgpu = "0.33.3"
@@ -35,15 +35,19 @@ ctrlc = {version="3.4", features=["termination"]}
 dark-light = "2"
 parking_lot = { version = "0.12.3", features = ["arc_lock"] }
 log = "0.4.26"
+tracing = "0.1.44"
 png = "0.18"
 pollster = "0.4"
-egui_commonmark = { package = "gorbie-commonmark", version = "0.22.1", path = "gorbie_commonmark/egui_commonmark", features = ["better_syntax_highlighting", "svg", "fetch"], optional = true }
+egui_commonmark = { package = "gorbie-commonmark", version = "0.22.1", features = ["better_syntax_highlighting", "svg", "fetch"], optional = true }
 egui_plot = { version = "0.34", optional = true }
-triblespace = { version = "0.8.0", path = "../triblespace-rs", optional = true }
-polars = { version = "0.52.0", optional = true, features = ["lazy", "sql"] }
+triblespace = { version = "0.9.0", optional = true }
+polars = { version = "0.52.0", optional = true, features = ["lazy", "sql", "polars-ops"] }
 rapier2d = { version = "0.32", optional = true }
 hifitime = { version = "4.2.3", optional = true }
 cubecl = { version = "0.9.0", default-features = false, features = ["wgpu", "std"], optional = true }
+ed25519-dalek = { version = "2.1.1", optional = true }
+rand_core06 = { package = "rand_core", version = "0.6.4", optional = true }
+tracing-subscriber = { version = "0.3.22", optional = true, features = ["env-filter"] }
 
 [features]
 default = ["markdown"]
@@ -52,12 +56,15 @@ accesskit = []
 markdown = ["dep:egui_commonmark"]
 polars = ["dep:polars"]
 plots = ["dep:egui_plot"]
-triblespace = ["dep:triblespace", "dep:hifitime", "dep:rapier2d"]
+triblespace = ["dep:triblespace", "dep:ed25519-dalek", "dep:rand_core06"]
+gloss = ["triblespace", "dep:hifitime", "dep:rapier2d"]
 cubecl = ["dep:cubecl"]
+telemetry = ["triblespace", "dep:tracing-subscriber"]
 
 [workspace]
 members = ["gorbie-macros"]
 exclude = ["gorbie_commonmark"]
+
 
 [dev-dependencies]
 ed25519-dalek = "2.1.1"
@@ -69,7 +76,7 @@ required-features = ["polars"]
 
 [[example]]
 name = "pile_inspector"
-required-features = ["triblespace"]
+required-features = ["gloss"]
 
 [[example]]
 name = "entity_inspector"
@@ -82,3 +89,11 @@ required-features = ["triblespace"]
 [[example]]
 name = "minla"
 required-features = ["cubecl", "plots"]
+
+[[example]]
+name = "telemetry_viewer"
+required-features = ["telemetry"]
+
+[[example]]
+name = "triblespace_best_practices"
+required-features = ["triblespace"]

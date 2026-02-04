@@ -11,10 +11,14 @@ thread_local! {
 
 const RAL_THEME_LIGHT: &str = "gorbie-ral-light";
 const RAL_THEME_DARK: &str = "gorbie-ral-dark";
-const RAL_THEME_LIGHT_BYTES: &[u8] =
-    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/syntax/ral_light.tmTheme"));
-const RAL_THEME_DARK_BYTES: &[u8] =
-    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/syntax/ral_dark.tmTheme"));
+const RAL_THEME_LIGHT_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/assets/syntax/ral_light.tmTheme"
+));
+const RAL_THEME_DARK_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/assets/syntax/ral_dark.tmTheme"
+));
 
 fn ensure_ral_syntax_themes(cache: &mut CommonMarkCache) {
     GORBIE_MD_THEMES_INSTALLED.with(|installed| {

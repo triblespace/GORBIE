@@ -5,6 +5,7 @@ use egui::{
 
 mod style;
 pub use style::Styled;
+pub mod colorhash;
 pub mod ral;
 use ral::RAL_COLORS;
 
@@ -277,7 +278,7 @@ pub fn industrial(
     foreground: Color32,
     background: Color32,
     surface: Color32,
-    accent: Color32,
+    _accent: Color32,
     mut base_visuals: Visuals,
 ) -> Visuals {
     let surface_muted = blend(surface, background, 0.2);
@@ -304,7 +305,7 @@ pub fn industrial(
     base_visuals.slider_trailing_fill = true;
     base_visuals.selection = Selection {
         bg_fill: selection_fill,
-        stroke: Stroke::new(1.5, accent),
+        stroke: Stroke::new(2.0, foreground),
     };
     base_visuals.hyperlink_color = link;
     base_visuals.window_stroke = Stroke::new(1.0, border);
@@ -312,7 +313,7 @@ pub fn industrial(
 
     let border_stroke = Stroke::new(1.0, border);
     let hover_stroke = Stroke::new(1.4, border);
-    let active_stroke = Stroke::new(1.4, accent);
+    let active_stroke = Stroke::new(2.0, foreground);
 
     base_visuals.widgets = Widgets {
         noninteractive: WidgetVisuals {
@@ -385,7 +386,8 @@ pub fn industrial_light() -> Style {
     style.spacing.button_padding = egui::vec2(12.0, 8.0);
     style.spacing.indent = 18.0;
     style.spacing.slider_width = 240.0;
-    style.spacing.interact_size = egui::vec2(34.0, 26.0);
+    // 34px matches our button + LCD field visual height (with the current padding/font sizes).
+    style.spacing.interact_size = egui::vec2(34.0, 34.0);
     style.animation_time = 0.12;
 
     style.visuals = visuals;
@@ -409,7 +411,8 @@ pub fn industrial_dark() -> Style {
     style.spacing.button_padding = egui::vec2(12.0, 8.0);
     style.spacing.indent = 18.0;
     style.spacing.slider_width = 240.0;
-    style.spacing.interact_size = egui::vec2(34.0, 26.0);
+    // 34px matches our button + LCD field visual height (with the current padding/font sizes).
+    style.spacing.interact_size = egui::vec2(34.0, 34.0);
     style.animation_time = 0.12;
 
     style.visuals = visuals;

@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "GORBIE"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "ctrlc",
  "cubecl",
@@ -15,15 +15,18 @@ dependencies = [
  "egui-wgpu",
  "egui_plot",
  "gorbie-commonmark",
- "gorbie-macros",
+ "gorbie-macros 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "hifitime",
  "log",
  "parking_lot",
  "png 0.18.0",
  "polars",
  "pollster",
+ "rand_core 0.6.4",
  "rand_core 0.9.5",
  "rapier2d",
+ "tracing",
+ "tracing-subscriber",
  "triblespace",
 ]
 
@@ -2790,6 +2793,8 @@ dependencies = [
 [[package]]
 name = "gorbie-commonmark"
 version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48eef3d37f3070bfd2825c97d9f7f52a12e8a61ae11cc6fc4221b85145ce4792"
 dependencies = [
  "egui",
  "egui_extras",
@@ -2800,6 +2805,8 @@ dependencies = [
 [[package]]
 name = "gorbie-commonmark-backend"
 version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "204df2a67a8ce19dfe72788a6be74cdffa914f9e567c1cbcb1f08dc66d0bc387"
 dependencies = [
  "egui",
  "egui_extras",
@@ -2810,6 +2817,18 @@ dependencies = [
 [[package]]
 name = "gorbie-macros"
 version = "0.2.1"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "gorbie-macros"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a64a28709898e312f6f6f57c461f503c7cd23a48999cbafab1723f70bebae5b9"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -3103,7 +3122,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
@@ -6907,7 +6926,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace"
-version = "0.8.0"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77ddc5a20aa22bd4d66c6d8f0a462f15d35b793d7995f8557cd26127d06239d7"
 dependencies = [
  "triblespace-core",
  "triblespace-macros",
@@ -6915,7 +6936,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core"
-version = "0.8.0"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32942ee683b4e8186f8aea41a85c0b345d00be0ab6b86d214fa1a86be7ee90a2"
 dependencies = [
  "anybytes",
  "arbitrary",
@@ -6964,7 +6987,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core-macros"
-version = "0.8.0"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b2a93738dc68206627345bdab8458f12b8f3b7828d9993d55d046ab3eb4da07"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6974,7 +6999,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros"
-version = "0.8.0"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4694528e91473d135edfbfa204bf9db60a582b89ea49189f2b295dc4e84be07e"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -6988,7 +7015,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros-common"
-version = "0.8.0"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1730a7032e63d041c838560b5bf3385936766458c63ffd1c08e702908eaa372"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7980,19 +8009,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "windows-core"
-version = "0.62.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8e83a14d34d0623b51dce9581199302a221863196a1dde71a7663a4c2be9deb"
-dependencies = [
- "windows-implement 0.60.2",
- "windows-interface 0.59.3",
- "windows-link 0.2.1",
- "windows-result 0.4.1",
- "windows-strings 0.5.1",
-]
-
-[[package]]
 name = "windows-future"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8088,15 +8104,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "windows-result"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7781fa89eaf60850ac3d2da7af8e5242a5ea78d1a11c49bf2910bb5a73853eb5"
-dependencies = [
- "windows-link 0.2.1",
-]
-
-[[package]]
 name = "windows-strings"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8113,15 +8120,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56e6c93f3a0c3b36176cb1327a4958a0353d5d166c2a35cb268ace15e91d3b57"
 dependencies = [
  "windows-link 0.1.3",
-]
-
-[[package]]
-name = "windows-strings"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091"
-dependencies = [
- "windows-link 0.2.1",
 ]
 
 [[package]]
