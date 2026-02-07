@@ -3,7 +3,7 @@
 //! [dependencies]
 //! GORBIE = { path = "..", features = ["triblespace"] }
 //! egui = "0.33"
-//! triblespace = "0.7.0"
+//! triblespace = "0.10.0"
 //! ```
 
 use triblespace::core::blob::schemas::longstring::LongString;
@@ -89,31 +89,30 @@ fn render_schema_sections(
     let desc_size = ui.text_style_height(&egui::TextStyle::Small);
     let separator_stroke = egui::Stroke::new(1.0, ui.visuals().weak_text_color());
 
-    let mut rows: Vec<(Id, Value<ShortString>, View<str>)> = find!(
+    let mut rows: Vec<(Id, String, String)> = find!(
         (
             id: Id,
-            shortname: Value<ShortString>,
+            name: Value<Handle<Blake3, LongString>>,
             description: Value<Handle<Blake3, LongString>>
         ),
         pattern!(metadata_set, [{
             ?id @
                 metadata::tag: kind,
-                metadata::shortname: ?shortname,
+                metadata::name: ?name,
                 metadata::description: ?description
         }])
     )
     .into_iter()
-    .filter_map(|(id, shortname, description)| {
-        blobs
-            .get::<View<str>, LongString>(description)
-            .ok()
-            .map(|view| (id, shortname, view))
+    .filter_map(|(id, name, description)| {
+        let name = blobs.get::<View<str>, LongString>(name).ok()?;
+        let description = blobs.get::<View<str>, LongString>(description).ok()?;
+        Some((id, name.to_string(), description.to_string()))
     })
     .collect();
 
     rows.sort_by(|left, right| {
-        let left_name = left.1.from_value::<&str>();
-        let right_name = right.1.from_value::<&str>();
+        let left_name = left.1.as_str();
+        let right_name = right.1.as_str();
         let left_id: &RawId = left.0.as_ref();
         let right_id: &RawId = right.0.as_ref();
         left_name
@@ -125,8 +124,8 @@ fn render_schema_sections(
     ui.add_space(6.0);
 
     for (idx, row) in rows.iter().enumerate() {
-        let shortname = row.1.from_value::<&str>();
-        let description = row.2.as_ref();
+        let name = row.1.as_str();
+        let description = row.2.as_str();
 
         let row_height = body_size.max(id_size);
         ui.allocate_ui_with_layout(
@@ -134,7 +133,7 @@ fn render_schema_sections(
             egui::Layout::left_to_right(egui::Align::BOTTOM),
             |ui| {
                 ui.label(
-                    egui::RichText::new(shortname)
+                    egui::RichText::new(name)
                         .monospace()
                         .size(body_size)
                         .strong(),
