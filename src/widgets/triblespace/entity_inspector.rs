@@ -123,11 +123,21 @@ where
             labels.insert(attr, name.as_ref().to_string());
         }
     }
-    for (attr, shortname) in find!(
-        (attr: Id, shortname: String),
-        pattern!(metadata, [{ ?attr @ triblespace::core::metadata::shortname: ?shortname }])
+    for (usage, attr, name_handle) in find!(
+        (usage: Id, attr: Id, name_handle: Value<Handle<Blake3, LongString>>),
+        pattern!(metadata, [
+            { ?usage @ triblespace::core::metadata::attribute: ?attr },
+            { ?usage @ triblespace::core::metadata::tag: triblespace::core::metadata::KIND_ATTRIBUTE_USAGE },
+            { ?usage @ triblespace::core::metadata::name: ?name_handle },
+        ])
     ) {
-        labels.entry(attr).or_insert(shortname);
+        let _ = usage;
+        if labels.contains_key(&attr) {
+            continue;
+        }
+        if let Ok(name) = name_cache.get(name_handle) {
+            labels.insert(attr, name.as_ref().to_string());
+        }
     }
 
     let mut schema_by_attr = HashMap::<Id, Id>::new();

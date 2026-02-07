@@ -268,11 +268,12 @@ fn snapshot_pile(pile: &mut Pile, path: &PathBuf) -> Result<PileSnapshot, String
         if let Some(branch_meta) = branch_meta {
             if let Ok(metadata_set) = reader.get::<TribleSet, SimpleArchive>(branch_meta) {
                 name = find!(
-                    (shortname: String),
-                    pattern!(&metadata_set, [{ metadata::shortname: ?shortname }])
+                    (handle: Value<Handle<Blake3, LongString>>),
+                    pattern!(&metadata_set, [{ metadata::name: ?handle }])
                 )
                 .into_iter()
-                .map(|(shortname,)| shortname)
+                .filter_map(|(handle,)| reader.get::<View<str>, LongString>(handle).ok())
+                .map(|view| view.to_string())
                 .next();
                 head = find!(
                     (commit_head: Value<Handle<Blake3, SimpleArchive>>),

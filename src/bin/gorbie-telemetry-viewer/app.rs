@@ -246,14 +246,18 @@ fn scan_branches(
                 let meta_set: TribleSet = reader
                     .get(meta)
                     .map_err(|err| format!("branch metadata blob: {err:?}"))?;
-                find!(
-                    (shortname: String),
-                    pattern!(&meta_set, [{ metadata::shortname: ?shortname }])
+                let mut names = find!(
+                    (handle: Value<Handle<Blake3, LongString>>),
+                    pattern!(&meta_set, [{ metadata::name: ?handle }])
                 )
-                .into_iter()
-                .next()
-                .map(|(n,)| n)
-                .unwrap_or_default()
+                .into_iter();
+                let Some((handle,)) = names.next() else {
+                    return String::new();
+                };
+                let view: View<str> = reader
+                    .get(handle)
+                    .map_err(|err| format!("read branch name blob: {err:?}"))?;
+                view.to_string()
             }
         };
 

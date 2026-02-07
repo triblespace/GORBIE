@@ -14,6 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use egui::{self};
 use triblespace::core::blob::schemas::simplearchive::SimpleArchive;
+use triblespace::core::blob::schemas::LongString;
 use triblespace::core::id::Id;
 use triblespace::core::metadata;
 use triblespace::core::repo::pile::Pile;
@@ -83,12 +84,13 @@ fn scan_branches(
             .get(head)
             .map_err(|err| format!("branch metadata blob: {err:?}"))?;
         let name = find!(
-            (shortname: String),
-            pattern!(&meta, [{ metadata::shortname: ?shortname }])
+            (handle: Value<Handle<Blake3, LongString>>),
+            pattern!(&meta, [{ metadata::name: ?handle }])
         )
         .into_iter()
         .next()
-        .map(|(n,)| n)
+        .and_then(|(handle,)| reader.get::<View<str>, LongString>(handle).ok())
+        .map(|view| view.to_string())
         .unwrap_or_default();
 
         if !prefix.is_empty() && !name.starts_with(prefix) {

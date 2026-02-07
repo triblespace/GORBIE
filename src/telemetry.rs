@@ -54,8 +54,8 @@ pub mod schema {
         let mut metadata_set = TribleSet::new();
 
         metadata_set += entity! { ExclusiveId::force_ref(&telemetry_metadata) @
-            metadata::shortname: "gorbie_telemetry",
-            metadata::description: blobs.put::<LongString, _>(
+            metadata::name: blobs.put("gorbie_telemetry".to_string())?,
+            metadata::description: blobs.put(
                 "Span-based profiling events emitted by GORBIE when the `telemetry` feature is enabled.",
             )?,
         };
@@ -70,15 +70,15 @@ pub mod schema {
         fn describe_kind<B>(
             blobs: &mut B,
             kind_id: &Id,
-            shortname: &str,
+            name: &str,
             description: &str,
         ) -> std::result::Result<TribleSet, B::PutError>
         where
             B: BlobStore<Blake3>,
         {
             Ok(entity! { ExclusiveId::force_ref(kind_id) @
-                metadata::shortname: shortname,
-                metadata::description: blobs.put::<LongString, _>(description.to_string())?,
+                metadata::name: blobs.put(name.to_string())?,
+                metadata::description: blobs.put(description.to_string())?,
             })
         }
 
@@ -98,7 +98,7 @@ pub mod schema {
         fn describe_attribute<B, S>(
             blobs: &mut B,
             attribute: &Attribute<S>,
-            shortname: &str,
+            name: &str,
         ) -> std::result::Result<TribleSet, B::PutError>
         where
             B: BlobStore<Blake3>,
@@ -107,8 +107,8 @@ pub mod schema {
             let mut tribles = metadata::Metadata::describe(attribute, blobs)?;
             let attribute_id = metadata::Metadata::id(attribute);
             tribles += entity! { ExclusiveId::force_ref(&attribute_id) @
-                metadata::shortname: shortname,
-                metadata::description: blobs.put::<LongString, _>(shortname.to_string())?,
+                metadata::name: blobs.put(name.to_string())?,
+                metadata::description: blobs.put(name.to_string())?,
             };
             Ok(tribles)
         }
@@ -470,7 +470,7 @@ fn run_sink(
     init += entity! { session_entity @
         schema::kind: schema::kind_session,
         schema::category: "session",
-        schema::name: ws.put::<LongString, _>(notebook_title),
+        schema::name: ws.put(notebook_title),
         schema::begin_ns: 0u64,
     };
     ws.commit(init, None, Some("telemetry session"));
@@ -522,7 +522,7 @@ fn span_begin(
         schema::kind: schema::kind_span,
         schema::session: msg.session,
         schema::category: msg.category,
-        schema::name: ws.put::<LongString, _>(msg.name),
+        schema::name: ws.put(msg.name),
         schema::begin_ns: msg.at_ns,
     };
     if let Some(parent) = msg.parent {
@@ -532,7 +532,7 @@ fn span_begin(
         out += entity! { span_entity @ schema::card_index: index };
     }
     if let Some(source) = msg.source {
-        out += entity! { span_entity @ schema::source: ws.put::<LongString, _>(source) };
+        out += entity! { span_entity @ schema::source: ws.put(source) };
     }
     out
 }

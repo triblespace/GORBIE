@@ -54,7 +54,7 @@ fn build_demo_space() -> (TribleSet, TribleSet, MemoryRepo, Id) {
     let schema_shortstring = ShortString::id();
     let schema_handle = Handle::<Blake3, LongString>::id();
     let schema_r256 = R256::id();
-    for (attr, shortname, schema) in [
+    for (attr, name, schema) in [
         (name, "name", schema_shortstring),
         (isa, "isa", schema_genid),
         (lit_title, "title", schema_shortstring),
@@ -64,11 +64,8 @@ fn build_demo_space() -> (TribleSet, TribleSet, MemoryRepo, Id) {
         (lit_quote, "quote", schema_handle),
         (lit_page_count, "page_count", schema_r256),
     ] {
-        let name_handle = storage
-            .put::<LongString, _>(shortname.to_string())
-            .expect("name handle");
+        let name_handle = storage.put(name.to_string()).expect("name handle");
         metadata += entity! { ExclusiveId::force_ref(&attr) @
-            triblespace::core::metadata::shortname: shortname,
             triblespace::core::metadata::name: name_handle,
             triblespace::core::metadata::value_schema: schema,
         };
@@ -273,8 +270,7 @@ fn build_demo_space() -> (TribleSet, TribleSet, MemoryRepo, Id) {
     for (idx, (title, author_idx, quote, pages)) in books.iter().enumerate() {
         let id = demo_id(0xB000 + idx as u16);
         let author_id = author_ids.get(*author_idx).copied().expect("author index");
-        let quote_handle = storage.put::<LongString, _>(*quote).expect("quote handle");
-
+        let quote_handle = storage.put(*quote).expect("quote handle");
         data += entity! { ExclusiveId::force_ref(&id) @
             demo::name: *title,
             demo::isa: e_book_kind,
