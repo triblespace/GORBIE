@@ -14,7 +14,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use egui::{self};
 use triblespace::core::blob::schemas::simplearchive::SimpleArchive;
-use triblespace::core::blob::schemas::LongString;
 use triblespace::core::id::Id;
 use triblespace::core::metadata;
 use triblespace::core::repo::pile::Pile;
@@ -23,6 +22,8 @@ use triblespace::core::trible::TribleSet;
 use triblespace::core::value::schemas::hash::{Blake3, Handle};
 use triblespace::core::value::Value;
 use triblespace::macros::{find, pattern};
+use triblespace::prelude::View;
+use triblespace::prelude::blobschemas::LongString;
 
 use GORBIE::cards::with_padding;
 use GORBIE::notebook;

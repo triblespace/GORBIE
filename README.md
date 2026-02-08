@@ -37,7 +37,7 @@ Add the dependency and drop in a `main`:
 ```toml
 # Cargo.toml
 [dependencies]
-GORBIE = "0.5.2"
+GORBIE = "0.5.3"
 ```
 
 ```rust
@@ -94,7 +94,7 @@ header to `notebook.rs` and paste the same `main` function below it:
 #!/usr/bin/env -S watchexec -r rust-script
 //! ```cargo
 //! [dependencies]
-//! GORBIE = "0.5.2"
+//! GORBIE = "0.5.3"
 //! ```
 ```
 
