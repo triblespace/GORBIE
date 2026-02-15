@@ -60,12 +60,11 @@ pub mod schema {
             )?,
         };
 
-        metadata_set.union(<GenId as metadata::ConstMetadata>::describe(blobs)?);
-        metadata_set.union(<ShortString as metadata::ConstMetadata>::describe(blobs)?);
-        metadata_set.union(<U256BE as metadata::ConstMetadata>::describe(blobs)?);
-        metadata_set
-            .union(<Handle<Blake3, LongString> as metadata::ConstMetadata>::describe(blobs)?);
-        metadata_set.union(<LongString as metadata::ConstMetadata>::describe(blobs)?);
+        metadata_set += <GenId as metadata::ConstDescribe>::describe(blobs)?;
+        metadata_set += <ShortString as metadata::ConstDescribe>::describe(blobs)?;
+        metadata_set += <U256BE as metadata::ConstDescribe>::describe(blobs)?;
+        metadata_set += <Handle<Blake3, LongString> as metadata::ConstDescribe>::describe(blobs)?;
+        metadata_set += <LongString as metadata::ConstDescribe>::describe(blobs)?;
 
         fn describe_kind<B>(
             blobs: &mut B,
@@ -79,21 +78,22 @@ pub mod schema {
             Ok(entity! { ExclusiveId::force_ref(kind_id) @
                 metadata::name: blobs.put(name.to_string())?,
                 metadata::description: blobs.put(description.to_string())?,
-            })
+            }
+            .into_facts())
         }
 
-        metadata_set.union(describe_kind(
+        metadata_set += describe_kind(
             blobs,
             &kind_session,
             "telemetry_session",
             "A profiling session. Groups spans emitted during one notebook run.",
-        )?);
-        metadata_set.union(describe_kind(
+        )?;
+        metadata_set += describe_kind(
             blobs,
             &kind_span,
             "telemetry_span",
             "A begin/end span with optional parent links.",
-        )?);
+        )?;
 
         fn describe_attribute<B, S>(
             blobs: &mut B,
@@ -104,8 +104,8 @@ pub mod schema {
             B: BlobStore<Blake3>,
             S: ValueSchema,
         {
-            let mut tribles = metadata::Metadata::describe(attribute, blobs)?;
-            let attribute_id = metadata::Metadata::id(attribute);
+            let mut tribles = metadata::Describe::describe(attribute, blobs)?.into_facts();
+            let attribute_id = attribute.id();
             tribles += entity! { ExclusiveId::force_ref(&attribute_id) @
                 metadata::name: blobs.put(name.to_string())?,
                 metadata::description: blobs.put(name.to_string())?,
@@ -115,7 +115,7 @@ pub mod schema {
 
         macro_rules! add_attr {
             ($attr:expr, $name:expr) => {
-                metadata_set.union(describe_attribute(blobs, &$attr, $name)?);
+                metadata_set += describe_attribute(blobs, &$attr, $name)?;
             };
         }
 
@@ -480,10 +480,10 @@ fn run_sink(
     loop {
         match rx.recv_timeout(flush_interval) {
             Ok(SinkMsg::Begin(msg)) => {
-                pending.union(span_begin(&mut ws, msg));
+                pending += span_begin(&mut ws, msg);
             }
             Ok(SinkMsg::End(msg)) => {
-                pending.union(span_end(msg));
+                pending += span_end(msg);
             }
             Ok(SinkMsg::Shutdown { end_ns }) => {
                 flush(&mut repo, &mut ws, &mut pending)?;
@@ -543,6 +543,7 @@ fn span_end(msg: EndMsg) -> TribleSet {
         schema::end_ns: msg.at_ns,
         schema::duration_ns: msg.duration_ns,
     }
+    .into_facts()
 }
 
 fn flush(

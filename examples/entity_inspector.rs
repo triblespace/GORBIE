@@ -21,7 +21,7 @@ use triblespace::core::value::schemas::hash::Handle;
 use triblespace::core::value_formatter::WasmValueFormatter;
 use triblespace::prelude::blobschemas::LongString;
 use triblespace::prelude::valueschemas::{GenId, ShortString, R256};
-use triblespace::prelude::{entity, ConstMetadata, TribleSet, View};
+use triblespace::prelude::{entity, ConstDescribe, TribleSet, View};
 
 use GORBIE::prelude::*;
 use GORBIE::widgets::triblespace::{id_short, EntityInspectorWidget};

@@ -27,7 +27,7 @@ use triblespace::core::value::schemas::UnknownValue;
 use triblespace::core::value::Value;
 use triblespace::core::value_formatter::{WasmLimits, WasmValueFormatter};
 use triblespace::prelude::valueschemas::GenId;
-use triblespace::prelude::{find, pattern, ConstMetadata, TribleSet, TribleSetFingerprint, View};
+use triblespace::prelude::{find, pattern, TribleSet, TribleSetFingerprint, View};
 
 use crate::themes;
 

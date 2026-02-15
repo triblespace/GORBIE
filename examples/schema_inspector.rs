@@ -14,7 +14,7 @@ use triblespace::core::blob::MemoryBlobStore;
 use triblespace::core::id::Id;
 use triblespace::core::id::RawId;
 use triblespace::core::metadata;
-use triblespace::core::metadata::ConstMetadata;
+use triblespace::core::metadata::ConstDescribe;
 use triblespace::core::repo::BlobStore;
 use triblespace::core::repo::BlobStoreGet;
 use triblespace::core::trible::TribleSet;
