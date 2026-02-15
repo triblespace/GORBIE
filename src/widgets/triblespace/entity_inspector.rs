@@ -27,7 +27,7 @@ use triblespace::core::value::schemas::UnknownValue;
 use triblespace::core::value::Value;
 use triblespace::core::value_formatter::{WasmLimits, WasmValueFormatter};
 use triblespace::prelude::valueschemas::GenId;
-use triblespace::prelude::{find, pattern, TribleSet, TribleSetFingerprint, View};
+use triblespace::prelude::{find, pattern, ConstId, TribleSet, TribleSetFingerprint, View};
 
 use crate::themes;
 
@@ -195,7 +195,7 @@ where
     let attr_info = build_attr_info(metadata, name_cache);
     let limits = WasmLimits::default();
 
-    let schema_genid = GenId::id();
+    let schema_genid = GenId::ID;
     let mut entity_ids = HashSet::<Id>::new();
     let mut tribles = Vec::<(Id, Id, [u8; 32])>::new();
 
