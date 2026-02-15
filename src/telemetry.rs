@@ -75,11 +75,12 @@ pub mod schema {
         where
             B: BlobStore<Blake3>,
         {
-            Ok(entity! { ExclusiveId::force_ref(kind_id) @
+            let mut tribles = TribleSet::new();
+            tribles += entity! { ExclusiveId::force_ref(kind_id) @
                 metadata::name: blobs.put(name.to_string())?,
                 metadata::description: blobs.put(description.to_string())?,
-            }
-            .into_facts())
+            };
+            Ok(tribles)
         }
 
         metadata_set += describe_kind(
@@ -104,7 +105,8 @@ pub mod schema {
             B: BlobStore<Blake3>,
             S: ValueSchema,
         {
-            let mut tribles = metadata::Describe::describe(attribute, blobs)?.into_facts();
+            let mut tribles = TribleSet::new();
+            tribles += metadata::Describe::describe(attribute, blobs)?;
             let attribute_id = attribute.id();
             tribles += entity! { ExclusiveId::force_ref(&attribute_id) @
                 metadata::name: blobs.put(name.to_string())?,
@@ -539,11 +541,12 @@ fn span_begin(
 
 fn span_end(msg: EndMsg) -> TribleSet {
     let span_entity = ExclusiveId::force_ref(&msg.span);
-    entity! { span_entity @
+    let mut out = TribleSet::new();
+    out += entity! { span_entity @
         schema::end_ns: msg.at_ns,
         schema::duration_ns: msg.duration_ns,
-    }
-    .into_facts()
+    };
+    out
 }
 
 fn flush(
