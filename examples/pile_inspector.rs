@@ -193,7 +193,11 @@ fn format_age_compact(now_ms: u64, ts_ms: u64) -> String {
 
 fn open_pile(path: &PathBuf) -> Result<Pile, String> {
     let mut pile: Pile = Pile::open(path).map_err(|err| err.to_string())?;
-    pile.restore().map_err(|err| err.to_string())?;
+    if let Err(err) = pile.restore() {
+        // Avoid Drop warnings on early errors.
+        let _ = pile.close();
+        return Err(err.to_string());
+    }
     Ok(pile)
 }
 

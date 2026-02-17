@@ -444,74 +444,91 @@ fn run_sink(
 
     let mut pile = Pile::<Blake3>::open(&pile_path)
         .map_err(|e| format!("open telemetry pile {}: {e:?}", pile_path.display()))?;
-    pile.restore()
-        .map_err(|e| format!("restore telemetry pile {}: {e:?}", pile_path.display()))?;
+    if let Err(err) = pile.restore() {
+        let _ = pile.close();
+        return Err(format!(
+            "restore telemetry pile {}: {err:?}",
+            pile_path.display()
+        ));
+    }
 
     let signing_key = SigningKey::generate(&mut OsRng);
     let mut repo = Repository::new(pile, signing_key);
 
-    // Set the default metadata once; commits only carry a handle.
-    let metadata_set = schema::build_telemetry_metadata(repo.storage_mut())
-        .map_err(|e| format!("build telemetry metadata: {e:?}"))?;
-    repo.set_default_metadata(metadata_set)
-        .map_err(|e| format!("set default metadata: {e:?}"))?;
+    let result = (|| -> Result<(), String> {
+        // Set the default metadata once; commits only carry a handle.
+        let metadata_set = schema::build_telemetry_metadata(repo.storage_mut())
+            .map_err(|e| format!("build telemetry metadata: {e:?}"))?;
+        repo.set_default_metadata(metadata_set)
+            .map_err(|e| format!("set default metadata: {e:?}"))?;
 
-    let session_hex = format!("{session:x}");
-    let branch_name = format!("telemetry-{}", &session_hex[..8]);
-    let branch_id = repo
-        .create_branch(&branch_name, None)
-        .map_err(|e| format!("create branch {branch_name}: {e:?}"))?
-        .release();
+        let session_hex = format!("{session:x}");
+        let branch_name = format!("telemetry-{}", &session_hex[..8]);
+        let branch_id = repo
+            .create_branch(&branch_name, None)
+            .map_err(|e| format!("create branch {branch_name}: {e:?}"))?
+            .release();
 
-    let mut ws = repo
-        .pull(branch_id)
-        .map_err(|e| format!("pull workspace: {e:?}"))?;
+        let mut ws = repo
+            .pull(branch_id)
+            .map_err(|e| format!("pull workspace: {e:?}"))?;
 
-    let session_entity = ExclusiveId::force_ref(&session);
-    let mut init = TribleSet::new();
-    init += entity! { session_entity @
-        schema::kind: schema::kind_session,
-        schema::category: "session",
-        schema::name: ws.put(notebook_title),
-        schema::begin_ns: 0u64,
-    };
-    ws.commit(init, None, Some("telemetry session"));
-    push_workspace(&mut repo, &mut ws)?;
+        let session_entity = ExclusiveId::force_ref(&session);
+        let mut init = TribleSet::new();
+        init += entity! { session_entity @
+            schema::kind: schema::kind_session,
+            schema::category: "session",
+            schema::name: ws.put(notebook_title),
+            schema::begin_ns: 0u64,
+        };
+        ws.commit(init, None, Some("telemetry session"));
+        push_workspace(&mut repo, &mut ws)?;
 
-    let mut pending = TribleSet::new();
-    loop {
-        match rx.recv_timeout(flush_interval) {
-            Ok(SinkMsg::Begin(msg)) => {
-                pending += span_begin(&mut ws, msg);
-            }
-            Ok(SinkMsg::End(msg)) => {
-                pending += span_end(msg);
-            }
-            Ok(SinkMsg::Shutdown { end_ns }) => {
-                flush(&mut repo, &mut ws, &mut pending)?;
-                let session_entity = ExclusiveId::force_ref(&session);
-                let mut end = TribleSet::new();
-                end += entity! { session_entity @
-                    schema::end_ns: end_ns,
-                    schema::duration_ns: end_ns,
-                };
-                ws.commit(end, None, Some("telemetry session end"));
-                push_workspace(&mut repo, &mut ws)?;
-                break;
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                flush(&mut repo, &mut ws, &mut pending)?;
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                flush(&mut repo, &mut ws, &mut pending)?;
-                break;
+        let mut pending = TribleSet::new();
+        loop {
+            match rx.recv_timeout(flush_interval) {
+                Ok(SinkMsg::Begin(msg)) => {
+                    pending += span_begin(&mut ws, msg);
+                }
+                Ok(SinkMsg::End(msg)) => {
+                    pending += span_end(msg);
+                }
+                Ok(SinkMsg::Shutdown { end_ns }) => {
+                    flush(&mut repo, &mut ws, &mut pending)?;
+                    let session_entity = ExclusiveId::force_ref(&session);
+                    let mut end = TribleSet::new();
+                    end += entity! { session_entity @
+                        schema::end_ns: end_ns,
+                        schema::duration_ns: end_ns,
+                    };
+                    ws.commit(end, None, Some("telemetry session end"));
+                    push_workspace(&mut repo, &mut ws)?;
+                    break;
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    flush(&mut repo, &mut ws, &mut pending)?;
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    flush(&mut repo, &mut ws, &mut pending)?;
+                    break;
+                }
             }
         }
+
+        Ok(())
+    })();
+
+    let close_res = repo
+        .close()
+        .map_err(|e| format!("close telemetry pile {}: {e:?}", pile_path.display()));
+    if let Err(err) = close_res {
+        if result.is_ok() {
+            return Err(err);
+        }
+        eprintln!("warning: failed to close telemetry pile cleanly: {err}");
     }
 
-    repo.close()
-        .map_err(|e| format!("close telemetry pile {}: {e:?}", pile_path.display()))?;
-    Ok(())
+    result
 }
 
 fn span_begin(

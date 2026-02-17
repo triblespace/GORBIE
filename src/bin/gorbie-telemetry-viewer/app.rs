@@ -99,8 +99,10 @@ impl RepoCache {
             self.repo = None;
             let mut pile =
                 Pile::<Blake3>::open(&open_path).map_err(|err| format!("open pile: {err:?}"))?;
-            pile.restore()
-                .map_err(|err| format!("restore pile: {err:?}"))?;
+            if let Err(err) = pile.restore() {
+                let _ = pile.close();
+                return Err(format!("restore pile: {err:?}"));
+            }
             let repo = Repository::new(pile, self.signing_key.clone());
             self.repo = Some(RepoGuard::new(repo));
             self.open_path = Some(open_path);

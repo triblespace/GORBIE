@@ -101,8 +101,11 @@ impl PileRepoState {
             self.close();
             let mut pile =
                 Pile::<Blake3>::open(&open_path).map_err(|err| format!("open pile: {err:?}"))?;
-            pile.restore()
-                .map_err(|err| format!("restore pile: {err:?}"))?;
+            if let Err(err) = pile.restore() {
+                // Avoid Drop warnings on early errors.
+                let _ = pile.close();
+                return Err(format!("restore pile: {err:?}"));
+            }
             self.repo = Some(Repository::new(pile, self.signing_key.clone()));
             self.open_path = Some(open_path);
         }
