@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+- Switch `telemetry` to the shared `triblespace::telemetry` implementation and
+  use `TRIBLESPACE_TELEMETRY_*` environment variables.
+- Bump optional `triblespace` dependency to `0.16.0`.
+- Update telemetry viewer to rely on generic shared telemetry fields (no
+  `card_index` dependency).
+- Rename telemetry viewer binary to `telemetry-viewer`.
+
 ## 0.5.1 - 2026-01-22
 - Fix detached card dragging across the margin by deferring anchor layer switches.
 

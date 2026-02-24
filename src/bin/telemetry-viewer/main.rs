@@ -1,8 +1,8 @@
 #[cfg(not(feature = "telemetry"))]
 fn main() {
     eprintln!(
-        "gorbie-telemetry-viewer requires the `telemetry` feature.\n\n\
-Try:\n  cargo run --bin gorbie-telemetry-viewer --features telemetry"
+        "telemetry-viewer requires the `telemetry` feature.\n\n\
+Try:\n  cargo run --bin telemetry-viewer --features telemetry"
     );
     std::process::exit(2);
 }
@@ -11,12 +11,12 @@ Try:\n  cargo run --bin gorbie-telemetry-viewer --features telemetry"
 mod app;
 
 #[cfg(feature = "telemetry")]
-use GORBIE::notebook;
-#[cfg(feature = "telemetry")]
 use GORBIE::NotebookCtx;
+#[cfg(feature = "telemetry")]
+use GORBIE::notebook;
 
 #[cfg(feature = "telemetry")]
-#[notebook(name = "Gorbie telemetry viewer")]
+#[notebook(name = "Tracing telemetry viewer")]
 fn telemetry_viewer(nb: &mut NotebookCtx) {
     app::notebook(nb);
 }
@@ -25,4 +25,3 @@ fn telemetry_viewer(nb: &mut NotebookCtx) {
 fn main() {
     telemetry_viewer();
 }
-

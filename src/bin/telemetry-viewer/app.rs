@@ -1,4 +1,4 @@
-// Notebook implementation for `gorbie-telemetry-viewer`.
+// Notebook implementation for `telemetry-viewer`.
 
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -254,7 +254,7 @@ fn scan_branches(
                 )
                 .into_iter();
                 let Some((handle,)) = names.next() else {
-                    return String::new();
+                    continue;
                 };
                 let view: View<str> = reader
                     .get(handle)
@@ -285,7 +285,6 @@ struct SpanRecord {
     source: Option<String>,
     begin_ns: u64,
     duration_ns: Option<u64>,
-    card_index: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -305,7 +304,6 @@ struct FlameSpan {
     source: Option<String>,
     begin_ns: u64,
     duration_ns: u64,
-    card_index: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -313,7 +311,6 @@ struct CollapsedSpan {
     category: String,
     name: String,
     source: Option<String>,
-    card_index: Option<u64>,
     self_ns: u64,
     total_ns: u64,
     children: Vec<CollapsedSpan>,
@@ -340,7 +337,6 @@ struct SpanState {
     parent: Option<triblespace::core::id::Id>,
     begin_ns: Option<u64>,
     duration_ns: Option<u64>,
-    card_index: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -419,7 +415,6 @@ impl SessionIndex {
                 source: span.source.clone(),
                 begin_ns,
                 duration_ns,
-                card_index: span.card_index,
             });
         }
         flame.sort_by(|a, b| {
@@ -442,7 +437,6 @@ impl SessionIndex {
                 source: span.source.clone(),
                 begin_ns: span.begin_ns.unwrap_or(0),
                 duration_ns: span.duration_ns,
-                card_index: span.card_index,
             });
         }
         spans_open.sort_by(|a, b| {
@@ -517,7 +511,6 @@ fn build_collapsed_flamegraph(flame: &[FlameSpan]) -> Vec<CollapsedSpan> {
         category: u32,
         name: u32,
         source: Option<u32>,
-        card_index: Option<u64>,
     }
 
     #[derive(Debug)]
@@ -637,7 +630,6 @@ fn build_collapsed_flamegraph(flame: &[FlameSpan]) -> Vec<CollapsedSpan> {
             category: interner.intern(&span.category),
             name: interner.intern(&span.name),
             source: span.source.as_deref().map(|src| interner.intern(src)),
-            card_index: span.card_index,
         };
         keys.push(key);
     }
@@ -688,7 +680,6 @@ fn build_collapsed_flamegraph(flame: &[FlameSpan]) -> Vec<CollapsedSpan> {
             category: interner.get(node.key.category).to_string(),
             name: interner.get(node.key.name).to_string(),
             source: node.key.source.map(|id| interner.get(id).to_string()),
-            card_index: node.key.card_index,
             self_ns: node.self_ns,
             total_ns: node.total_ns,
             children,
@@ -820,16 +811,6 @@ fn load_session(
         }
     }
 
-    // Optional per-span fields.
-    for (span_id, idx_raw) in find!(
-        (span: triblespace::core::id::Id, idx: Value<U256BE>),
-        pattern!(&space, [{ ?span @ t::card_index: ?idx }])
-    ) {
-        let idx = u256be_to_u64(idx_raw);
-        let span = index.spans.entry(span_id).or_default();
-        span.card_index = idx;
-    }
-
     for (span_id, parent_id) in find!(
         (span: triblespace::core::id::Id, parent: triblespace::core::id::Id),
         pattern!(&space, [{ ?span @ t::parent: ?parent }])
@@ -872,7 +853,6 @@ fn load_session(
             source: span.source.clone(),
             begin_ns: span.begin_ns.unwrap_or(0),
             duration_ns: Some(dur),
-            card_index: span.card_index,
         };
 
         // Keep slowest spans (top-k).
@@ -891,11 +871,9 @@ fn load_session(
         }
 
         // Aggregate hotspots by label.
-        let label = match (&record.source, record.card_index) {
-            (Some(src), Some(idx)) => format!("card[{idx}] {src}"),
-            (Some(src), None) => format!("{} ({src})", record.name),
-            (None, Some(idx)) => format!("card[{idx}] {}", record.name),
-            (None, None) => record.name.clone(),
+        let label = match &record.source {
+            Some(src) => format!("{} ({src})", record.name),
+            None => record.name.clone(),
         };
         let entry = index.hotspots.entry(label.clone()).or_insert(Hotspot {
             label,
@@ -999,14 +977,14 @@ pub fn notebook(nb: &mut NotebookCtx) {
     nb.view(|ui| {
         widgets::markdown(
             ui,
-            "# Gorbie telemetry viewer\n\nThis reads span telemetry emitted by notebooks when built with `--features telemetry` and `GORBIE_TELEMETRY_PILE` set.\n\nTip: pass the pile path as the first CLI arg to override the env var.",
+            "# Tracing telemetry viewer\n\nThis reads span telemetry emitted by any process using `triblespace::telemetry` with `TRIBLESPACE_TELEMETRY_PILE` set.\n\nTip: pass the pile path as the first CLI arg to override the environment variable.",
         );
     });
 
     let pile_path = std::env::args()
         .nth(1)
-        .or_else(|| std::env::var("GORBIE_TELEMETRY_PILE").ok())
-        .unwrap_or_else(|| "./gorbie_telemetry.pile".to_owned());
+        .or_else(|| std::env::var("TRIBLESPACE_TELEMETRY_PILE").ok())
+        .unwrap_or_else(|| "./telemetry.pile".to_owned());
 
     let repo_state = nb.state("repo", PileRepoState::new(pile_path), move |ui, repo| {
         with_padding(ui, padding, |ui| {
@@ -1244,7 +1222,7 @@ pub fn notebook(nb: &mut NotebookCtx) {
 
             // Poll for new branch heads even without input.
             if repo_state_guard.is_open() {
-                let poll_ms = std::env::var("GORBIE_TELEMETRY_FLUSH_MS")
+                let poll_ms = std::env::var("TRIBLESPACE_TELEMETRY_FLUSH_MS")
                     .ok()
                     .and_then(|s| s.parse::<u64>().ok())
                     .unwrap_or(250)
@@ -1705,13 +1683,6 @@ fn show_flamegraph_timeline(
                             span.category,
                             fmt_duration_ns(span.duration_ns)
                         ));
-                        if let Some(idx) = span.card_index {
-                            ui.label(
-                                egui::RichText::new(format!("card[{idx}]"))
-                                    .monospace()
-                                    .small(),
-                            );
-                        }
                         if let Some(src) = span.source.as_deref() {
                             ui.label(egui::RichText::new(src).monospace().small());
                         }
@@ -1795,10 +1766,6 @@ fn show_flamegraph_collapsed(
         if let Some(src) = node.source.as_deref() {
             hash = hash_with(hash, src.as_bytes());
             hash = hash_with(hash, &[0]);
-        }
-        if let Some(idx) = node.card_index {
-            hash ^= idx;
-            hash = hash.wrapping_mul(1099511628211);
         }
         hash
     }
@@ -2055,13 +2022,6 @@ fn show_flamegraph_collapsed(
                             fmt_duration_ns(node.total_ns),
                             fmt_duration_ns(node.node.self_ns),
                         ));
-                        if let Some(idx) = node.node.card_index {
-                            ui.label(
-                                egui::RichText::new(format!("card[{idx}]"))
-                                    .monospace()
-                                    .small(),
-                            );
-                        }
                         if let Some(src) = node.node.source.as_deref() {
                             ui.label(egui::RichText::new(src).monospace().small());
                         }

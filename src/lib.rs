@@ -806,7 +806,6 @@ impl eframe::App for Notebook {
                                                     .unwrap_or_default();
                                                 tracing::info_span!(
                                                     "card",
-                                                    card_index = i as u64,
                                                     source = source.as_str()
                                                 )
                                                 .entered()
@@ -1181,8 +1180,7 @@ impl eframe::App for Notebook {
                                                                     CardCtx::new(ui, store.as_ref());
                                                                 #[cfg(feature = "telemetry")]
                                                                 let _detached_span = tracing::info_span!(
-                                                                    "detached_draw",
-                                                                    card_index = draw.index as u64
+                                                                    "detached_draw"
                                                                 )
                                                                 .entered();
                                                                 card.draw(&mut ctx);

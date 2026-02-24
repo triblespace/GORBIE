@@ -40,14 +40,13 @@ png = "0.18"
 pollster = "0.4"
 egui_commonmark = { package = "gorbie-commonmark", version = "0.22.1", features = ["better_syntax_highlighting", "svg", "fetch"], optional = true }
 egui_plot = { version = "0.34", optional = true }
-triblespace = { version = "0.15.0", optional = true }
+triblespace = { version = "0.16.0", optional = true }
 polars = { version = "0.52.0", optional = true, features = ["lazy", "sql", "polars-ops"] }
 rapier2d = { version = "0.32", optional = true }
 hifitime = { version = "4.2.3", optional = true }
 cubecl = { version = "0.9.0", default-features = false, features = ["wgpu", "std"], optional = true }
 ed25519-dalek = { version = "2.1.1", optional = true }
 rand_core06 = { package = "rand_core", version = "0.6.4", optional = true }
-tracing-subscriber = { version = "0.3.22", optional = true, features = ["env-filter"] }
 
 [features]
 default = ["markdown"]
@@ -59,7 +58,7 @@ plots = ["dep:egui_plot"]
 triblespace = ["dep:triblespace", "dep:ed25519-dalek", "dep:rand_core06"]
 gloss = ["triblespace", "dep:hifitime", "dep:rapier2d"]
 cubecl = ["dep:cubecl"]
-telemetry = ["triblespace", "dep:tracing-subscriber"]
+telemetry = ["triblespace", "triblespace/telemetry"]
 
 [workspace]
 members = ["gorbie-macros"]

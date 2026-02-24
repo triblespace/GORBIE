@@ -145,20 +145,20 @@ GORBIE! defaults to a lean build with `markdown` enabled. Add extras as needed:
 
 # Telemetry (Profiling)
 
-Enable notebook profiling spans:
+Enable tracing span capture:
 
 ```sh
 # In your notebook project:
-GORBIE_TELEMETRY_PILE=./gorbie_telemetry.pile cargo run --features telemetry
+TRIBLESPACE_TELEMETRY_PILE=./telemetry.pile cargo run --features telemetry
 
 # In this repo (demo notebook):
-GORBIE_TELEMETRY_PILE=./gorbie_telemetry.pile cargo run --example playbook --features telemetry
+TRIBLESPACE_TELEMETRY_PILE=./telemetry.pile cargo run --example playbook --features telemetry
 ```
 
-View telemetry in a notebook window:
+Open the telemetry viewer:
 
 ```sh
-cargo run --bin gorbie-telemetry-viewer --features telemetry -- ./gorbie_telemetry.pile
+cargo run --bin telemetry-viewer --features telemetry -- ./telemetry.pile
 ```
 
 For in-process embedding, attach the telemetry layer to your own `tracing_subscriber`
