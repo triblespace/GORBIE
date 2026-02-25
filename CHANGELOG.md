@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 - Switch `telemetry` to the shared `triblespace::telemetry` implementation and
-  use `TRIBLESPACE_TELEMETRY_*` environment variables.
+  use `TELEMETRY_*` environment variables.
 - Bump optional `triblespace` dependency to `0.16.0`.
 - Update telemetry viewer to rely on generic shared telemetry fields (no
   `card_index` dependency).

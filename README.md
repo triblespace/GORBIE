@@ -149,10 +149,10 @@ Enable tracing span capture:
 
 ```sh
 # In your notebook project:
-TRIBLESPACE_TELEMETRY_PILE=./telemetry.pile cargo run --features telemetry
+TELEMETRY_PILE=./telemetry.pile cargo run --features telemetry
 
 # In this repo (demo notebook):
-TRIBLESPACE_TELEMETRY_PILE=./telemetry.pile cargo run --example playbook --features telemetry
+TELEMETRY_PILE=./telemetry.pile cargo run --example playbook --features telemetry
 ```
 
 Open the telemetry viewer:

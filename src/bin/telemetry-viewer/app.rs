@@ -977,13 +977,13 @@ pub fn notebook(nb: &mut NotebookCtx) {
     nb.view(|ui| {
         widgets::markdown(
             ui,
-            "# Tracing telemetry viewer\n\nThis reads span telemetry emitted by any process using `triblespace::telemetry` with `TRIBLESPACE_TELEMETRY_PILE` set.\n\nTip: pass the pile path as the first CLI arg to override the environment variable.",
+            "# Tracing telemetry viewer\n\nThis reads span telemetry emitted by any process using `triblespace::telemetry` with `TELEMETRY_PILE` set.\n\nTip: pass the pile path as the first CLI arg to override the environment variable.",
         );
     });
 
     let pile_path = std::env::args()
         .nth(1)
-        .or_else(|| std::env::var("TRIBLESPACE_TELEMETRY_PILE").ok())
+        .or_else(|| std::env::var("TELEMETRY_PILE").ok())
         .unwrap_or_else(|| "./telemetry.pile".to_owned());
 
     let repo_state = nb.state("repo", PileRepoState::new(pile_path), move |ui, repo| {
@@ -1222,7 +1222,7 @@ pub fn notebook(nb: &mut NotebookCtx) {
 
             // Poll for new branch heads even without input.
             if repo_state_guard.is_open() {
-                let poll_ms = std::env::var("TRIBLESPACE_TELEMETRY_FLUSH_MS")
+                let poll_ms = std::env::var("TELEMETRY_FLUSH_MS")
                     .ok()
                     .and_then(|s| s.parse::<u64>().ok())
                     .unwrap_or(250)
