@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "GORBIE"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "ctrlc",
  "cubecl",
@@ -6971,7 +6971,7 @@ dependencies = [
 
 [[package]]
 name = "triblespace"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "ed25519-dalek",
  "log",
@@ -6985,7 +6985,7 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "anybytes",
  "arbitrary",
@@ -7035,7 +7035,7 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core-macros"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7045,7 +7045,7 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -7059,7 +7059,7 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros-common"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "proc-macro2",
  "quote",
