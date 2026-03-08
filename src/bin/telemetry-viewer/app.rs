@@ -1063,6 +1063,10 @@ pub fn notebook(nb: &mut NotebookCtx) {
         .or_else(|| std::env::var("PILE").ok())
         .unwrap_or_else(|| "./telemetry.pile".to_owned());
 
+    let env_branch_id: Option<triblespace::core::id::Id> = std::env::var("TELEMETRY_BRANCH")
+        .ok()
+        .and_then(|hex| triblespace::core::id::Id::from_hex(hex.trim()));
+
     let repo_state = nb.state("repo", PileRepoState::new(pile_path), move |ui, repo| {
         with_padding(ui, padding, |ui| {
             ui.heading("Pile");
@@ -1122,6 +1126,13 @@ pub fn notebook(nb: &mut NotebookCtx) {
                                 state.branches = branches;
                                 state.selected = prev_selected
                                     .and_then(|id| state.branches.iter().position(|b| b.id == id));
+                                // Auto-select branch from TELEMETRY_BRANCH env var.
+                                if state.selected.is_none() {
+                                    if let Some(env_id) = env_branch_id {
+                                        state.selected =
+                                            state.branches.iter().position(|b| b.id == env_id);
+                                    }
+                                }
                                 if state.selected.is_none() && !state.branches.is_empty() {
                                     state.selected = Some(0);
                                 }
