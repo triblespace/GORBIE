@@ -755,7 +755,7 @@ fn load_session(
         let session_title = find!(
             (title: Value<Handle<Blake3, LongString>>),
             pattern!(&space, [{
-                t::kind: t::kind_session,
+                metadata::tag: t::kind_session,
                 t::name: ?title,
             }])
         )
@@ -771,7 +771,7 @@ fn load_session(
     let session_dur = find!(
         (dur: Value<U256BE>),
         pattern!(&space, [{
-            t::kind: t::kind_session,
+            metadata::tag: t::kind_session,
             t::duration_ns: ?dur,
         }])
     )
@@ -792,7 +792,7 @@ fn load_session(
         ),
         pattern!(&space, [{
             ?span @
-                t::kind: t::kind_span,
+                metadata::tag: t::kind_span,
                 t::category: ?category,
                 t::name: ?name,
                 t::begin_ns: ?begin,
