@@ -36,6 +36,7 @@ use std::any::TypeId;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -216,6 +217,7 @@ struct NotebookCore {
     config: NotebookConfig,
     body: Box<dyn FnMut(&mut NotebookCtx)>,
     state_store: Arc<state::StateStore>,
+    settled: Arc<AtomicBool>,
 }
 
 struct Notebook {
@@ -232,6 +234,7 @@ pub struct NotebookCtx {
     state_id: egui::Id,
     cards: Vec<CardEntry>,
     state_store: Arc<state::StateStore>,
+    settled: Arc<AtomicBool>,
 }
 
 pub struct CardCtx<'a> {
@@ -437,12 +440,20 @@ fn log_missing_editor_hint() {
 }
 
 impl NotebookCtx {
-    fn new(config: &NotebookConfig, state_store: Arc<state::StateStore>) -> Self {
+    fn new(config: &NotebookConfig, state_store: Arc<state::StateStore>, settled: Arc<AtomicBool>) -> Self {
         Self {
             state_id: config.state_id(),
             cards: Vec::new(),
             state_store,
+            settled,
         }
+    }
+
+    /// Signal that notebook content is fully loaded and ready for capture.
+    /// In headless mode this triggers immediate capture instead of waiting
+    /// for the settle timeout. In interactive mode this is a no-op.
+    pub fn settled(&self) {
+        self.settled.store(true, Ordering::Relaxed);
     }
 
     #[track_caller]
@@ -514,11 +525,16 @@ impl NotebookCore {
             config,
             body,
             state_store: Arc::new(state::StateStore::default()),
+            settled: Arc::new(AtomicBool::new(false)),
         }
     }
 
+    fn has_settled(&self) -> bool {
+        self.settled.swap(false, Ordering::Relaxed)
+    }
+
     fn build_notebook(&mut self) -> NotebookCtx {
-        let mut notebook = NotebookCtx::new(&self.config, self.state_store.clone());
+        let mut notebook = NotebookCtx::new(&self.config, self.state_store.clone(), self.settled.clone());
         (self.body)(&mut notebook);
         notebook
     }

@@ -127,14 +127,13 @@ impl HeadlessWgpuRunner {
         let (mut output, mut measured_height) = self.run_frame(core, index, height)?;
         loop {
             textures_delta.append(std::mem::take(&mut output.textures_delta));
-            let repaint_delay = min_repaint_delay(&output);
-            let wants_repaint = repaint_delay < Duration::MAX;
 
-            if !wants_repaint || start.elapsed() >= self.settle_timeout {
+            if core.has_settled() || start.elapsed() >= self.settle_timeout {
                 output.textures_delta = textures_delta;
                 return Ok((output, measured_height));
             }
 
+            let repaint_delay = min_repaint_delay(&output);
             if repaint_delay > Duration::ZERO {
                 std::thread::sleep(repaint_delay.min(Duration::from_millis(16)));
             }
