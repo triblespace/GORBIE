@@ -6937,6 +6937,7 @@ dependencies = [
  "ed25519-dalek",
  "log",
  "rand_core 0.6.4",
+ "thread_local",
  "tracing",
  "tracing-subscriber",
  "triblespace-core",

@@ -371,10 +371,18 @@ impl Ord for SlowEntry {
 }
 
 #[derive(Clone, Debug)]
+struct SessionInfo {
+    id: triblespace::core::id::Id,
+    title: Option<String>,
+}
+
+#[derive(Clone, Debug)]
 struct SessionIndex {
     branch_id: triblespace::core::id::Id,
+    session_filter: Option<triblespace::core::id::Id>,
     head: Option<CommitHandle>,
     head_timestamp_ms: Option<u64>,
+    sessions: Vec<SessionInfo>,
     session_title: Option<String>,
     session_duration_ns: Option<u64>,
     long_cache: HashMap<[u8; 32], String>,
@@ -385,11 +393,16 @@ struct SessionIndex {
 }
 
 impl SessionIndex {
-    fn new(branch_id: triblespace::core::id::Id) -> Self {
+    fn new(
+        branch_id: triblespace::core::id::Id,
+        session_filter: Option<triblespace::core::id::Id>,
+    ) -> Self {
         Self {
             branch_id,
+            session_filter,
             head: None,
             head_timestamp_ms: None,
+            sessions: Vec::new(),
             session_title: None,
             session_duration_ns: None,
             long_cache: HashMap::new(),
@@ -703,6 +716,7 @@ fn load_session(
     cache: &mut RepoCache,
     pile_path: PathBuf,
     branch_id: triblespace::core::id::Id,
+    session_filter: Option<triblespace::core::id::Id>,
     prev: Option<SessionIndex>,
 ) -> Result<SessionIndex, String> {
     cache.ensure_open(&pile_path)?;
@@ -731,8 +745,8 @@ fn load_session(
     });
 
     let mut index = prev
-        .filter(|prev| prev.branch_id == branch_id)
-        .unwrap_or_else(|| SessionIndex::new(branch_id));
+        .filter(|prev| prev.branch_id == branch_id && prev.session_filter == session_filter)
+        .unwrap_or_else(|| SessionIndex::new(branch_id, session_filter));
 
     index.head_timestamp_ms = head_timestamp_ms;
 
@@ -751,41 +765,79 @@ fn load_session(
     };
     index.head = head;
 
-    if index.session_title.is_none() {
-        let session_title = find!(
-            (title: Value<Handle<Blake3, LongString>>),
+    // Discover all sessions on this branch (always, for the dropdown).
+    for (session_id, name_handle) in find!(
+        (id: triblespace::core::id::Id, name: Value<Handle<Blake3, LongString>>),
+        pattern!(&space, [{
+            ?id @
+                metadata::tag: t::kind_session,
+                t::name: ?name,
+        }])
+    ) {
+        if !index.sessions.iter().any(|s| s.id == session_id) {
+            let title = load_longstring(&mut ws, name_handle, &mut index.long_cache).ok();
+            index.sessions.push(SessionInfo {
+                id: session_id,
+                title,
+            });
+        }
+    }
+
+    // Session title and duration for the selected session.
+    if let Some(filter_id) = session_filter {
+        let filter_entity = triblespace::core::id::ExclusiveId::force_ref(&filter_id);
+        if index.session_title.is_none() {
+            let session_title = find!(
+                (title: Value<Handle<Blake3, LongString>>),
+                pattern!(&space, [{ filter_entity @ t::name: ?title }])
+            )
+            .into_iter()
+            .next()
+            .map(|(h,)| h);
+            if let Some(h) = session_title {
+                index.session_title =
+                    Some(load_longstring(&mut ws, h, &mut index.long_cache)?);
+            }
+        }
+
+        let session_dur = find!(
+            (dur: Value<U256BE>),
+            pattern!(&space, [{ filter_entity @ t::duration_ns: ?dur }])
+        )
+        .into_iter()
+        .next()
+        .and_then(|(v,)| u256be_to_u64(v));
+        if session_dur.is_some() {
+            index.session_duration_ns = session_dur;
+        }
+    } else {
+        // No session filter: use the first session found (legacy behavior).
+        if index.session_title.is_none() {
+            if let Some(info) = index.sessions.first() {
+                index.session_title = info.title.clone();
+            }
+        }
+
+        let session_dur = find!(
+            (dur: Value<U256BE>),
             pattern!(&space, [{
                 metadata::tag: t::kind_session,
-                t::name: ?title,
+                t::duration_ns: ?dur,
             }])
         )
         .into_iter()
         .next()
-        .map(|(h,)| h);
-        if let Some(h) = session_title {
-            index.session_title = Some(load_longstring(&mut ws, h, &mut index.long_cache)?);
+        .and_then(|(v,)| u256be_to_u64(v));
+        if session_dur.is_some() {
+            index.session_duration_ns = session_dur;
         }
     }
 
-    // Session summary (optional until shutdown).
-    let session_dur = find!(
-        (dur: Value<U256BE>),
-        pattern!(&space, [{
-            metadata::tag: t::kind_session,
-            t::duration_ns: ?dur,
-        }])
-    )
-    .into_iter()
-    .next()
-    .and_then(|(v,)| u256be_to_u64(v));
-    if session_dur.is_some() {
-        index.session_duration_ns = session_dur;
-    }
-
     // Span begin facts.
-    for (span_id, category, name_handle, begin_raw) in find!(
+    for (span_id, span_session, category, name_handle, begin_raw) in find!(
         (
             span: triblespace::core::id::Id,
+            session: triblespace::core::id::Id,
             category: String,
             name: Value<Handle<Blake3, LongString>>,
             begin: Value<U256BE>
@@ -793,11 +845,18 @@ fn load_session(
         pattern!(&space, [{
             ?span @
                 metadata::tag: t::kind_span,
+                t::session: ?session,
                 t::category: ?category,
                 t::name: ?name,
                 t::begin_ns: ?begin,
         }])
     ) {
+        if let Some(filter_id) = session_filter {
+            if span_session != filter_id {
+                continue;
+            }
+        }
+
         let begin_ns = u256be_to_u64(begin_raw).unwrap_or(0);
         let name = load_longstring(&mut ws, name_handle, &mut index.long_cache)?;
 
@@ -905,14 +964,25 @@ impl std::fmt::Debug for SessionLoader {
 }
 
 impl SessionLoader {
-    fn refresh(&mut self, pile_path: PathBuf, branch_id: triblespace::core::id::Id) {
+    fn refresh(
+        &mut self,
+        pile_path: PathBuf,
+        branch_id: triblespace::core::id::Id,
+        session_filter: Option<triblespace::core::id::Id>,
+    ) {
         let prev = self
             .result
             .take()
             .and_then(|res| res.ok())
             .filter(|prev| prev.branch_id == branch_id);
 
-        self.result = Some(load_session(&mut self.cache, pile_path, branch_id, prev));
+        self.result = Some(load_session(
+            &mut self.cache,
+            pile_path,
+            branch_id,
+            session_filter,
+            prev,
+        ));
     }
 }
 
@@ -933,6 +1003,8 @@ struct ViewerState {
     branch_prefix: String,
     branches: Vec<BranchInfo>,
     selected: Option<usize>,
+    sessions: Vec<SessionInfo>,
+    selected_session: Option<usize>,
     filter_text: String,
     min_duration_ms: u64,
     last_snapshot: Option<SessionSnapshot>,
@@ -942,6 +1014,7 @@ struct ViewerState {
     last_repo_open: bool,
     last_loaded_branch: Option<triblespace::core::id::Id>,
     last_loaded_meta: Option<CommitHandle>,
+    last_session_filter: Option<triblespace::core::id::Id>,
     flame_mode: FlameMode,
     flame_zoom: f32,
     selected_span: Option<triblespace::core::id::Id>,
@@ -954,6 +1027,8 @@ impl Default for ViewerState {
             branch_prefix: "telemetry-".to_owned(),
             branches: Vec::new(),
             selected: None,
+            sessions: Vec::new(),
+            selected_session: None,
             filter_text: String::new(),
             min_duration_ms: 0,
             last_snapshot: None,
@@ -963,6 +1038,7 @@ impl Default for ViewerState {
             last_repo_open: false,
             last_loaded_branch: None,
             last_loaded_meta: None,
+            last_session_filter: None,
             flame_mode: FlameMode::default(),
             flame_zoom: 1.0,
             selected_span: None,
@@ -977,13 +1053,14 @@ pub fn notebook(nb: &mut NotebookCtx) {
     nb.view(|ui| {
         widgets::markdown(
             ui,
-            "# Tracing telemetry viewer\n\nThis reads span telemetry emitted by any process using `triblespace::telemetry` with `TELEMETRY_PILE` set.\n\nTip: pass the pile path as the first CLI arg to override the environment variable.",
+            "# Tracing telemetry viewer\n\nThis reads span telemetry emitted by any process using `triblespace::telemetry` with `TELEMETRY_PILE` (or `PILE`) and `TELEMETRY_BRANCH` set.\n\nTip: pass the pile path as the first CLI arg to override the environment variable.",
         );
     });
 
     let pile_path = std::env::args()
         .nth(1)
         .or_else(|| std::env::var("TELEMETRY_PILE").ok())
+        .or_else(|| std::env::var("PILE").ok())
         .unwrap_or_else(|| "./telemetry.pile".to_owned());
 
     let repo_state = nb.state("repo", PileRepoState::new(pile_path), move |ui, repo| {
@@ -1006,10 +1083,13 @@ pub fn notebook(nb: &mut NotebookCtx) {
                     state.last_repo_open = is_open;
                     state.branches.clear();
                     state.selected = None;
+                    state.sessions.clear();
+                    state.selected_session = None;
                     state.last_snapshot = None;
                     state.last_snapshot_head = None;
                     state.last_loaded_branch = None;
                     state.last_loaded_meta = None;
+                    state.last_session_filter = None;
                     state.selected_span = None;
                     state.selected_collapsed = None;
                     state.session.set(SessionLoader::default());
@@ -1057,7 +1137,8 @@ pub fn notebook(nb: &mut NotebookCtx) {
                 }
 
                 ui.add_space(12.0);
-                widgets::row_label(ui, "Session:");
+                widgets::row_label(ui, "Branch:");
+                let prev_branch = state.selected;
                 egui::ComboBox::from_id_salt("telemetry_branch")
                     .selected_text(
                         state
@@ -1075,11 +1156,54 @@ pub fn notebook(nb: &mut NotebookCtx) {
                         }
                     });
 
+                // Clear sessions when branch changes.
+                if state.selected != prev_branch {
+                    state.sessions.clear();
+                    state.selected_session = None;
+                    state.last_session_filter = None;
+                }
+
                 if state.session.is_running() {
                     ui.add(egui::Spinner::new());
                     ui.label("Loading…");
                 }
             });
+
+            // Session dropdown (populated from loaded index).
+            if let Some(Ok(index)) = state.session.value().result.as_ref() {
+                if !index.sessions.is_empty() && state.sessions.is_empty() {
+                    state.sessions = index.sessions.clone();
+                    // Auto-select the first session if none selected.
+                    if state.selected_session.is_none() {
+                        state.selected_session = Some(0);
+                    }
+                }
+            }
+
+            if !state.sessions.is_empty() {
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    widgets::row_label(ui, "Session:");
+                    egui::ComboBox::from_id_salt("telemetry_session")
+                        .selected_text(
+                            state
+                                .selected_session
+                                .and_then(|idx| state.sessions.get(idx))
+                                .and_then(|s| s.title.as_deref())
+                                .unwrap_or("<unknown>"),
+                        )
+                        .show_ui(ui, |ui| {
+                            for (idx, session) in state.sessions.iter().enumerate() {
+                                let fallback = format!("{:x}", session.id);
+                                let label = session.title.as_deref().unwrap_or(&fallback);
+                                let selected = state.selected_session == Some(idx);
+                                if ui.selectable_label(selected, label).clicked() {
+                                    state.selected_session = Some(idx);
+                                }
+                            }
+                        });
+                });
+            }
 
             ui.add_space(6.0);
             ui.horizontal(|ui| {
@@ -1107,11 +1231,17 @@ pub fn notebook(nb: &mut NotebookCtx) {
                     .and_then(|idx| state.branches.get(idx))
                     .map(|b| (b.id, b.meta));
 
+                let session_filter = state
+                    .selected_session
+                    .and_then(|idx| state.sessions.get(idx))
+                    .map(|s| s.id);
+
                 if let Some((branch_id, branch_meta)) = selected {
                     let needs_refresh = match state.session.value().result.as_ref() {
                         Some(Ok(_)) => {
                             state.last_loaded_branch != Some(branch_id)
                                 || state.last_loaded_meta != Some(branch_meta)
+                                || state.last_session_filter != session_filter
                         }
                         Some(Err(_)) | None => true,
                     };
@@ -1133,11 +1263,12 @@ pub fn notebook(nb: &mut NotebookCtx) {
 
                         state.last_loaded_branch = Some(branch_id);
                         state.last_loaded_meta = Some(branch_meta);
+                        state.last_session_filter = session_filter;
 
                         let pile_path = PathBuf::from(repo_state_guard.pile_path().trim());
                         let mut loader = std::mem::take(state.session.value_mut());
                         state.session.spawn(move || {
-                            loader.refresh(pile_path, branch_id);
+                            loader.refresh(pile_path, branch_id, session_filter);
                             loader
                         });
                         ui.ctx().request_repaint_after(Duration::from_millis(50));
