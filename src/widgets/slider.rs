@@ -1104,7 +1104,7 @@ impl Slider<'_> {
 
         let thickness = ui
             .text_style_height(&TextStyle::Body)
-            .at_least(ui.spacing().interact_size.y);
+            .at_least(3.0 * crate::card_ctx::GRID_ROW_MODULE);
         let mut response = self.allocate_slider_space(ui, thickness);
         self.slider_ui(ui, &response);
 

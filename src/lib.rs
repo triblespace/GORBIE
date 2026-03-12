@@ -16,6 +16,7 @@
 
 #![allow(non_snake_case)]
 
+pub mod card_ctx;
 pub mod cards;
 pub mod dataflow;
 mod headless;
@@ -33,7 +34,6 @@ use crate::themes::industrial_fonts;
 use crate::themes::industrial_light;
 use eframe::egui::{self};
 use std::any::TypeId;
-use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -237,34 +237,11 @@ pub struct NotebookCtx {
     settled: Arc<AtomicBool>,
 }
 
-pub struct CardCtx<'a> {
-    ui: &'a mut egui::Ui,
-    store: &'a state::StateStore,
-}
-
-impl<'a> CardCtx<'a> {
-    fn new(ui: &'a mut egui::Ui, store: &'a state::StateStore) -> Self {
-        Self { ui, store }
-    }
-
-    pub fn store(&self) -> &state::StateStore {
-        self.store
-    }
-}
-
-impl<'a> Deref for CardCtx<'a> {
-    type Target = egui::Ui;
-
-    fn deref(&self) -> &Self::Target {
-        self.ui
-    }
-}
-
-impl<'a> DerefMut for CardCtx<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.ui
-    }
-}
+pub use card_ctx::CardCtx;
+pub use card_ctx::Grid;
+pub use card_ctx::GRID_COL_WIDTH;
+pub use card_ctx::GRID_COLUMNS;
+pub use card_ctx::GRID_GUTTER;
 
 const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
 const NOTEBOOK_MIN_HEIGHT: f32 = 360.0;
@@ -1422,7 +1399,6 @@ fn draw_card_body(
         .show(ui, |ui| {
             ui.reset_style();
             ui.set_width(card_width);
-            ui.set_max_width(card_width);
             let mut ctx = CardCtx::new(ui, store);
             card.draw(&mut ctx);
         });

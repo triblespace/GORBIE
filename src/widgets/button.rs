@@ -16,6 +16,7 @@ pub struct Button {
     light: Option<Color32>,
     latched: bool,
     latch_on_click: bool,
+    min_height: Option<f32>,
     gorbie_style: Option<GorbieButtonStyle>,
 }
 
@@ -29,6 +30,7 @@ impl Button {
             light: None,
             latched: false,
             latch_on_click: false,
+            min_height: None,
             gorbie_style: None,
         }
     }
@@ -62,6 +64,15 @@ impl Button {
         self.latch_on_click = latch_on_click;
         self
     }
+
+    /// Override the minimum body height (excluding shadow).
+    ///
+    /// Use a multiple of [`GRID_ROW_MODULE`](crate::card_ctx::GRID_ROW_MODULE)
+    /// for pixel-perfect alignment on the modular grid.
+    pub fn min_height(mut self, height: f32) -> Self {
+        self.min_height = Some(height);
+        self
+    }
 }
 
 impl Widget for Button {
@@ -74,6 +85,7 @@ impl Widget for Button {
             light,
             latched,
             latch_on_click,
+            min_height,
             gorbie_style,
         } = self;
 
@@ -104,11 +116,13 @@ impl Widget for Button {
         );
 
         let mut body_size = galley.size() + padding * 2.0;
-        let min_body_height = if small {
-            (ui.spacing().interact_size.y - 6.0).at_least(0.0)
-        } else {
-            ui.spacing().interact_size.y
-        };
+        let min_body_height = min_height.unwrap_or_else(|| {
+            if small {
+                2.0 * crate::card_ctx::GRID_ROW_MODULE
+            } else {
+                3.0 * crate::card_ctx::GRID_ROW_MODULE
+            }
+        });
         body_size.y = body_size.y.at_least(min_body_height);
         let desired_size = body_size + shadow_inset;
 
@@ -300,10 +314,10 @@ impl Widget for ToggleButton<'_> {
         );
 
         let mut body_size = galley.size() + padding * 2.0;
-        let min_body_height = if self.small {
-            (ui.spacing().interact_size.y - 6.0).at_least(0.0)
+        let min_body_height = if small {
+            2.0 * crate::card_ctx::GRID_ROW_MODULE
         } else {
-            ui.spacing().interact_size.y
+            3.0 * crate::card_ctx::GRID_ROW_MODULE
         };
         body_size.y = body_size.y.at_least(min_body_height);
 
@@ -507,9 +521,9 @@ where
 
         let content_height = galley.size().y.max(indicator_size);
         let min_body_height = if small {
-            (ui.spacing().interact_size.y - 6.0).at_least(0.0)
+            2.0 * crate::card_ctx::GRID_ROW_MODULE
         } else {
-            ui.spacing().interact_size.y
+            3.0 * crate::card_ctx::GRID_ROW_MODULE
         };
         let body_height = (content_height + padding.y * 2.0).at_least(min_body_height);
         let body_width = padding.x + indicator_size + gap + galley.size().x + padding.x;
@@ -763,9 +777,9 @@ where
         segment_size += padding * 2.0;
 
         let min_body_height = if small {
-            (ui.spacing().interact_size.y - 6.0).at_least(0.0)
+            2.0 * crate::card_ctx::GRID_ROW_MODULE
         } else {
-            ui.spacing().interact_size.y
+            3.0 * crate::card_ctx::GRID_ROW_MODULE
         };
         segment_size.y = segment_size.y.at_least(min_body_height);
 

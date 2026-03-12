@@ -152,7 +152,11 @@ impl Widget for ProgressBar {
         } else {
             0.0
         };
-        let height = desired_height.unwrap_or(ui.spacing().interact_size.y + scale_row_height);
+        let row_mod = crate::card_ctx::GRID_ROW_MODULE;
+        let raw_height = desired_height
+            .unwrap_or(2.0 * row_mod + scale_row_height);
+        // Snap to the vertical module so progress bars are field-aligned.
+        let height = (raw_height / row_mod).ceil() * row_mod;
         let enabled = ui.is_enabled();
         let (outer_rect, response) =
             ui.allocate_exact_size(vec2(desired_width, height), Sense::hover());
