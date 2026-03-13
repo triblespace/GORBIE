@@ -24,6 +24,8 @@ include = [
     "assets/fonts/IosevkaGorbie/IosevkaGorbie-Bold.ttf",
     "assets/fonts/Jersey_15/Jersey15-Regular.ttf",
     "assets/fonts/Jersey_15/OFL.txt",
+    "assets/fonts/NewComputerModern/NewCMMath-Regular.otf",
+    "assets/fonts/NewComputerModern/LICENSE.txt",
 ]
 
 [dependencies]
@@ -38,7 +40,7 @@ log = "0.4.26"
 tracing = "0.1.44"
 png = "0.18"
 pollster = "0.4"
-egui_commonmark = { package = "gorbie-commonmark", version = "0.22.1", features = ["better_syntax_highlighting", "svg", "fetch"], optional = true }
+egui_commonmark = { package = "gorbie-commonmark", path = "../gorbie_commonmark/egui_commonmark", features = ["better_syntax_highlighting", "svg", "fetch"], optional = true }
 egui_plot = { version = "0.34", optional = true }
 triblespace = { version = "0.18", optional = true }
 polars = { version = "0.52.0", optional = true, features = ["lazy", "sql", "polars-ops"] }
@@ -47,6 +49,10 @@ hifitime = { version = "4.2.3", optional = true }
 cubecl = { version = "0.9.0", default-features = false, features = ["wgpu", "std"], optional = true }
 ed25519-dalek = { version = "2.1.1", optional = true }
 rand_core06 = { package = "rand_core", version = "0.6.4", optional = true }
+typst = { version = "0.14", optional = true }
+typst-syntax = { version = "0.14", optional = true }
+ttf-parser = { version = "0.25", optional = true }
+earcutr = { version = "0.5", optional = true }
 
 [features]
 default = ["markdown"]
@@ -58,6 +64,7 @@ plots = ["dep:egui_plot"]
 triblespace = ["dep:triblespace", "dep:ed25519-dalek", "dep:rand_core06"]
 gloss = ["triblespace", "dep:hifitime", "dep:rapier2d"]
 cubecl = ["dep:cubecl"]
+typst = ["dep:typst", "dep:typst-syntax", "dep:ttf-parser", "dep:earcutr"]
 telemetry = ["triblespace", "triblespace/telemetry"]
 
 [workspace]

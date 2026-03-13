@@ -1,0 +1,5 @@
+New Computer Modern fonts are distributed under the GUST Font License (GFL),
+which is a free license, legally equivalent to the LaTeX Project Public License (LPPL),
+version 1.3c or later.
+
+For the full license text, see: https://www.gust.org.pl/projects/e-foundry/licenses

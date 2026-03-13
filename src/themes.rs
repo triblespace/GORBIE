@@ -382,7 +382,7 @@ pub fn industrial_light() -> Style {
 
     let visuals = industrial(foreground, background, surface, accent, Visuals::light());
 
-    style.spacing.item_spacing = egui::vec2(12.0, 10.0);
+    style.spacing.item_spacing = egui::vec2(12.0, 12.0);
     style.spacing.button_padding = egui::vec2(12.0, 8.0);
     style.spacing.indent = 18.0;
     style.spacing.slider_width = 240.0;
@@ -407,7 +407,7 @@ pub fn industrial_dark() -> Style {
 
     let visuals = industrial(foreground, background, surface, accent, Visuals::dark());
 
-    style.spacing.item_spacing = egui::vec2(12.0, 10.0);
+    style.spacing.item_spacing = egui::vec2(12.0, 12.0);
     style.spacing.button_padding = egui::vec2(12.0, 8.0);
     style.spacing.indent = 18.0;
     style.spacing.slider_width = 240.0;
@@ -466,19 +466,31 @@ pub fn industrial_fonts() -> FontDefinitions {
     fonts
 }
 
+/// Grid-aligned text styles for IosevkaGorbie.
+///
+/// Every style produces a row height that is a multiple (or half-multiple)
+/// of `GRID_ROW_MODULE` (12px):
+///
+/// | Style     | Font size | Row height | Modules |
+/// |-----------|-----------|------------|---------|
+/// | Heading   |    29px   |   36px     |   3     |
+/// | Body      |    15px   |   18px     |   1.5   |
+/// | Button    |    15px   |   18px     |   1.5   |
+/// | Monospace |    14px   |   18px     |   1.5   |
+/// | Small     |   9.5px   |   12px     |   1     |
 pub fn industrial_text_styles() -> Vec<(TextStyle, FontId)> {
     vec![
         (
             TextStyle::Heading,
-            FontId::new(30.0, FontFamily::Name("IosevkaGorbie".into())),
+            FontId::new(29.0, FontFamily::Name("IosevkaGorbie".into())),
         ),
         (
             TextStyle::Body,
-            FontId::new(16.0, FontFamily::Name("IosevkaGorbie".into())),
+            FontId::new(15.0, FontFamily::Name("IosevkaGorbie".into())),
         ),
         (
             TextStyle::Name("LCD".into()),
-            FontId::new(16.0, FontFamily::Name("LCD".into())),
+            FontId::new(15.0, FontFamily::Name("LCD".into())),
         ),
         (
             TextStyle::Monospace,
@@ -486,11 +498,11 @@ pub fn industrial_text_styles() -> Vec<(TextStyle, FontId)> {
         ),
         (
             TextStyle::Button,
-            FontId::new(16.0, FontFamily::Name("IosevkaGorbie".into())),
+            FontId::new(15.0, FontFamily::Name("IosevkaGorbie".into())),
         ),
         (
             TextStyle::Small,
-            FontId::new(12.0, FontFamily::Name("IosevkaGorbie".into())),
+            FontId::new(9.5, FontFamily::Name("IosevkaGorbie".into())),
         ),
     ]
 }

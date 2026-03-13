@@ -20,3 +20,10 @@ pub use crate::state::StateId;
 pub use crate::CardCtx;
 pub use crate::NotebookConfig;
 pub use crate::NotebookCtx;
+#[cfg(feature = "typst")]
+pub use crate::typst;
+#[cfg(feature = "typst")]
+pub use crate::widgets::typst_widget::{
+    ral_preamble, typst, typst_math_display, typst_math_inline, typst_math_fn,
+    typst_with_preamble,
+};

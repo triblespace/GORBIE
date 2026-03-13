@@ -22,6 +22,10 @@ mod table_layout;
 mod table_sizing;
 #[cfg(feature = "triblespace")]
 pub mod triblespace;
+#[cfg(feature = "typst")]
+pub mod typst_render;
+#[cfg(feature = "typst")]
+pub mod typst_widget;
 
 pub use button::Button;
 pub use button::ChoiceToggle;

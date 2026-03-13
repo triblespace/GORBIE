@@ -79,6 +79,29 @@ impl<'a> CardCtx<'a> {
         self.ui.add(crate::widgets::Button::new(text))
     }
 
+    /// Render markdown with GORBIE styling and syntax themes.
+    pub fn markdown(&mut self, text: &str) {
+        crate::widgets::markdown(self.ui, text);
+    }
+
+    /// Render a full Typst document string.
+    #[cfg(feature = "typst")]
+    pub fn typst(&mut self, source: &str) {
+        crate::widgets::typst_widget::typst(self.ui, source);
+    }
+
+    /// Render an inline math expression via Typst: `$<expr>$`.
+    #[cfg(feature = "typst")]
+    pub fn typst_math_inline(&mut self, expr: &str) {
+        crate::widgets::typst_widget::typst_math_inline(self.ui, expr);
+    }
+
+    /// Render a display-mode math expression via Typst.
+    #[cfg(feature = "typst")]
+    pub fn typst_math_display(&mut self, expr: &str) {
+        crate::widgets::typst_widget::typst_math_display(self.ui, expr);
+    }
+
     // ── Layout wrappers ──────────────────────────────────────────────
 
     /// Apply padding around the contents while preserving `CardCtx`.
@@ -283,9 +306,48 @@ pub struct Grid<'ui, 'store> {
 }
 
 impl<'ui, 'store> Grid<'ui, 'store> {
-    /// Place content spanning `span` grid columns.
+    // ── Named spans ────────────────────────────────────────────────
+    //
+    // These are the clean divisions of the 12-column grid.
+    // Use these instead of raw column counts to stay on the grid.
+
+    /// Full-width cell (12 columns, 744px).
+    pub fn full(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) { self.place(12, f); }
+
+    /// Three-quarter cell (9 columns, 555px).
+    pub fn three_quarters(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) { self.place(9, f); }
+
+    /// Two-thirds cell (8 columns, 492px).
+    pub fn two_thirds(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) { self.place(8, f); }
+
+    /// Half-width cell (6 columns, 366px).
+    pub fn half(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) { self.place(6, f); }
+
+    /// One-third cell (4 columns, 240px).
+    pub fn third(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) { self.place(4, f); }
+
+    /// Quarter-width cell (3 columns, 177px).
+    pub fn quarter(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) { self.place(3, f); }
+
+    // ── Named skips ─────────────────────────────────────────────────
+
+    /// Skip a half-width gap (6 columns).
+    pub fn skip_half(&mut self) { self.skip(6); }
+
+    /// Skip a third-width gap (4 columns).
+    pub fn skip_third(&mut self) { self.skip(4); }
+
+    /// Skip a quarter-width gap (3 columns).
+    pub fn skip_quarter(&mut self) { self.skip(3); }
+
+    // ── Low-level ──────────────────────────────────────────────────
+
+    /// Place content spanning an arbitrary number of grid columns.
     ///
-    /// The pixel width is `span * 51 + (span - 1) * 12` — a constant.
+    /// Prefer the named methods ([`full`](Self::full), [`half`](Self::half),
+    /// [`third`](Self::third), [`quarter`](Self::quarter),
+    /// [`two_thirds`](Self::two_thirds), [`three_quarters`](Self::three_quarters))
+    /// to stay on the grid. This escape hatch exists for unusual layouts.
     pub fn place(
         &mut self,
         span: u32,
@@ -311,16 +373,16 @@ impl<'ui, 'store> Grid<'ui, 'store> {
         );
 
         let store = self.store;
-        let response = self.ui.scope_builder(
+        // Use new_child (not scope_builder) so cells don't advance the
+        // parent cursor — finish() handles that in one shot.
+        let mut child = self.ui.new_child(
             egui::UiBuilder::new().max_rect(cell_rect),
-            |ui| {
-                ui.set_width(width);
-                let mut ctx = CardCtx::new(ui, store);
-                add_contents(&mut ctx);
-            },
         );
+        child.set_width(width);
+        let mut ctx = CardCtx::new(&mut child, store);
+        add_contents(&mut ctx);
 
-        let used_bottom = response.response.rect.bottom();
+        let used_bottom = child.min_rect().bottom();
         if used_bottom > self.row_max_bottom {
             self.row_max_bottom = used_bottom;
         }
@@ -331,7 +393,9 @@ impl<'ui, 'store> Grid<'ui, 'store> {
         }
     }
 
-    /// Skip `span` grid columns (typographic furniture / blank space).
+    /// Skip columns (typographic furniture / blank space).
+    ///
+    /// Common patterns: `skip_quarter()`, `skip_third()`, `skip_half()`.
     pub fn skip(&mut self, span: u32) {
         assert!(
             span > 0 && span <= GRID_COLUMNS,

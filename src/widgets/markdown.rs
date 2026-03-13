@@ -50,16 +50,10 @@ pub fn markdown(ui: &mut egui::Ui, text: &str) {
 
 #[macro_export]
 macro_rules! md {
-    ($ui:expr, $fmt:expr $(, $args:expr)*) => {
+    ($ctx:expr, $fmt:expr $(, $args:expr)*) => {
         {
             let text = format!($fmt $(, $args)*);
-            $crate::cards::with_padding(
-                $ui,
-                $crate::cards::DEFAULT_CARD_PADDING,
-                |ui| {
-                    $crate::widgets::markdown(ui, &text);
-                },
-            );
+            $ctx.grid(|g| g.full(|ctx| ctx.markdown(&text)));
         }
     };
 }
