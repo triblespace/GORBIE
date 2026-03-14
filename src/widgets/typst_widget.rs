@@ -4,7 +4,7 @@ use std::ops::Range;
 use std::sync::LazyLock;
 
 use eframe::egui;
-use typst::syntax::{Source, Span};
+use typst::syntax::{Source, Span, SyntaxKind};
 
 use crate::themes::colorhash::RAL_CATEGORICAL;
 use crate::themes::ral::RAL_COLORS;
@@ -252,8 +252,10 @@ impl TypstSelection {
 /// them. If all non-trivia children are covered, the selection collapses
 /// to the LCA node itself.
 struct AstSelection {
-    /// Source byte ranges of the selected units.
-    units: Vec<Range<usize>>,
+    /// Source byte ranges of the selected units, with transparency flag.
+    /// `true` = transparent (allows partial selection).
+    /// `false` = opaque (any glyph → full node).
+    units: Vec<(Range<usize>, bool)>,
     /// True when all selected glyphs map to a single leaf node.
     /// In this case, use rendered unicode for character-level precision.
     single_leaf: bool,
@@ -276,18 +278,36 @@ fn ancestor_path(source: &Source, span: Span) -> Vec<(Range<usize>, usize)> {
     path
 }
 
-/// Get children byte ranges of the node at `lca_range`.
+/// Whether a syntax node allows partial (character-level) selection.
+///
+/// Transparent nodes are inline text formatting — the user can select
+/// individual characters within them. Opaque nodes (math, tables,
+/// function calls, etc.) promote to full-node selection when any
+/// glyph inside is touched.
+fn is_transparent(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::Text
+            | SyntaxKind::Space
+            | SyntaxKind::Markup
+            | SyntaxKind::Strong
+            | SyntaxKind::Emph
+            | SyntaxKind::SmartQuote
+    )
+}
+
+/// Get children byte ranges and kinds of the node at `lca_range`.
 /// Navigates from `anchor_span` upward to find the LCA node.
 fn lca_children(
     source: &Source,
     anchor_span: Span,
     lca_range: &Range<usize>,
-) -> Vec<Range<usize>> {
+) -> Vec<(Range<usize>, SyntaxKind)> {
     let Some(node) = source.find(anchor_span) else { return Vec::new() };
     let mut current = &node;
     loop {
         if current.range() == *lca_range {
-            return current.children().map(|c| c.range()).collect();
+            return current.children().map(|c| (c.range(), c.kind())).collect();
         }
         match current.parent() {
             Some(p) => current = p,
@@ -322,23 +342,28 @@ fn all_glyphs_covered(
 
 /// Walk up from `start_range`, collapsing to each ancestor whose
 /// glyphs are all within the selected glyph range.
-/// Returns the largest range that passes the glyph-coverage check.
+/// Returns the largest range that passes the glyph-coverage check,
+/// and the `SyntaxKind` of the final collapsed node.
 fn collapse_upward(
     source: &Source,
     chars: &[painter::PositionedChar],
     glyph_range: &std::ops::RangeInclusive<usize>,
     anchor_span: Span,
     start_range: &Range<usize>,
-) -> Range<usize> {
-    let Some(node) = source.find(anchor_span) else { return start_range.clone() };
+    start_kind: SyntaxKind,
+) -> (Range<usize>, SyntaxKind) {
+    let Some(node) = source.find(anchor_span) else {
+        return (start_range.clone(), start_kind);
+    };
     let mut current = &node;
     let mut best = start_range.clone();
+    let mut best_kind = start_kind;
 
     // Walk up to start_range.
     while current.range() != *start_range {
         match current.parent() {
             Some(p) => current = p,
-            None => return best,
+            None => return (best, best_kind),
         }
     }
 
@@ -347,12 +372,19 @@ fn collapse_upward(
         current = parent;
         if all_glyphs_covered(source, chars, &current.range(), glyph_range) {
             best = current.range();
+            best_kind = current.kind();
         } else {
             break;
         }
     }
 
-    best
+    // Include preceding `#` — Typst splits `#expr` into sibling
+    // Hash + FuncCall/SetRule/LetBinding nodes, but they're one construct.
+    if best.start > 0 && source.text().as_bytes()[best.start - 1] == b'#' {
+        best.start -= 1;
+    }
+
+    (best, best_kind)
 }
 
 /// Determine selection units by walking the syntax tree.
@@ -363,6 +395,7 @@ fn collapse_upward(
 /// 4. Select the range of LCA children from min-child to max-child
 /// 5. Collapse upward: if all glyphs within a parent are selected,
 ///    expand the selection to that parent (repeating up the tree)
+/// 6. Tag each unit as transparent (partial ok) or opaque (all-or-nothing)
 fn ast_select(
     source: &Source,
     chars: &[painter::PositionedChar],
@@ -383,10 +416,13 @@ fn ast_select(
 
     if single_leaf {
         let leaf_range = path_lo.last().unwrap().0.clone();
-        let collapsed = collapse_upward(source, chars, range, lo_span, &leaf_range);
+        let (collapsed, kind) = collapse_upward(
+            source, chars, range, lo_span, &leaf_range, SyntaxKind::Text,
+        );
+        let still_leaf = collapsed == leaf_range;
         return AstSelection {
-            single_leaf: collapsed == leaf_range,
-            units: vec![collapsed],
+            single_leaf: still_leaf,
+            units: vec![(collapsed, still_leaf || is_transparent(kind))],
         };
     }
 
@@ -404,8 +440,13 @@ fn ast_select(
 
     // Edge case: one glyph maps directly to the LCA node.
     if lca_depth + 1 >= path_lo.len() || lca_depth + 1 >= path_hi.len() {
-        let collapsed = collapse_upward(source, chars, range, lo_span, &lca_range);
-        return AstSelection { units: vec![collapsed], single_leaf: false };
+        let (collapsed, kind) = collapse_upward(
+            source, chars, range, lo_span, &lca_range, SyntaxKind::Markup,
+        );
+        return AstSelection {
+            units: vec![(collapsed, is_transparent(kind))],
+            single_leaf: false,
+        };
     }
 
     let lo_child = path_lo[lca_depth + 1].1.min(path_hi[lca_depth + 1].1);
@@ -413,34 +454,31 @@ fn ast_select(
 
     let children = lca_children(source, lo_span, &lca_range);
     if children.is_empty() {
-        let collapsed = collapse_upward(source, chars, range, lo_span, &lca_range);
-        return AstSelection { units: vec![collapsed], single_leaf: false };
+        let (collapsed, kind) = collapse_upward(
+            source, chars, range, lo_span, &lca_range, SyntaxKind::Markup,
+        );
+        return AstSelection {
+            units: vec![(collapsed, is_transparent(kind))],
+            single_leaf: false,
+        };
     }
 
     // Can we collapse to the LCA (all its glyphs are selected)?
     if all_glyphs_covered(source, chars, &lca_range, range) {
-        let collapsed = collapse_upward(source, chars, range, lo_span, &lca_range);
-        AstSelection { units: vec![collapsed], single_leaf: false }
+        let (collapsed, kind) = collapse_upward(
+            source, chars, range, lo_span, &lca_range, SyntaxKind::Markup,
+        );
+        AstSelection {
+            units: vec![(collapsed, is_transparent(kind))],
+            single_leaf: false,
+        }
     } else {
         let units = children[lo_child..=hi_child]
             .iter()
-            .cloned()
+            .map(|(r, kind)| (r.clone(), is_transparent(*kind)))
             .collect();
         AstSelection { units, single_leaf: false }
     }
-}
-
-// ── Copy / highlight helpers ─────────────────────────────────────────
-
-/// Rendered unicode text for the selected glyph range.
-fn rendered_text(
-    range: &std::ops::RangeInclusive<usize>,
-    chars: &[painter::PositionedChar],
-) -> String {
-    range
-        .clone()
-        .filter_map(|i| chars.get(i).map(|c| c.text.as_str()))
-        .collect()
 }
 
 fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str) {
@@ -537,40 +575,50 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str) {
             AstSelection { units: Vec::new(), single_leaf: false }
         };
 
-        // ── Paint selection highlights (behind text) ───────────────
-        if let Some(ref range) = glyph_range {
-            let highlight_color = ui.visuals().selection.bg_fill;
+        // ── Compute selected glyph set (single source of truth) ────
+        //
+        // Both highlight and copy are derived from this set,
+        // making divergence structurally impossible.
+        //
+        // Transparent units allow partial selection (only glyphs in
+        // the drag range). Opaque units promote: if any glyph is
+        // touched, all glyphs in that unit are selected.
+        let selected: Vec<bool> = if let Some(ref range) = glyph_range {
+            let mut sel_set = vec![false; chars.len()];
             if ast_sel.single_leaf {
-                // Character-level: highlight individual glyph rects.
                 for i in range.clone() {
-                    if let Some(ch) = chars.get(i) {
-                        let r = ch.rect.translate(offset);
-                        ui.painter().rect_filled(r, 0.0, highlight_color);
-                    }
+                    if i < sel_set.len() { sel_set[i] = true; }
                 }
             } else {
-                // Structural: highlight each selected unit's visual bounds.
-                for unit in &ast_sel.units {
-                    let mut rect = egui::Rect::NOTHING;
-                    for ch in chars {
+                for (unit, transparent) in &ast_sel.units {
+                    // Opaque: any glyph touched → select all glyphs in unit.
+                    // Transparent: only glyphs in the drag range (or all if fully covered).
+                    let full = !transparent
+                        || all_glyphs_covered(source, chars, unit, range);
+                    for (i, ch) in chars.iter().enumerate() {
                         if let Some(r) = source.range(ch.span.0) {
-                            if r.start >= unit.start && r.end <= unit.end {
-                                rect = rect.union(ch.rect);
+                            if r.start >= unit.start && r.end <= unit.end
+                                && (full || range.contains(&i))
+                            {
+                                sel_set[i] = true;
                             }
                         }
                     }
-                    for ps in &text_layout.spans {
-                        if let Some(r) = source.range(ps.span) {
-                            if r.start >= unit.start && r.end <= unit.end {
-                                rect = rect.union(ps.rect);
-                            }
-                        }
-                    }
-                    if rect.is_positive() {
-                        ui.painter().rect_filled(
-                            rect.translate(offset), 0.0, highlight_color,
-                        );
-                    }
+                }
+            }
+            sel_set
+        } else {
+            Vec::new()
+        };
+
+        // ── Paint selection highlights (behind text) ───────────────
+        {
+            let highlight_color = ui.visuals().selection.bg_fill;
+            for (i, ch) in chars.iter().enumerate() {
+                if *selected.get(i).unwrap_or(&false) {
+                    ui.painter().rect_filled(
+                        ch.rect.translate(offset), 0.0, highlight_color,
+                    );
                 }
             }
         }
@@ -582,7 +630,7 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str) {
         }
 
         // ── Copy to clipboard ──────────────────────────────────────
-        if let Some(range) = glyph_range {
+        if glyph_range.is_some() && selected.iter().any(|&s| s) {
             response.request_focus();
 
             let wants_copy = ui.input(|i| {
@@ -594,17 +642,36 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str) {
 
             if wants_copy {
                 let text = if ast_sel.single_leaf {
-                    rendered_text(&range, chars)
-                } else if !ast_sel.units.is_empty() {
-                    let mut start = ast_sel.units.first().unwrap().start;
-                    let end = ast_sel.units.last().unwrap().end;
-                    // Include `#` prefix for code expressions (#table, #let, …).
-                    if start > 0 && source.text().as_bytes()[start - 1] == b'#' {
-                        start -= 1;
-                    }
-                    source.text()[start..end].to_string()
+                    // Single leaf: rendered unicode (character precision).
+                    selected.iter().enumerate()
+                        .filter(|(_, &s)| s)
+                        .filter_map(|(i, _)| chars.get(i).map(|c| c.text.as_str()))
+                        .collect()
                 } else {
-                    rendered_text(&range, chars)
+                    // Structural: per-unit source/rendered hybrid.
+                    // Fully covered or opaque units → source text (preserves markup).
+                    // Partially covered transparent → rendered text of selected glyphs.
+                    let mut result = String::new();
+                    for (unit, transparent) in &ast_sel.units {
+                        if let Some(ref range) = glyph_range {
+                            let use_source = !transparent
+                                || all_glyphs_covered(source, chars, unit, range);
+                            if use_source {
+                                result.push_str(&source.text()[unit.clone()]);
+                            } else {
+                                for (i, ch) in chars.iter().enumerate() {
+                                    if selected[i] {
+                                        if let Some(r) = source.range(ch.span.0) {
+                                            if r.start >= unit.start && r.end <= unit.end {
+                                                result.push_str(ch.text.as_str());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    result
                 };
                 ui.ctx().copy_text(text);
             }
