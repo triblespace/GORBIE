@@ -1,30 +1,58 @@
 use eframe::egui;
 use egui::epaint;
 use typst::layout::{Frame, FrameItem, Transform};
+use typst::syntax::Span;
 use typst::visualize::{CurveItem, FillRule, Geometry, Paint};
 
 use super::outline::{self, GlyphCache};
 
-/// Render a Typst frame into egui shapes.
+/// A positioned character for text selection.
+pub struct PositionedChar {
+    /// Bounding rect in frame-relative coordinates.
+    pub rect: egui::Rect,
+    /// The unicode text this glyph represents.
+    pub text: String,
+    /// Source span for resolving back to Typst markup.
+    pub span: (Span, u16),
+}
+
+/// A non-text element (shape/line/rect) with a source span.
+pub struct PositionedSpan {
+    /// Bounding rect in frame-relative coordinates.
+    pub rect: egui::Rect,
+    /// Source span pointing back to the Typst construct.
+    pub span: Span,
+}
+
+/// Layout info collected during rendering for selection.
+pub struct TextLayout {
+    /// All positioned characters in document order.
+    pub chars: Vec<PositionedChar>,
+    /// Non-text elements with spans (table borders, lines, rects, etc.).
+    pub spans: Vec<PositionedSpan>,
+}
+
+/// Render a Typst frame into egui shapes plus text layout info for selection.
 ///
-/// Returns a list of shapes and the frame's bounding size in egui points.
+/// Returns shapes, frame size, and positioned characters for hit-testing.
 /// `pixels_per_point` is used to compute anti-aliasing feathering width.
 pub fn render_frame_to_shapes(
     frame: &Frame,
     glyph_cache: &mut GlyphCache,
     text_color: egui::Color32,
     pixels_per_point: f32,
-) -> (Vec<egui::Shape>, egui::Vec2) {
+) -> (Vec<egui::Shape>, egui::Vec2, TextLayout) {
     let feathering = 1.0 / pixels_per_point;
     let mut shapes = Vec::new();
+    let mut text_layout = TextLayout { chars: Vec::new(), spans: Vec::new() };
     let state = RenderState::identity();
-    render_frame_inner(&mut shapes, frame, state, glyph_cache, text_color, feathering);
+    render_frame_inner(&mut shapes, &mut text_layout, frame, state, glyph_cache, text_color, feathering);
 
     let size = egui::vec2(
         frame.width().to_pt() as f32,
         frame.height().to_pt() as f32,
     );
-    (shapes, size)
+    (shapes, size, text_layout)
 }
 
 #[derive(Clone, Copy)]
@@ -89,6 +117,7 @@ impl RenderState {
 
 fn render_frame_inner(
     shapes: &mut Vec<egui::Shape>,
+    text_layout: &mut TextLayout,
     frame: &Frame,
     state: RenderState,
     glyph_cache: &mut GlyphCache,
@@ -101,12 +130,19 @@ fn render_frame_inner(
         match item {
             FrameItem::Group(group) => {
                 let child = local.pre_concat(&group.transform);
-                render_frame_inner(shapes, &group.frame, child, glyph_cache, text_color, feathering);
+                render_frame_inner(shapes, text_layout, &group.frame, child, glyph_cache, text_color, feathering);
             }
             FrameItem::Text(text_item) => {
-                render_text(shapes, text_item, local, glyph_cache, text_color, feathering);
+                render_text(shapes, text_layout, text_item, local, glyph_cache, text_color, feathering);
             }
-            FrameItem::Shape(shape, _span) => {
+            FrameItem::Shape(shape, span) => {
+                let shape_rect = shape_bounds(shape, local);
+                if !span.is_detached() {
+                    text_layout.spans.push(PositionedSpan {
+                        rect: shape_rect,
+                        span: *span,
+                    });
+                }
                 render_shape(shapes, shape, local, text_color);
             }
             FrameItem::Image(..) | FrameItem::Link(..) | FrameItem::Tag(..) => {
@@ -118,6 +154,7 @@ fn render_frame_inner(
 
 fn render_text(
     shapes: &mut Vec<egui::Shape>,
+    text_layout: &mut TextLayout,
     text: &typst::text::TextItem,
     state: RenderState,
     glyph_cache: &mut GlyphCache,
@@ -140,6 +177,10 @@ fn render_text(
         )
     });
 
+    // Font metrics for selection rects (in local Typst Y-down coords).
+    let ascender = font.ttf().ascender() as f32 * scale;
+    let descender = font.ttf().descender() as f32 * scale;
+
     let mut cursor_x: f32 = 0.0;
     let mut cursor_y: f32 = 0.0;
 
@@ -147,13 +188,9 @@ fn render_text(
         let x_offset = glyph.x_offset.get() as f32 * size;
         let y_offset = glyph.y_offset.get() as f32 * size;
 
-        // Glyph origin in local Typst coordinates.
-        // Text items use Y-up for offsets, but the frame position is Y-down.
-        // The glyph baseline is at the frame position's y coordinate.
         let gx = cursor_x + x_offset;
-        let gy = cursor_y - y_offset; // Y-up offset → Y-down screen
+        let gy = cursor_y - y_offset;
 
-        // Transform glyph origin to screen coordinates.
         let origin = state.transform_point(gx, gy);
 
         let glyph_mesh = glyph_cache.get(font, glyph.id);
@@ -164,7 +201,7 @@ fn render_text(
             shapes.push(egui::Shape::mesh(mesh));
         }
 
-        // Stroke pass: render glyph contours as stroked paths.
+        // Stroke pass.
         if let Some(stroke) = stroke {
             for contour in &glyph_mesh.contours {
                 if contour.len() < 2 {
@@ -172,10 +209,7 @@ fn render_text(
                 }
                 let points: Vec<egui::Pos2> = contour
                     .iter()
-                    .map(|&[x, y]| {
-                        // Font Y-up → screen Y-down, scaled and positioned.
-                        egui::pos2(origin.x + x * scale, origin.y - y * scale)
-                    })
+                    .map(|&[x, y]| egui::pos2(origin.x + x * scale, origin.y - y * scale))
                     .collect();
                 shapes.push(egui::Shape::Path(epaint::PathShape {
                     points,
@@ -186,8 +220,68 @@ fn render_text(
             }
         }
 
-        cursor_x += glyph.x_advance.get() as f32 * size;
+        // Collect text layout info for selection.
+        let adv_x = glyph.x_advance.get() as f32 * size;
+        // Selection rect: advance box from cursor_x to cursor_x + adv_x,
+        // ascender above baseline to descender below.
+        let top_left = state.transform_point(cursor_x, cursor_y - ascender);
+        let bottom_right = state.transform_point(cursor_x + adv_x, cursor_y - descender);
+        let glyph_text = &text.text[glyph.range()];
+        text_layout.chars.push(PositionedChar {
+            rect: egui::Rect::from_two_pos(top_left, bottom_right),
+            text: glyph_text.to_string(),
+            span: glyph.span,
+        });
+
+        cursor_x += adv_x;
         cursor_y += glyph.y_advance.get() as f32 * size;
+    }
+}
+
+/// Compute the bounding rect of a shape in frame-relative coordinates.
+fn shape_bounds(shape: &typst::visualize::Shape, state: RenderState) -> egui::Rect {
+    match &shape.geometry {
+        Geometry::Line(end) => {
+            let p0 = state.transform_point(0.0, 0.0);
+            let p1 = state.transform_point(end.x.to_pt() as f32, end.y.to_pt() as f32);
+            egui::Rect::from_two_pos(p0, p1)
+        }
+        Geometry::Rect(size) => {
+            let p0 = state.transform_point(0.0, 0.0);
+            let p1 = state.transform_point(size.x.to_pt() as f32, size.y.to_pt() as f32);
+            egui::Rect::from_two_pos(p0, p1)
+        }
+        Geometry::Curve(curve) => {
+            let mut rect = egui::Rect::NOTHING;
+            let mut pen;
+            for item in &curve.0 {
+                match item {
+                    CurveItem::Move(p) => {
+                        pen = egui::pos2(p.x.to_pt() as f32, p.y.to_pt() as f32);
+                        rect = rect.union(egui::Rect::from_center_size(
+                            state.transform_point(pen.x, pen.y),
+                            egui::Vec2::ZERO,
+                        ));
+                    }
+                    CurveItem::Line(p) => {
+                        pen = egui::pos2(p.x.to_pt() as f32, p.y.to_pt() as f32);
+                        rect = rect.union(egui::Rect::from_center_size(
+                            state.transform_point(pen.x, pen.y),
+                            egui::Vec2::ZERO,
+                        ));
+                    }
+                    CurveItem::Cubic(_, _, end) => {
+                        pen = egui::pos2(end.x.to_pt() as f32, end.y.to_pt() as f32);
+                        rect = rect.union(egui::Rect::from_center_size(
+                            state.transform_point(pen.x, pen.y),
+                            egui::Vec2::ZERO,
+                        ));
+                    }
+                    CurveItem::Close => {}
+                }
+            }
+            rect
+        }
     }
 }
 

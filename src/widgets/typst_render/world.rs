@@ -60,6 +60,11 @@ impl GorbieWorld {
         }
     }
 
+    /// Access the current source (for span resolution during copy).
+    pub fn main_source(&self) -> &Source {
+        &self.source
+    }
+
     /// Set the source content for the next compilation.
     pub fn set_source(&mut self, text: String) {
         self.source = Source::new(self.main_id, text);
