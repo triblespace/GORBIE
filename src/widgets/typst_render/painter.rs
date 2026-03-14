@@ -426,13 +426,20 @@ fn render_curve(
             .filter(|p| is_closed(p))
             .collect();
 
-        if closed.len() == 1 {
-            // Single closed subpath — PathShape handles concave fills.
+        if closed.len() == 1 && !even_odd {
+            // Single closed subpath, non-zero fill — PathShape handles concave fills.
             shapes.push(egui::Shape::Path(epaint::PathShape::convex_polygon(
                 closed[0].clone(),
                 fill_color,
                 egui::Stroke::NONE,
             )));
+        } else if closed.len() == 1 && even_odd {
+            // Single self-intersecting path with even-odd fill — decompose
+            // into simple faces and keep only those with odd winding.
+            let mesh = outline::even_odd_single_path(closed[0], fill_color);
+            if !mesh.is_empty() {
+                shapes.push(egui::Shape::mesh(mesh));
+            }
         } else if closed.len() > 1 {
             // Multiple subpaths — triangulate with fill rule.
             let owned: Vec<Vec<egui::Pos2>> = closed.into_iter().cloned().collect();

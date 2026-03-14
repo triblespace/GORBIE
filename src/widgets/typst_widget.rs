@@ -113,7 +113,7 @@ pub fn typst_with_preamble(ui: &mut egui::Ui, content: &str) {
 
     let source = format!(
         "{palette}\
-         #set page(width: {width}pt, height: auto, margin: (x: {pad}pt, top: 0pt, bottom: {pad}pt))\n\
+         #set page(width: {width}pt, height: auto, margin: (x: {pad}pt, top: {pad}pt, bottom: {pad}pt))\n\
          #set text(size: {body_size}pt, font: \"IosevkaGorbie\", fill: ral-fg)\n\
          #set table(stroke: ral-fg)\n\
          #set line(stroke: ral-fg)\n\

@@ -239,6 +239,193 @@ fn point_in_polygon(p: egui::Pos2, polygon: &[egui::Pos2]) -> bool {
     inside
 }
 
+// ── Even-odd fill for self-intersecting single paths ─────────────────
+
+/// Segment-segment intersection, strictly interior to both segments.
+/// Returns (t, u, point) where t ∈ (0,1) and u ∈ (0,1).
+fn seg_intersect(
+    a0: egui::Pos2, a1: egui::Pos2,
+    b0: egui::Pos2, b1: egui::Pos2,
+) -> Option<(f32, f32, egui::Pos2)> {
+    let d1 = a1 - a0;
+    let d2 = b1 - b0;
+    let cross = d1.x * d2.y - d1.y * d2.x;
+    if cross.abs() < 1e-8 { return None; }
+    let d = b0 - a0;
+    let t = (d.x * d2.y - d.y * d2.x) / cross;
+    let u = (d.x * d1.y - d.y * d1.x) / cross;
+    let eps = 1e-6;
+    if t > eps && t < 1.0 - eps && u > eps && u < 1.0 - eps {
+        Some((t, u, a0 + d1 * t))
+    } else {
+        None
+    }
+}
+
+/// Decompose a self-intersecting polygon for even-odd fill.
+///
+/// Finds all edge-edge intersections, builds a planar graph with
+/// twin half-edges, traces minimal faces, and keeps only faces
+/// whose centroids test as "inside" the original polygon under
+/// even-odd winding (ray-cast crossing parity).
+pub fn even_odd_single_path(polygon: &[egui::Pos2], color: egui::Color32) -> epaint::Mesh {
+    let n = polygon.len();
+    let mut mesh = epaint::Mesh::default();
+    if n < 3 { return mesh; }
+
+    // Find all interior edge-edge intersections.
+    let mut edge_splits: Vec<Vec<(f32, usize)>> = vec![Vec::new(); n];
+    let mut verts: Vec<egui::Pos2> = polygon.to_vec();
+
+    for i in 0..n {
+        let a0 = polygon[i];
+        let a1 = polygon[(i + 1) % n];
+        for j in (i + 2)..n {
+            if i == 0 && j == n - 1 { continue; } // adjacent
+            let b0 = polygon[j];
+            let b1 = polygon[(j + 1) % n];
+            if let Some((t, u, pt)) = seg_intersect(a0, a1, b0, b1) {
+                let idx = verts.len();
+                verts.push(pt);
+                edge_splits[i].push((t, idx));
+                edge_splits[j].push((u, idx));
+            }
+        }
+    }
+
+    // No self-intersections: fill as simple polygon.
+    if verts.len() == n {
+        let base = mesh.vertices.len() as u32;
+        let coords: Vec<f64> = polygon.iter()
+            .flat_map(|p| [p.x as f64, p.y as f64])
+            .collect();
+        let tri = earcutr::earcut(&coords, &[], 2).unwrap_or_default();
+        for p in polygon {
+            mesh.vertices.push(epaint::Vertex {
+                pos: *p, uv: epaint::WHITE_UV, color,
+            });
+        }
+        for chunk in tri.chunks_exact(3) {
+            mesh.indices.push(base + chunk[0] as u32);
+            mesh.indices.push(base + chunk[1] as u32);
+            mesh.indices.push(base + chunk[2] as u32);
+        }
+        return mesh;
+    }
+
+    // Sort intersection points along each edge by parameter.
+    for ev in &mut edge_splits {
+        ev.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    }
+
+    // Build directed edge list — both directions per segment (twin pairs).
+    let mut edges: Vec<[usize; 2]> = Vec::new(); // [from, to]
+    let mut outgoing: Vec<Vec<usize>> = vec![Vec::new(); verts.len()];
+
+    let add_edge = |from: usize, to: usize,
+                        edges: &mut Vec<[usize; 2]>,
+                        outgoing: &mut Vec<Vec<usize>>| {
+        let fwd = edges.len();
+        edges.push([from, to]);
+        outgoing[from].push(fwd);
+        let rev = edges.len();
+        edges.push([to, from]);
+        outgoing[to].push(rev);
+    };
+
+    for i in 0..n {
+        let end = (i + 1) % n;
+        let mut prev = i;
+        for &(_, ix) in &edge_splits[i] {
+            add_edge(prev, ix, &mut edges, &mut outgoing);
+            prev = ix;
+        }
+        add_edge(prev, end, &mut edges, &mut outgoing);
+    }
+
+    // Sort outgoing edges at each vertex by angle.
+    for v in 0..verts.len() {
+        let center = verts[v];
+        outgoing[v].sort_by(|&a, &b| {
+            let da = verts[edges[a][1]] - center;
+            let db = verts[edges[b][1]] - center;
+            da.y.atan2(da.x).partial_cmp(&db.y.atan2(db.x)).unwrap()
+        });
+    }
+
+    // Trace minimal faces: for each unused directed edge, follow
+    // "next CW after reverse" at each vertex until returning to start.
+    let mut used = vec![false; edges.len()];
+    let mut faces: Vec<Vec<egui::Pos2>> = Vec::new();
+
+    for start in 0..edges.len() {
+        if used[start] { continue; }
+        let mut face_verts = Vec::new();
+        let mut cur = start;
+        let max_steps = edges.len() + 1;
+
+        for _ in 0..max_steps {
+            if used[cur] { break; }
+            used[cur] = true;
+            face_verts.push(verts[edges[cur][0]]);
+
+            let to = edges[cur][1];
+            let from = edges[cur][0];
+
+            // At vertex `to`, find the next outgoing edge: smallest
+            // positive CW rotation from the reverse direction (to→from).
+            let rev = verts[from] - verts[to];
+            let rev_a = rev.y.atan2(rev.x);
+
+            let out = &outgoing[to];
+            let mut best = out[0];
+            let mut best_delta = f32::MAX;
+            for &eidx in out {
+                let d = verts[edges[eidx][1]] - verts[to];
+                let a = d.y.atan2(d.x);
+                let mut delta = rev_a - a;
+                if delta < 1e-6 { delta += std::f32::consts::TAU; }
+                if delta < best_delta {
+                    best_delta = delta;
+                    best = eidx;
+                }
+            }
+
+            cur = best;
+            if cur == start { break; }
+        }
+
+        if face_verts.len() >= 3 {
+            faces.push(face_verts);
+        }
+    }
+
+    // Keep faces whose centroid is inside the original polygon (even-odd).
+    for face in &faces {
+        let cx = face.iter().map(|p| p.x).sum::<f32>() / face.len() as f32;
+        let cy = face.iter().map(|p| p.y).sum::<f32>() / face.len() as f32;
+        if point_in_polygon(egui::pos2(cx, cy), polygon) {
+            let base = mesh.vertices.len() as u32;
+            let coords: Vec<f64> = face.iter()
+                .flat_map(|p| [p.x as f64, p.y as f64])
+                .collect();
+            let tri = earcutr::earcut(&coords, &[], 2).unwrap_or_default();
+            for p in face {
+                mesh.vertices.push(epaint::Vertex {
+                    pos: *p, uv: epaint::WHITE_UV, color,
+                });
+            }
+            for chunk in tri.chunks_exact(3) {
+                mesh.indices.push(base + chunk[0] as u32);
+                mesh.indices.push(base + chunk[1] as u32);
+                mesh.indices.push(base + chunk[2] as u32);
+            }
+        }
+    }
+
+    mesh
+}
+
 // ── Multi-subpath triangulation (for Typst Curve fill with FillRule) ──
 
 /// Triangulate multiple closed screen-coordinate subpaths into a colored mesh.
