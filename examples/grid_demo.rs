@@ -496,6 +496,20 @@ subtle visual tension that keeps the layout from feeling sterile."
         });
     });
 
+    // Links — clickable URL links rendered by Typst.
+    #[cfg(feature = "typst")]
+    nb.view(move |ctx| {
+        typst!(ctx,
+            "= Links\n\
+             \n\
+             Typst links are clickable:\n\
+             #link(\"https://typst.app\")[Typst] and\n\
+             #link(\"https://github.com/triblespace/GORBIE\")[GORBIE on GitHub].\n\
+             \n\
+             Auto-detected URLs also work: https://docs.rs/gorbie"
+        );
+    });
+
     // Error diagnostics — Typst errors render inline with source context.
     #[cfg(feature = "typst")]
     nb.view(move |ctx| {

@@ -1,6 +1,7 @@
 use eframe::egui;
 use egui::epaint;
 use typst::layout::{Frame, FrameItem, Transform};
+use typst::model::Destination;
 use typst::syntax::Span;
 use typst::visualize::{CurveItem, FillRule, Geometry, Paint};
 
@@ -24,12 +25,22 @@ pub struct PositionedSpan {
     pub span: Span,
 }
 
+/// A positioned link region for hit-testing.
+pub struct PositionedLink {
+    /// Bounding rect in frame-relative coordinates.
+    pub rect: egui::Rect,
+    /// The URL this link points to (only URL destinations are supported).
+    pub url: String,
+}
+
 /// Layout info collected during rendering for selection.
 pub struct TextLayout {
     /// All positioned characters in document order.
     pub chars: Vec<PositionedChar>,
     /// Non-text elements with spans (table borders, lines, rects, etc.).
     pub spans: Vec<PositionedSpan>,
+    /// Link regions for click/hover handling.
+    pub links: Vec<PositionedLink>,
 }
 
 /// Render a Typst frame into egui shapes plus text layout info for selection.
@@ -44,7 +55,7 @@ pub fn render_frame_to_shapes(
 ) -> (Vec<egui::Shape>, egui::Vec2, TextLayout) {
     let feathering = 1.0 / pixels_per_point;
     let mut shapes = Vec::new();
-    let mut text_layout = TextLayout { chars: Vec::new(), spans: Vec::new() };
+    let mut text_layout = TextLayout { chars: Vec::new(), spans: Vec::new(), links: Vec::new() };
     let state = RenderState::identity();
     render_frame_inner(&mut shapes, &mut text_layout, frame, state, glyph_cache, text_color, feathering);
 
@@ -145,7 +156,20 @@ fn render_frame_inner(
                 }
                 render_shape(shapes, shape, local, text_color);
             }
-            FrameItem::Image(..) | FrameItem::Link(..) | FrameItem::Tag(..) => {
+            FrameItem::Link(dest, size) => {
+                if let Destination::Url(url) = dest {
+                    let p0 = local.transform_point(0.0, 0.0);
+                    let p1 = local.transform_point(
+                        size.x.to_pt() as f32,
+                        size.y.to_pt() as f32,
+                    );
+                    text_layout.links.push(PositionedLink {
+                        rect: egui::Rect::from_two_pos(p0, p1),
+                        url: url.to_string(),
+                    });
+                }
+            }
+            FrameItem::Image(..) | FrameItem::Tag(..) => {
                 // Skip for now.
             }
         }

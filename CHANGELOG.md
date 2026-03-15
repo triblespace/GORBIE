@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.8.1 - 2026-03-16
+- **Clickable Typst links**: `#link()` and auto-detected URLs are now
+  interactive — pointer changes to a hand cursor on hover and click opens
+  the URL. Link text renders in RAL signal blue.
+- Links demo card in `grid_demo` example.
+
 ## 0.8.0 - 2026-03-16
 - **Typst integration** (`typst` feature): compile Typst markup and render as
   vector geometry directly on egui's Painter. Supports math (inline/display),

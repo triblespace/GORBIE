@@ -121,7 +121,8 @@ pub fn typst_with_preamble(ui: &mut egui::Ui, content: &str) {
          #set circle(stroke: ral-fg)\n\
          #set ellipse(stroke: ral-fg)\n\
          #set polygon(stroke: ral-fg)\n\
-         #set path(stroke: ral-fg)\n"
+         #set path(stroke: ral-fg)\n\
+         #show link: set text(fill: ral-blue)\n"
     );
     let source = format!("{preamble}{content}");
     TYPST_STATE.with(|state| {
@@ -900,6 +901,22 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
         for mut shape in shapes {
             shape.translate(offset);
             ui.painter().add(shape);
+        }
+
+        // ── Link interaction ─────────────────────────────────────
+        if !text_layout.links.is_empty() {
+            if let Some(hover_pos) = response.hover_pos() {
+                let frame_pos = hover_pos - offset;
+                for link in &text_layout.links {
+                    if link.rect.contains(frame_pos) {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        if response.clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(&link.url));
+                        }
+                        break;
+                    }
+                }
+            }
         }
 
         // ── Copy to clipboard ──────────────────────────────────────
