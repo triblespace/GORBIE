@@ -41,7 +41,7 @@ thread_local! {
 pub fn typst(ui: &mut egui::Ui, source: &str) {
     TYPST_STATE.with(|state| {
         let mut state = state.borrow_mut();
-        render_typst(ui, &mut state, source);
+        render_typst(ui, &mut state, source, 0);
     });
 }
 
@@ -52,14 +52,14 @@ pub fn typst_math_inline(ui: &mut egui::Ui, expr: &str) {
         .text_styles
         .get(&egui::TextStyle::Body)
         .map_or(15.0, |d| d.size);
-    let source = format!(
+    let preamble = format!(
         "#set page(width: auto, height: auto, margin: 0pt)\n\
-         #set text(size: {size}pt, fill: {fg})\n\
-         ${expr}$"
+         #set text(size: {size}pt, fill: {fg})\n"
     );
+    let source = format!("{preamble}${expr}$");
     TYPST_STATE.with(|state| {
         let mut state = state.borrow_mut();
-        render_typst(ui, &mut state, &source);
+        render_typst(ui, &mut state, &source, preamble.len());
     });
 }
 
@@ -71,14 +71,14 @@ pub fn typst_math_display(ui: &mut egui::Ui, expr: &str) {
         .text_styles
         .get(&egui::TextStyle::Body)
         .map_or(15.0, |d| d.size);
-    let source = format!(
+    let preamble = format!(
         "#set page(width: auto, height: auto, margin: 0pt)\n\
-         #set text(size: {size}pt, fill: {fg})\n\
-         $ {expr} $"
+         #set text(size: {size}pt, fill: {fg})\n"
     );
+    let source = format!("{preamble}$ {expr} $");
     TYPST_STATE.with(|state| {
         let mut state = state.borrow_mut();
-        render_typst(ui, &mut state, &source);
+        render_typst(ui, &mut state, &source, preamble.len());
     });
 }
 
@@ -111,7 +111,7 @@ pub fn typst_with_preamble(ui: &mut egui::Ui, content: &str) {
         .map_or(15.0, |d| d.size);
     let palette = ral_preamble(ui);
 
-    let source = format!(
+    let preamble = format!(
         "{palette}\
          #set page(width: {width}pt, height: auto, margin: (x: {pad}pt, top: {pad}pt, bottom: {pad}pt))\n\
          #set text(size: {body_size}pt, font: \"IosevkaGorbie\", fill: ral-fg)\n\
@@ -121,12 +121,12 @@ pub fn typst_with_preamble(ui: &mut egui::Ui, content: &str) {
          #set circle(stroke: ral-fg)\n\
          #set ellipse(stroke: ral-fg)\n\
          #set polygon(stroke: ral-fg)\n\
-         #set path(stroke: ral-fg)\n\
-         {content}"
+         #set path(stroke: ral-fg)\n"
     );
+    let source = format!("{preamble}{content}");
     TYPST_STATE.with(|state| {
         let mut state = state.borrow_mut();
-        render_typst(ui, &mut state, &source);
+        render_typst(ui, &mut state, &source, preamble.len());
     });
 }
 
@@ -599,13 +599,154 @@ fn ast_select(
     }
 }
 
-fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str) {
+/// Render Typst compilation errors as a rustc-style diagnostic block.
+fn render_typst_errors(
+    ui: &mut egui::Ui,
+    source: &str,
+    preamble_len: usize,
+    diags: &[super::typst_render::world::TypstDiag],
+) {
+    let pad = crate::card_ctx::GRID_EDGE_PAD;
+    let frame = egui::Frame::NONE.inner_margin(egui::Margin::symmetric(pad as i8, pad as i8));
+    frame.show(ui, |ui| {
+    render_typst_errors_inner(ui, source, preamble_len, diags);
+    });
+}
+
+fn render_typst_errors_inner(
+    ui: &mut egui::Ui,
+    source: &str,
+    preamble_len: usize,
+    diags: &[super::typst_render::world::TypstDiag],
+) {
+    use typst::diag::Severity;
+
+    let user_source = &source[preamble_len..];
+    // Build line table for user source (byte offset → line number).
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(user_source.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+    let byte_to_line = |byte: usize| -> usize {
+        line_starts.partition_point(|&start| start <= byte).saturating_sub(1)
+    };
+    let line_text = |line: usize| -> &str {
+        let start = line_starts[line];
+        let end = if line + 1 < line_starts.len() {
+            line_starts[line + 1].saturating_sub(1) // trim \n
+        } else {
+            user_source.len()
+        };
+        &user_source[start..end]
+    };
+
+    let mono = egui::FontId::monospace(12.0);
+    let error_color = egui::Color32::from_rgb(0xFF, 0x44, 0x44);
+    let warning_color = egui::Color32::from_rgb(0xFF, 0xCC, 0x22);
+    let hint_color = egui::Color32::from_rgb(0x55, 0xBB, 0xFF);
+    let line_num_color = ui.visuals().weak_text_color();
+    let source_color = ui.visuals().text_color();
+
+    let fmt = |color: egui::Color32| egui::text::TextFormat {
+        font_id: mono.clone(),
+        color,
+        ..Default::default()
+    };
+
+    let label_no_wrap = |ui: &mut egui::Ui, mut job: egui::text::LayoutJob| {
+        job.wrap = egui::text::TextWrapping {
+            max_rows: 1,
+            break_anywhere: false,
+            overflow_character: Some('…'),
+            ..Default::default()
+        };
+        ui.label(job);
+    };
+
+    let prev_spacing = ui.spacing().item_spacing.y;
+    ui.spacing_mut().item_spacing.y = 0.0;
+
+    // Deduplicate: keep only the first diagnostic per source line.
+    let mut seen_lines = std::collections::HashSet::new();
+    let diags: Vec<_> = diags.iter().filter(|d| {
+        let line = d.span_range.as_ref()
+            .filter(|r| r.start >= preamble_len)
+            .map(|r| byte_to_line(r.start - preamble_len));
+        match line {
+            Some(l) => seen_lines.insert(l),
+            None => true,
+        }
+    }).collect();
+
+    for diag in diags {
+        let color = match diag.severity {
+            Severity::Error => error_color,
+            Severity::Warning => warning_color,
+        };
+        let prefix = match diag.severity {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+        };
+
+        // Header: "error: unclosed delimiter"
+        ui.add_space(4.0);
+        let mut job = egui::text::LayoutJob::default();
+        job.append(&format!("{prefix}: "), 0.0, fmt(color));
+        job.append(&diag.message, 0.0, fmt(source_color));
+        ui.label(job);
+
+        // Source context with underline.
+        if let Some(range) = &diag.span_range {
+            if range.start >= preamble_len {
+                let user_start = range.start - preamble_len;
+                let user_end = (range.end - preamble_len).min(user_source.len());
+                let err_line = byte_to_line(user_start);
+                let line_num = err_line + 1;
+                let gutter_width = format!("{line_num}").len().max(3);
+                let text = line_text(err_line);
+
+                // "    ┃" (empty gutter separator)
+                let mut bar_job = egui::text::LayoutJob::default();
+                bar_job.append(&format!("{:>gutter_width$} ┃", ""), 0.0, fmt(line_num_color));
+                label_no_wrap(ui, bar_job);
+
+                // "  5 ┃ <source line>"
+                let mut line_job = egui::text::LayoutJob::default();
+                line_job.append(&format!("{line_num:>gutter_width$} ┃ "), 0.0, fmt(line_num_color));
+                line_job.append(text, 0.0, fmt(source_color));
+                label_no_wrap(ui, line_job);
+
+                // "    ┃     ───" underline pointing at the error span
+                let line_start = line_starts[err_line];
+                let col_start = user_start - line_start;
+                let col_end = (user_end - line_start).max(col_start + 1);
+                let underline: String = " ".repeat(col_start)
+                    + &"─".repeat(col_end - col_start);
+                let mut ul_job = egui::text::LayoutJob::default();
+                ul_job.append(&format!("{:>gutter_width$} ┃ ", ""), 0.0, fmt(line_num_color));
+                ul_job.append(&underline, 0.0, fmt(color));
+                label_no_wrap(ui, ul_job);
+            }
+        }
+
+        // Hints.
+        for hint in &diag.hints {
+            let mut hint_job = egui::text::LayoutJob::default();
+            hint_job.append("  hint: ", 0.0, fmt(hint_color));
+            hint_job.append(hint, 0.0, fmt(source_color));
+            ui.label(hint_job);
+        }
+    }
+
+    ui.spacing_mut().item_spacing.y = prev_spacing;
+}
+
+fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preamble_len: usize) {
     state.world.set_source(source.to_string());
 
     let doc = match state.world.compile() {
         Ok(doc) => doc,
-        Err(err) => {
-            ui.colored_label(egui::Color32::RED, format!("Typst error: {err}"));
+        Err(diags) => {
+            render_typst_errors(ui, source, preamble_len, &diags);
             return;
         }
     };

@@ -433,5 +433,17 @@ subtle visual tension that keeps the layout from feeling sterile."
         });
     });
 
+    // Error diagnostics — Typst errors render inline with source context.
+    #[cfg(feature = "typst")]
+    nb.view(move |ctx| {
+        md!(ctx, "# Error Diagnostics\nWhen Typst compilation fails, errors render inline with the\noffending source line and a pointer to the problem.");
+    });
+    #[cfg(feature = "typst")]
+    nb.view(move |ctx| {
+        typst!(ctx,
+            "This line renders fine, but #unknown-func() does not."
+        );
+    });
+
     nb.settled();
 }

@@ -2,9 +2,18 @@ use typst::foundations::{Bytes, Datetime};
 use typst::layout::PagedDocument;
 use typst::text::{Font, FontBook};
 use typst::syntax::{FileId, Source, VirtualPath};
-use typst::diag::FileResult;
+use typst::diag::{FileResult, Severity};
 use typst::utils::LazyHash;
 use typst::{Library, LibraryExt, World};
+
+/// A resolved Typst diagnostic with byte positions and text.
+pub struct TypstDiag {
+    pub severity: Severity,
+    pub message: String,
+    pub hints: Vec<String>,
+    /// Byte range in the full source (including preamble).
+    pub span_range: Option<std::ops::Range<usize>>,
+}
 
 const MATH_FONT: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -71,25 +80,22 @@ impl GorbieWorld {
     }
 
     /// Compile the current source into a paged document.
-    pub fn compile(&self) -> Result<PagedDocument, String> {
+    pub fn compile(&self) -> Result<PagedDocument, Vec<TypstDiag>> {
         let result = typst::compile::<PagedDocument>(self);
         match result.output {
             Ok(doc) => Ok(doc),
             Err(errors) => {
                 let src = &self.source;
-                let msgs: Vec<String> = errors
+                let diags = errors
                     .iter()
-                    .map(|e| {
-                        if let Some(range) = src.range(e.span) {
-                            let snippet = &src.text()[range.start..range.end.min(src.text().len())];
-                            let snippet = &snippet[..snippet.len().min(40)];
-                            format!("{} (near {:?})", e.message, snippet)
-                        } else {
-                            e.message.to_string()
-                        }
+                    .map(|e| TypstDiag {
+                        severity: e.severity,
+                        message: e.message.to_string(),
+                        hints: e.hints.iter().map(|h| h.to_string()).collect(),
+                        span_range: src.range(e.span),
                     })
                     .collect();
-                Err(msgs.join("; "))
+                Err(diags)
             }
         }
     }
