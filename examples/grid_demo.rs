@@ -401,6 +401,69 @@ subtle visual tension that keeps the layout from feeling sterile."
         );
     });
 
+    // Widget showcase — all GORBIE widgets on the grid.
+    #[derive(Clone)]
+    struct WidgetState {
+        slider_val: f32,
+        number_val: f64,
+        toggle_on: bool,
+        text: String,
+        progress: f32,
+    }
+    nb.state(
+        "widgets",
+        WidgetState {
+            slider_val: 0.42,
+            number_val: 3.14,
+            toggle_on: false,
+            text: String::from("Hello GORBIE"),
+            progress: 0.66,
+        },
+        move |ctx, s| {
+            ctx.grid(|g| {
+                g.full(|ctx| {
+                    ctx.label(egui::RichText::new("WIDGET SHOWCASE").monospace().strong());
+                });
+
+                // Slider + Number field side by side
+                g.two_thirds(|ctx| {
+                    ctx.label("Slider");
+                    ctx.slider(&mut s.slider_val, 0.0..=1.0);
+                });
+                g.third(|ctx| {
+                    ctx.label("Number");
+                    ctx.number(&mut s.number_val);
+                });
+
+                // Toggle + Text field + Progress bar
+                g.third(|ctx| {
+                    ctx.label("Toggle");
+                    ctx.toggle(&mut s.toggle_on, "Active");
+                });
+                g.third(|ctx| {
+                    ctx.label("Text field");
+                    ctx.text_field(&mut s.text);
+                });
+                g.third(|ctx| {
+                    ctx.label("Progress");
+                    ctx.progress(s.progress);
+                });
+
+                // Buttons row
+                g.full(|ctx| {
+                    ctx.label("Buttons");
+                    ctx.horizontal(|ctx| {
+                        ctx.button("Regular");
+                        ctx.small_button("Small");
+                        if ctx.button("Animate").clicked() {
+                            s.progress = (s.progress + 0.1) % 1.1;
+                        }
+                    });
+                });
+            });
+        },
+    );
+
     // Different grid layouts, all on the same 12-col grid.
     nb.view(move |ctx| {
         ctx.grid(|g| {

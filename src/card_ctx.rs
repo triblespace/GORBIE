@@ -79,6 +79,43 @@ impl<'a> CardCtx<'a> {
         self.ui.add(crate::widgets::Button::new(text))
     }
 
+    /// GORBIE-styled small button (2× grid row height).
+    pub fn small_button(&mut self, text: impl Into<egui::WidgetText>) -> egui::Response {
+        self.ui.add(crate::widgets::Button::new(text).small())
+    }
+
+    /// GORBIE-styled toggle button (checkbox-like, latching on/off).
+    pub fn toggle(&mut self, on: &mut bool, text: impl Into<egui::WidgetText>) -> egui::Response {
+        self.ui.add(crate::widgets::ToggleButton::new(on, text))
+    }
+
+    /// GORBIE-styled slider.
+    pub fn slider<Num: egui::emath::Numeric>(
+        &mut self,
+        value: &mut Num,
+        range: std::ops::RangeInclusive<Num>,
+    ) -> egui::Response {
+        self.ui.add(crate::widgets::Slider::new(value, range))
+    }
+
+    /// GORBIE-styled number field (LCD-style drag/edit).
+    pub fn number<Num: egui::emath::Numeric>(
+        &mut self,
+        value: &mut Num,
+    ) -> egui::Response {
+        self.ui.add(crate::widgets::NumberField::new(value))
+    }
+
+    /// GORBIE-styled single-line text field (LCD-style).
+    pub fn text_field(&mut self, text: &mut dyn egui::TextBuffer) -> egui::Response {
+        self.ui.add(crate::widgets::TextField::singleline(text))
+    }
+
+    /// GORBIE-styled progress bar.
+    pub fn progress(&mut self, fraction: f32) -> egui::Response {
+        self.ui.add(crate::widgets::ProgressBar::new(fraction))
+    }
+
     /// Render markdown with GORBIE styling and syntax themes.
     pub fn markdown(&mut self, text: &str) {
         crate::widgets::markdown(self.ui, text);

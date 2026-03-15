@@ -146,7 +146,8 @@ fn lcd_ink_color(dark_mode: bool) -> Color32 {
 
 fn singleline_margin(ui: &Ui, row_height: f32) -> Margin {
     let padding = ui.spacing().button_padding;
-    let target_height = ui.spacing().interact_size.y;
+    let row_mod = crate::card_ctx::GRID_ROW_MODULE;
+    let target_height = (2.0 * row_mod).max(ui.spacing().interact_size.y);
     let vertical = ((target_height - row_height) * 0.5).at_least(0.0);
     let pad_x = padding.x.round().clamp(0.0, i8::MAX as f32) as i8;
     let pad_y = vertical.round().clamp(0.0, i8::MAX as f32) as i8;
@@ -829,7 +830,11 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
                 desired_width,
                 1,
                 None,
-                ui.spacing().interact_size,
+                {
+                    let row_mod = crate::card_ctx::GRID_ROW_MODULE;
+                    let min_h = (2.0 * row_mod).max(ui.spacing().interact_size.y);
+                    vec2(ui.spacing().interact_size.x, min_h)
+                },
                 margin,
                 Align2::CENTER_CENTER,
                 true,
@@ -880,8 +885,10 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
                 .max(row_height)
                 .max(display_galley.size().y);
             let desired_inner_size = vec2(desired_inner_width, desired_inner_height);
-            let desired_outer_size =
-                (desired_inner_size + margin.sum()).at_least(ui.spacing().interact_size);
+            let row_mod = crate::card_ctx::GRID_ROW_MODULE;
+            let min_height = (2.0 * row_mod).max(ui.spacing().interact_size.y);
+            let desired_outer_size = (desired_inner_size + margin.sum())
+                .at_least(vec2(ui.spacing().interact_size.x, min_height));
             let (_auto_id, outer_rect) = ui.allocate_space(desired_outer_size);
             let rect = outer_rect - margin;
             let mut response = ui.interact(outer_rect, id, egui::Sense::click_and_drag());
@@ -1051,7 +1058,11 @@ impl Widget for TextField<'_> {
             ui.spacing().text_edit_width,
             min_rows,
             max_rows,
-            ui.spacing().interact_size,
+            {
+                let row_mod = crate::card_ctx::GRID_ROW_MODULE;
+                let min_h = (2.0 * row_mod).max(ui.spacing().interact_size.y);
+                vec2(ui.spacing().interact_size.x, min_h)
+            },
             margin,
             align,
             !multiline,
