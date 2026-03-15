@@ -314,6 +314,41 @@ subtle visual tension that keeps the layout from feeling sterile."
         );
     });
 
+    // Grid-aligned Typst columns — uses grid-span() and grid-gutter from the preamble.
+    #[cfg(feature = "typst")]
+    nb.view(move |ctx| {
+        typst!(ctx,
+            "= Grid-Aligned Columns\n\
+             \n\
+             Two equal columns using Typst's `columns` with `grid-gutter`:\n\
+             \n\
+             #columns(2, gutter: grid-gutter)[\n\
+               The left column flows naturally. Because the page width and \
+               gutter match the GORBIE grid, these columns align perfectly \
+               with a 6+6 split — the same as two `half()` cells in the \
+               Rust grid API.\n\
+               \n\
+               #colbreak()\n\
+               \n\
+               The right column continues here. Every line sits on the \
+               same baseline grid as the rest of the notebook. Headings, \
+               body text, math, and columns all share one coordinate system.\n\
+             ]\n\
+             \n\
+             Asymmetric 8+4 split using `grid-span`:\n\
+             \n\
+             #grid(columns: (grid-span(8), grid-span(4)), column-gutter: grid-gutter)[\n\
+               This main column spans 8 of 12 grid columns — the classic \
+               content-plus-sidebar ratio. The `grid-span(n)` function \
+               computes the exact pixel width including inner gutters.\n\
+             ][\n\
+               #text(fill: ral-accent)[Sidebar]\n\
+               \n\
+               Narrow aside spanning 4 columns.\n\
+             ]"
+        );
+    });
+
     // Different grid layouts, all on the same 12-col grid.
     nb.view(move |ctx| {
         ctx.grid(|g| {

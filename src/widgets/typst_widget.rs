@@ -162,10 +162,20 @@ const RAL_CAT_NAMES: &[&str] = &[
     "sky", "water", "lime", "mint", "green", "teal",
 ];
 
-/// The static part of the RAL Typst preamble: full 272-color lookup dictionary
-/// plus semantic named aliases. Generated once, reused across all renders.
+/// The static part of the GORBIE Typst preamble: grid constants, full 272-color
+/// RAL lookup dictionary, and semantic named aliases. Generated once, reused.
 static RAL_TYPST_STATIC: LazyLock<String> = LazyLock::new(|| {
+    use crate::card_ctx::{GRID_COL_WIDTH, GRID_GUTTER, GRID_COLUMNS, GRID_ROW_MODULE};
+
     let mut s = String::with_capacity(16384);
+
+    // Grid system: matches the Rust-side 12-column layout exactly.
+    let _ = writeln!(s, "#let grid-col = {GRID_COL_WIDTH}pt");
+    let _ = writeln!(s, "#let grid-gutter = {GRID_GUTTER}pt");
+    let _ = writeln!(s, "#let grid-columns = {GRID_COLUMNS}");
+    let _ = writeln!(s, "#let grid-row = {GRID_ROW_MODULE}pt");
+    let _ = writeln!(s, "#let grid-span(n) = n * {GRID_COL_WIDTH}pt + (n - 1) * {GRID_GUTTER}pt");
+
     // Full RAL dictionary: ral(1003) → rgb("#F9A800")
     let _ = writeln!(s, "#let ral-table = (");
     for &(code, _, color) in RAL_COLORS {
@@ -187,9 +197,11 @@ static RAL_TYPST_STATIC: LazyLock<String> = LazyLock::new(|| {
     s
 });
 
-/// Generate a Typst preamble that defines the GORBIE RAL color palette.
+/// Generate a Typst preamble with GORBIE grid constants and RAL color palette.
 ///
 /// Injects:
+/// - `grid-col`, `grid-gutter`, `grid-columns`, `grid-row` — grid constants
+/// - `grid-span(n)` — width of `n` grid columns including inner gutters
 /// - `ral(num)` — lookup any of the 272 RAL Classic colors by number
 /// - `ral-fg` / `ral-bg` — current theme foreground and background
 /// - `ral-accent` — RAL 2009 Traffic orange
