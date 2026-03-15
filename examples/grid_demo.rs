@@ -314,11 +314,63 @@ subtle visual tension that keeps the layout from feeling sterile."
         );
     });
 
-    // Grid-aligned Typst columns — uses grid-span() and grid-gutter from the preamble.
+    // Visual grid reference — shows the 12-column grid and common span patterns.
     #[cfg(feature = "typst")]
     nb.view(move |ctx| {
         typst!(ctx,
-            "= Grid-Aligned Columns\n\
+            "#let b(span, color, label) = box(width: grid-span(span), height: 24pt, fill: color, radius: 3pt,\n\
+               align(center + horizon)[#text(fill: ral-bg, weight: \"bold\", size: 9pt)[#label]]\n\
+             )\n\
+             \n\
+             = The 12-Column Grid\n\
+             \n\
+             #text(size: 9pt, fill: luma(160))[Each block shows its span.\n\
+             Gutters between blocks are `grid-gutter` (12pt).]\n\
+             \n\
+             #v(4pt)\n\
+             \n\
+             12 individual columns:\n\
+             #stack(dir: ltr, spacing: grid-gutter,\n\
+               b(1, ral-sky, \"1\"), b(1, ral-sky, \"2\"), b(1, ral-sky, \"3\"),\n\
+               b(1, ral-sky, \"4\"), b(1, ral-sky, \"5\"), b(1, ral-sky, \"6\"),\n\
+               b(1, ral-sky, \"7\"), b(1, ral-sky, \"8\"), b(1, ral-sky, \"9\"),\n\
+               b(1, ral-sky, \"10\"), b(1, ral-sky, \"11\"), b(1, ral-sky, \"12\"),\n\
+             )\n\
+             \n\
+             #v(6pt)\n\
+             6 + 6 — equal halves (`half`):\n\
+             #stack(dir: ltr, spacing: grid-gutter,\n\
+               b(6, ral-blue, \"half()\"), b(6, ral-blue, \"half()\"))\n\
+             \n\
+             #v(6pt)\n\
+             4 + 4 + 4 — equal thirds (`third`):\n\
+             #stack(dir: ltr, spacing: grid-gutter,\n\
+               b(4, ral-teal, \"third()\"), b(4, ral-teal, \"third()\"), b(4, ral-teal, \"third()\"))\n\
+             \n\
+             #v(6pt)\n\
+             3 + 3 + 3 + 3 — equal quarters (`quarter`):\n\
+             #stack(dir: ltr, spacing: grid-gutter,\n\
+               b(3, ral-green, \"quarter()\"), b(3, ral-green, \"quarter()\"),\n\
+               b(3, ral-green, \"quarter()\"), b(3, ral-green, \"quarter()\"))\n\
+             \n\
+             #v(6pt)\n\
+             8 + 4 — content + sidebar (`two_thirds` + `third`):\n\
+             #stack(dir: ltr, spacing: grid-gutter,\n\
+               b(8, ral-violet, \"two_thirds()\"), b(4, ral-orange, \"third()\"))\n\
+             \n\
+             #v(6pt)\n\
+             9 + 3 — wide content + narrow aside (`three_quarters` + `quarter`):\n\
+             #stack(dir: ltr, spacing: grid-gutter,\n\
+               b(9, ral-pink, \"three_quarters()\"), b(3, ral-yellow, \"quarter()\"))\n\
+             \n\
+             #v(6pt)\n\
+             4 + \\_ + 4 — skip middle third (`third` + `skip_third` + `third`):\n\
+             #stack(dir: ltr, spacing: grid-gutter,\n\
+               b(4, ral-red, \"third()\"), b(4, luma(100), \"\"), b(4, ral-red, \"third()\"))\n\
+             \n\
+             #v(12pt)\n\
+             \n\
+             == Grid-Aligned Text Columns\n\
              \n\
              Two equal columns using Typst's `columns` with `grid-gutter`:\n\
              \n\

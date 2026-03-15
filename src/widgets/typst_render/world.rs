@@ -76,9 +76,18 @@ impl GorbieWorld {
         match result.output {
             Ok(doc) => Ok(doc),
             Err(errors) => {
+                let src = &self.source;
                 let msgs: Vec<String> = errors
                     .iter()
-                    .map(|e| e.message.to_string())
+                    .map(|e| {
+                        if let Some(range) = src.range(e.span) {
+                            let snippet = &src.text()[range.start..range.end.min(src.text().len())];
+                            let snippet = &snippet[..snippet.len().min(40)];
+                            format!("{} (near {:?})", e.message, snippet)
+                        } else {
+                            e.message.to_string()
+                        }
+                    })
                     .collect();
                 Err(msgs.join("; "))
             }
