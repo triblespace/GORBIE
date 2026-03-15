@@ -9,7 +9,7 @@ Every other notebook environment tries to make notebooks easier, we try to make 
 ## Core Ideas
 A notebook is just Rust. By being fully native you can visualize huge datasets,
 build complex UIs, and leverage the entire Rust ecosystem without being forced to
-shoehorn everyting into a web browser, JavaScript and serialized JSON.
+shoehorn everything into a web browser, JavaScript and serialized JSON.
 
 This is a library, not a server. Your notebook lives in your Rust project,
 runs in-process with your existing dependencies. No separate server, no custom
@@ -37,40 +37,33 @@ Add the dependency and drop in a `main`:
 ```toml
 # Cargo.toml
 [dependencies]
-GORBIE = "0.5.3"
+GORBIE = "0.8"
 ```
 
 ```rust
 // src/main.rs
 use GORBIE::prelude::*;
-use GORBIE::cards::DEFAULT_CARD_PADDING;
 
 #[notebook]
 fn main(nb: &mut NotebookCtx) {
-    nb.view(|ui| {
-        md!(
-            ui,
-            "# GORBIE!
-This is **GORBIE!**, a _minimalist_ notebook environment for **Rust**!
-
-Development is part of the [trible.space](https://trible.space) project.
-
-![an image of 'GORBIE!' the cute alien blob and mascot of this project](https://github.com/triblespace/GORBIE/blob/main/assets/gorbie.png?raw=true)
-"
-        );
+    nb.view(|ctx| {
+        md!(ctx, "# GORBIE!\nA _minimalist_ notebook environment for **Rust**.");
     });
 
-    let slider = nb.state("slider", 0.5, |ui, value| {
-        with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
-            ui.add(widgets::Slider::new(value, 0.0..=1.0).text("input"));
+    let slider = nb.state("slider", 0.5, |ctx, value| {
+        ctx.grid(|g| {
+            g.two_thirds(|ctx| {
+                ctx.slider(value, 0.0..=1.0);
+            });
+            g.third(|ctx| {
+                ctx.number(value);
+            });
         });
     });
 
-    nb.view(move |ui| {
-        let value = slider.read(ui);
-        with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
-            ui.add(widgets::ProgressBar::new(*value).text("output"));
-        });
+    nb.view(move |ctx| {
+        let value = *slider.read(ctx);
+        ctx.progress(value);
     });
 }
 ```
@@ -94,7 +87,7 @@ header to `notebook.rs` and paste the same `main` function below it:
 #!/usr/bin/env -S watchexec -r rust-script
 //! ```cargo
 //! [dependencies]
-//! GORBIE = "0.5.3"
+//! GORBIE = "0.8"
 //! ```
 ```
 
@@ -119,9 +112,30 @@ See `GORBIE/examples` for larger notebooks and patterns. Most are runnable with
 the same `watchexec` + `rust-script` shebang.
 
 For cargo examples:
+`cargo run --example grid_demo --features typst`
 `cargo run --example polars --features polars`
 `cargo run --example pile_inspector --features gloss`
 `cargo run --example triblespace_best_practices --features triblespace`
+
+## Typst Integration
+
+Enable the `typst` feature for math and scientific typesetting:
+
+```toml
+GORBIE = { version = "0.8", features = ["typst"] }
+```
+
+```rust
+nb.view(|ctx| {
+    typst!(ctx, "= Euler's Identity\n$ e^(i pi) + 1 = 0 $");
+});
+```
+
+Typst content renders as vector geometry — sharp at any zoom level, with
+text selection, copy, and double-click support. The GORBIE grid constants
+(`grid-span`, `grid-gutter`, etc.) are available in the Typst preamble for
+grid-aligned column layouts. Compilation errors render inline as rustc-style
+diagnostics with source context and hints.
 
 # Headless capture
 To export cards without opening an interactive notebook, pass `--headless`. Each card
@@ -137,6 +151,7 @@ to settle before capturing each card (default: 2000ms).
 # Feature Flags
 GORBIE! defaults to a lean build with `markdown` enabled. Add extras as needed:
 - `markdown`: rich Markdown rendering with `md!` and `note!` (default).
+- `typst`: Typst integration — math, scientific typesetting, and full document rendering via `typst!` macro. Renders as vector geometry directly on egui's Painter (no SVG, no raster). Includes the RAL color palette, grid-aligned layout constants, text selection, and inline error diagnostics.
 - `polars`: dataframe widget (Polars + GORBIE table).
 - `triblespace`: TribleSpace widgets (commit graph, entity inspector, etc.).
 - `gloss`: heavier TribleSpace visualizations (pile overview; pulls in `rapier2d`).

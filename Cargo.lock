@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "GORBIE"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "ctrlc",
  "cubecl",
@@ -16,7 +16,7 @@ dependencies = [
  "egui-wgpu",
  "egui_plot",
  "gorbie-commonmark",
- "gorbie-macros 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gorbie-macros",
  "hifitime",
  "log",
  "parking_lot",
@@ -3072,7 +3072,7 @@ dependencies = [
 
 [[package]]
 name = "gorbie-commonmark"
-version = "0.22.1"
+version = "0.23.0"
 dependencies = [
  "egui",
  "egui_extras",
@@ -3082,7 +3082,7 @@ dependencies = [
 
 [[package]]
 name = "gorbie-commonmark-backend"
-version = "0.22.1"
+version = "0.23.0"
 dependencies = [
  "egui",
  "egui_extras",
@@ -3092,19 +3092,7 @@ dependencies = [
 
 [[package]]
 name = "gorbie-macros"
-version = "0.7.0"
-dependencies = [
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "gorbie-macros"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e773f15381569f7089bf56d8c55ba2412d2701d5a4cc6b2f777477ffd5e970c0"
+version = "0.8.0"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",

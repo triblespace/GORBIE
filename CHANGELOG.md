@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.8.0 - 2026-03-16
+- **Typst integration** (`typst` feature): compile Typst markup and render as
+  vector geometry directly on egui's Painter. Supports math (inline/display),
+  full documents, shapes, dash patterns, text stroke, even-odd fill rule, and
+  the RAL color palette. Includes AST-aware text selection, copy, and
+  double-click (opacity transition for structure, paragraph for text).
+  Grid constants (`grid-span`, `grid-gutter`, etc.) available in the Typst
+  preamble for grid-aligned column layouts. Compilation errors render inline
+  as rustc-style diagnostics with source context and hints.
+- **CardCtx convenience methods**: `slider()`, `number()`, `text_field()`,
+  `toggle()`, `small_button()`, `progress()` — shadows egui defaults with
+  GORBIE-styled widgets.
+- **Grid-native widget sizing**: NumberField and TextField snap to
+  `2 * GRID_ROW_MODULE` (24px) minimum height instead of egui's default.
+- 12-column modular grid with named spans (`full`, `half`, `third`, `quarter`,
+  `two_thirds`, `three_quarters`) and skip/furniture helpers.
+- Grid-aligned markdown heading sizes for IosevkaGorbie.
+- Widget showcase and visual grid reference in `grid_demo` example.
+
 ## Unreleased
 - Switch `telemetry` to the shared `triblespace::telemetry` implementation and
   use `TELEMETRY_*` environment variables.
