@@ -219,6 +219,8 @@ struct TypstSelection {
     anchor: Option<egui::Pos2>,
     /// Frame-relative position at the current pointer.
     cursor: Option<egui::Pos2>,
+    /// Exact glyph range override (set by double-click, bypasses 2D rect).
+    glyph_override: Option<std::ops::RangeInclusive<usize>>,
 }
 
 impl TypstSelection {
@@ -227,8 +229,13 @@ impl TypstSelection {
         Some(egui::Rect::from_two_pos(self.anchor?, self.cursor?))
     }
 
-    /// Compute the flat glyph index range from the 2D selection rect.
+    /// Compute the flat glyph index range from the 2D selection rect,
+    /// or return the exact override if set by double-click.
     fn range(&self, chars: &[painter::PositionedChar]) -> Option<std::ops::RangeInclusive<usize>> {
+        if let Some(ref r) = self.glyph_override {
+            return Some(r.clone());
+        }
+
         let sel_rect = self.sel_rect()?;
 
         let mut lo = usize::MAX;
@@ -241,6 +248,105 @@ impl TypstSelection {
         }
         if lo <= hi { Some(lo..=hi) } else { None }
     }
+}
+
+// ── Double-click helpers ─────────────────────────────────────────────
+
+/// Find the glyph whose center is nearest to `pos`.
+fn nearest_glyph(chars: &[painter::PositionedChar], pos: egui::Pos2) -> Option<usize> {
+    chars.iter().enumerate().min_by(|(_, a), (_, b)| {
+        let da = a.rect.center().distance_sq(pos);
+        let db = b.rect.center().distance_sq(pos);
+        da.partial_cmp(&db).unwrap()
+    }).map(|(i, _)| i)
+}
+
+/// Double-click glyph range: walk up the AST and stop at the
+/// opacity transition boundary (transparent↔opaque).
+///
+/// - Opaque leaf (math): walks through opaque ancestors, stops when
+///   hitting transparent → selects the whole formula/equation.
+/// - Transparent leaf in opaque parent (table cell): walks through
+///   transparent nodes, stops at first opaque → selects the cell.
+/// - All transparent (plain text): falls back to word boundaries.
+fn double_click_range(
+    source: &typst::syntax::Source,
+    chars: &[painter::PositionedChar],
+    idx: usize,
+) -> (usize, usize) {
+    if let Some(node) = source.find(chars[idx].span.0) {
+        let mut current = &node;
+        loop {
+            let opaque = !is_transparent(current.kind());
+            match current.parent() {
+                Some(parent) => {
+                    let parent_opaque = !is_transparent(parent.kind());
+                    // Opacity transition — select whichever side is opaque.
+                    if opaque != parent_opaque {
+                        let target = if opaque { current.range() } else { parent.range() };
+                        let (mut lo, mut hi) = (usize::MAX, 0usize);
+                        for (i, ch) in chars.iter().enumerate() {
+                            if let Some(r) = source.range(ch.span.0) {
+                                if r.start >= target.start && r.end <= target.end {
+                                    lo = lo.min(i);
+                                    hi = hi.max(i);
+                                }
+                            }
+                        }
+                        if lo <= hi { return (lo, hi); }
+                        break;
+                    }
+                    current = parent;
+                }
+                None => break,
+            }
+        }
+    }
+
+    // All transparent — select paragraph via AST sibling walk.
+    // Walk up until the parent is Markup, then expand siblings
+    // until hitting a paragraph boundary.
+    if let Some(node) = source.find(chars[idx].span.0) {
+        let mut current = &node;
+        loop {
+            match current.parent() {
+                Some(parent) if parent.kind() == SyntaxKind::Markup => {
+                    // current is a direct child of Markup.
+                    let child_idx = current.index();
+                    let children: Vec<_> = parent.children().collect();
+                    let is_boundary = |k: SyntaxKind| matches!(
+                        k,
+                        SyntaxKind::Parbreak | SyntaxKind::Heading
+                            | SyntaxKind::ListItem | SyntaxKind::Equation
+                    );
+                    let mut start = child_idx;
+                    while start > 0 && !is_boundary(children[start - 1].kind()) {
+                        start -= 1;
+                    }
+                    let mut end = child_idx;
+                    while end + 1 < children.len() && !is_boundary(children[end + 1].kind()) {
+                        end += 1;
+                    }
+                    let byte_start = children[start].range().start;
+                    let byte_end = children[end].range().end;
+                    let (mut lo, mut hi) = (usize::MAX, 0usize);
+                    for (i, ch) in chars.iter().enumerate() {
+                        if let Some(r) = source.range(ch.span.0) {
+                            if r.start >= byte_start && r.end <= byte_end {
+                                lo = lo.min(i);
+                                hi = hi.max(i);
+                            }
+                        }
+                    }
+                    if lo <= hi { return (lo, hi); }
+                    break;
+                }
+                Some(parent) => current = parent,
+                None => break,
+            }
+        }
+    }
+    (idx, idx)
 }
 
 // ── AST-based selection ──────────────────────────────────────────────
@@ -535,13 +641,28 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str) {
             egui::Rect::NOTHING
         };
 
+        let source = state.world.main_source();
+
         if has_text {
             // Show text cursor when hovering over text content.
             if response.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
             }
 
-            if response.drag_started() {
+            if response.double_clicked() {
+                // AST-aware selection: opaque nodes (math, tables) select
+                // the whole node; transparent text falls back to word.
+                if let Some(pos) = response.interact_pointer_pos() {
+                    let frame_pos = pos - offset;
+                    if let Some(idx) = nearest_glyph(chars, frame_pos) {
+                        let (lo, hi) = double_click_range(source, chars, idx);
+                        sel.glyph_override = Some(lo..=hi);
+                        sel.anchor = Some(chars[lo].rect.left_center());
+                        sel.cursor = Some(chars[hi].rect.right_center());
+                    }
+                }
+            } else if response.drag_started() {
+                sel.glyph_override = None;
                 if let Some(pos) = response.interact_pointer_pos() {
                     let frame_pos = pos - offset;
                     sel.anchor = Some(frame_pos);
@@ -559,15 +680,14 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str) {
                 ui.ctx().input_mut(|i| i.smooth_scroll_delta = egui::Vec2::ZERO);
             }
 
-            // Clear selection on click without drag.
-            if response.clicked() && !response.dragged() {
+            // Clear selection on single click (not double-click, not drag).
+            if response.clicked() && !response.double_clicked() && !response.dragged() {
                 sel = TypstSelection::default();
             }
         }
 
         // ── AST selection ─────────────────────────────────────────
         let glyph_range = sel.range(chars);
-        let source = state.world.main_source();
 
         let ast_sel = if let Some(ref range) = glyph_range {
             ast_select(source, chars, range)
