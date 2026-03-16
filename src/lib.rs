@@ -728,11 +728,7 @@ impl eframe::App for Notebook {
                                         let card: &mut dyn cards::Card = entry.card.as_mut();
                                         let card_rect = if *card_detached {
                                             let placeholder_height =
-                                                if card_placeholder_size.y > 0.0 {
-                                                    card_placeholder_size.y
-                                                } else {
-                                                    120.0
-                                                };
+                                                crate::card_ctx::GRID_ROW_MODULE;
                                             let placeholder_width = card_width;
                                             let (rect, resp) = ui.allocate_exact_size(
                                                 egui::vec2(placeholder_width, placeholder_height),
@@ -841,7 +837,7 @@ impl eframe::App for Notebook {
                                             && entry.source.is_some()
                                             && config.editor.is_some();
                                         if show_detach_button {
-                                            let tab_size = egui::vec2(20.0, 32.0);
+                                            let tab_size = egui::vec2(20.0, 2.0 * crate::card_ctx::GRID_ROW_MODULE);
                                             let tab_pull = 4.0;
                                             let base_tab_gap = 4.0;
                                             let base_top_offset = 8.0;
@@ -1199,11 +1195,11 @@ impl eframe::App for Notebook {
                                                             frame.paint(content_rect),
                                                         );
 
-                                                        let handle_height = 18.0;
+                                                        let handle_height = crate::card_ctx::GRID_ROW_MODULE;
                                                         let handle_rect = egui::Rect::from_min_size(
-                                                            card_rect.min,
+                                                            content_rect.min,
                                                             egui::vec2(
-                                                                card_rect.width(),
+                                                                content_rect.width(),
                                                                 handle_height,
                                                             ),
                                                         );
@@ -1235,16 +1231,13 @@ impl eframe::App for Notebook {
                                                                 stripe_color,
                                                             );
                                                             let stripe_x = handle_rect.x_range();
-                                                            let stripe_padding = 3.0;
                                                             let stripe_spacing = 3.0;
                                                             let mut stripe_y = handle_rect.top()
-                                                                + stripe_padding;
-                                                            let painter = ui
-                                                                .painter()
-                                                                .with_clip_rect(handle_rect);
+                                                                + stripe_spacing
+                                                                - stripe_stroke.width * 0.5;
+                                                            let painter = ui.painter();
                                                             while stripe_y
                                                                 <= handle_rect.bottom()
-                                                                    - stripe_padding
                                                             {
                                                                 painter.hline(
                                                                     stripe_x,
