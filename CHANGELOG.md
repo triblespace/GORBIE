@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.8.2 - 2026-03-16
+- **Collapsed detached placeholders**: detached cards leave a slim 12px
+  (GRID_ROW_MODULE) hatched strip instead of reserving full card height.
+- **Grid-aligned card chrome**: detach/open-in-editor tab buttons (24px),
+  drag handle (12px), and handle stripes all snap to the grid module.
+
 ## 0.8.1 - 2026-03-16
 - **Clickable Typst links**: `#link()` and auto-detected URLs are now
   interactive — pointer changes to a hand cursor on hover and click opens
