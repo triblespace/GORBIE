@@ -5,7 +5,6 @@
 //! egui = "0.33"
 //! ```
 
-use GORBIE::cards::with_padding;
 use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::widgets;
@@ -14,26 +13,26 @@ use GORBIE::NotebookCtx;
 #[notebook]
 fn main(nb: &mut NotebookCtx) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    nb.view(|ui| {
+    nb.view(|ctx| {
         md!(
-            ui,
+            ctx,
             "# Candle
 In this notebook we're going to use huggingfaces `candle` crate, to create a simple prompt based chatbot."
         );
     });
-    let _prompt = nb.state("prompt", "", move |ui, value| {
-        with_padding(ui, padding, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Prompt:");
-                ui.add(widgets::TextField::singleline(value));
-                if ui.button("Send").clicked() {
+    let _prompt = nb.state("prompt", "", move |ctx, value| {
+        ctx.with_padding(padding, |ctx| {
+            ctx.horizontal(|ctx| {
+                ctx.label("Prompt:");
+                ctx.add(widgets::TextField::singleline(value));
+                if ctx.button("Send").clicked() {
                     // send the prompt to the chatbot
                 }
             });
         });
     });
 
-    nb.view(move |ui| {
-        with_padding(ui, padding, |_ui| {});
+    nb.view(move |ctx| {
+        ctx.with_padding(padding, |_ctx| {});
     });
 }

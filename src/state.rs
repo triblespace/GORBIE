@@ -7,7 +7,6 @@ use eframe::egui;
 use parking_lot::RawRwLock;
 use parking_lot::RwLock;
 
-use crate::CardCtx;
 
 pub type ArcReadGuard<T> = parking_lot::lock_api::ArcRwLockReadGuard<RawRwLock, T>;
 pub type ArcWriteGuard<T> = parking_lot::lock_api::ArcRwLockWriteGuard<RawRwLock, T>;
@@ -119,20 +118,29 @@ impl<T> StateId<T> {
     }
 }
 
+/// Trait for anything that provides access to the shared [`StateStore`].
+///
+/// Both [`CardCtx`] (inside card closures) and
+/// [`NotebookCtx`](crate::NotebookCtx) (in the notebook body) implement
+/// this, so [`StateId::read`] and friends work uniformly with either.
+pub trait StateAccess {
+    fn store(&self) -> &StateStore;
+}
+
 impl<T: Send + Sync + 'static> StateId<T> {
-    pub fn read(self, ctx: &CardCtx<'_>) -> ArcReadGuard<T> {
+    pub fn read(self, ctx: &impl StateAccess) -> ArcReadGuard<T> {
         ctx.store().read(self)
     }
 
-    pub fn try_read(self, ctx: &CardCtx<'_>) -> Option<ArcReadGuard<T>> {
+    pub fn try_read(self, ctx: &impl StateAccess) -> Option<ArcReadGuard<T>> {
         ctx.store().try_read(self)
     }
 
-    pub fn read_mut(self, ctx: &CardCtx<'_>) -> ArcWriteGuard<T> {
+    pub fn read_mut(self, ctx: &impl StateAccess) -> ArcWriteGuard<T> {
         ctx.store().read_mut(self)
     }
 
-    pub fn try_read_mut(self, ctx: &CardCtx<'_>) -> Option<ArcWriteGuard<T>> {
+    pub fn try_read_mut(self, ctx: &impl StateAccess) -> Option<ArcWriteGuard<T>> {
         ctx.store().try_read_mut(self)
     }
 }

@@ -301,6 +301,73 @@ impl<'a> CardCtx<'a> {
     }
 }
 
+/// Response from [`CardCtx::float`].
+pub struct FloatResponse {
+    /// `true` if the user clicked the drag handle to dismiss the float.
+    pub closed: bool,
+}
+
+impl<'a> CardCtx<'a> {
+    /// Spawn a floating card at the current mouse position (on first show).
+    ///
+    /// The float renders as a GORBIE card with drag handle and shadow, hovering
+    /// above the notebook. Clicking the drag handle dismisses it (returns
+    /// `closed = true`). Dragging the handle repositions it.
+    ///
+    /// Use [`push_id`](Self::push_id) to give each float a unique identity
+    /// when creating multiple floats in a loop.
+    ///
+    /// ```ignore
+    /// for page in &state.pages {
+    ///     ctx.push_id(page.id, |ctx| {
+    ///         let resp = ctx.float(|ctx| {
+    ///             ctx.markdown(&page.content);
+    ///         });
+    ///         if resp.closed {
+    ///             close_page(page.id);
+    ///         }
+    ///     });
+    /// }
+    /// ```
+    #[track_caller]
+    pub fn float(
+        &mut self,
+        add_contents: impl FnOnce(&mut CardCtx<'_>),
+    ) -> FloatResponse {
+        let float_id = self.ui.id().with("gorbie_float");
+        let initial_pos = self.ui.ctx().input(|i| {
+            i.pointer.hover_pos().unwrap_or(egui::pos2(100.0, 100.0))
+        });
+
+        let card_width = crate::NOTEBOOK_COLUMN_WIDTH;
+        let store = self.store;
+        let mut add_contents = Some(add_contents);
+
+        let resp = crate::floating::show_floating_card(
+            self.ui.ctx(),
+            float_id,
+            initial_pos,
+            card_width,
+            0.0,
+            store,
+            "Close",
+            &mut |ctx| {
+                if let Some(f) = add_contents.take() {
+                    f(ctx);
+                }
+            },
+        );
+
+        FloatResponse { closed: resp.handle_clicked }
+    }
+}
+
+impl<'a> state::StateAccess for CardCtx<'a> {
+    fn store(&self) -> &state::StateStore {
+        self.store
+    }
+}
+
 impl<'a> Deref for CardCtx<'a> {
     type Target = egui::Ui;
 

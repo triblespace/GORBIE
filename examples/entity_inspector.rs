@@ -329,19 +329,19 @@ fn main(nb: &mut NotebookCtx) {
             node_count: 0,
         },
         move |ui, state| {
-            with_padding(ui, padding, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("COLUMNS").monospace().strong());
+            ui.with_padding(padding, |ctx| {
+                ctx.horizontal(|ctx| {
+                    ctx.label(egui::RichText::new("COLUMNS").monospace().strong());
                     let max_columns = state.node_count.max(1);
                     let constrain = |_: usize, next: usize| next.min(max_columns);
-                    ui.add(
+                    ctx.add(
                         widgets::NumberField::new(&mut state.columns)
                             .speed(0.25)
                             .constrain_value(&constrain),
                     );
-                    ui.label(egui::RichText::new("(0 = auto)").monospace().weak());
+                    ctx.label(egui::RichText::new("(0 = auto)").monospace().weak());
                 });
-                ui.add_space(8.0);
+                ctx.add_space(8.0);
 
                 let response = EntityInspectorWidget::new(
                     &data,
@@ -351,7 +351,7 @@ fn main(nb: &mut NotebookCtx) {
                     &mut state.selected,
                 )
                 .columns(state.columns)
-                .show(ui);
+                .show(ctx);
 
                 let stats = response.stats;
                 state.node_count = stats.nodes;
@@ -380,8 +380,8 @@ _Routing: {:.1} turns avg (max {}) • span {:.1} cols (max {}) • {} left • 
                     stats.left_edges,
                     stats.fallback_tracks,
                 );
-                widgets::markdown(ui, &metrics);
-                ui.add_space(8.0);
+                ctx.markdown(&metrics);
+                ctx.add_space(8.0);
             });
         },
     );

@@ -21,7 +21,6 @@ use triblespace::macros::{find, pattern};
 use triblespace::prelude::View;
 
 use GORBIE::NotebookCtx;
-use GORBIE::cards::with_padding;
 use GORBIE::dataflow::ComputedState;
 use GORBIE::themes;
 use GORBIE::widgets;
@@ -103,7 +102,8 @@ impl RepoCache {
                 let _ = pile.close();
                 return Err(format!("restore pile: {err:?}"));
             }
-            let repo = Repository::new(pile, self.signing_key.clone());
+            let repo = Repository::new(pile, self.signing_key.clone(), TribleSet::new())
+                .map_err(|err| format!("create repository: {err:?}"))?;
             self.repo = Some(RepoGuard::new(repo));
             self.open_path = Some(open_path);
         }
@@ -1068,15 +1068,15 @@ pub fn notebook(nb: &mut NotebookCtx) {
         .and_then(|hex| triblespace::core::id::Id::from_hex(hex.trim()));
 
     let repo_state = nb.state("repo", PileRepoState::new(pile_path), move |ui, repo| {
-        with_padding(ui, padding, |ui| {
-            ui.heading("Pile");
-            PileRepoWidget::new(repo).show(ui);
+        ui.with_padding(padding, |ctx| {
+            ctx.heading("Pile");
+            PileRepoWidget::new(repo).show(ctx);
         });
     });
 
     nb.state("viewer", ViewerState::default(), move |ui, state| {
         let mut repo_state_guard = repo_state.read_mut(ui);
-        with_padding(ui, padding, |ui| {
+        ui.with_padding(padding, |ctx| {
             state.session.poll();
 
             {
@@ -1100,7 +1100,7 @@ pub fn notebook(nb: &mut NotebookCtx) {
                 }
             }
 
-            ui.horizontal(|ui| {
+            ctx.horizontal(|ui| {
                 widgets::row_label(ui, "Branch prefix:");
                 ui.add_sized(
                     [ui.available_width(), 0.0],
@@ -1108,9 +1108,9 @@ pub fn notebook(nb: &mut NotebookCtx) {
                 );
             });
 
-            ui.add_space(8.0);
+            ctx.add_space(8.0);
 
-            ui.horizontal_wrapped(|ui| {
+            ctx.horizontal_wrapped(|ui| {
                 let repo_open = repo_state_guard.is_open();
 
                 if repo_open {
@@ -1192,8 +1192,8 @@ pub fn notebook(nb: &mut NotebookCtx) {
             }
 
             if !state.sessions.is_empty() {
-                ui.add_space(4.0);
-                ui.horizontal_wrapped(|ui| {
+                ctx.add_space(4.0);
+                ctx.horizontal_wrapped(|ui| {
                     widgets::row_label(ui, "Session:");
                     egui::ComboBox::from_id_salt("telemetry_session")
                         .selected_text(
@@ -1216,8 +1216,8 @@ pub fn notebook(nb: &mut NotebookCtx) {
                 });
             }
 
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
+            ctx.add_space(6.0);
+            ctx.horizontal(|ui| {
                 widgets::row_label(ui, "Filter:");
                 ui.add_sized(
                     [ui.available_width(), 0.0],
@@ -1225,8 +1225,8 @@ pub fn notebook(nb: &mut NotebookCtx) {
                 )
                 .on_hover_text("Case-insensitive substring filter (matches name/source/category).");
             });
-            ui.add_space(6.0);
-            ui.horizontal_wrapped(|ui| {
+            ctx.add_space(6.0);
+            ctx.horizontal_wrapped(|ui| {
                 widgets::row_label(ui, "Min duration(ms):");
                 ui.add(
                     widgets::NumberField::new(&mut state.min_duration_ms)
@@ -1282,12 +1282,12 @@ pub fn notebook(nb: &mut NotebookCtx) {
                             loader.refresh(pile_path, branch_id, session_filter);
                             loader
                         });
-                        ui.ctx().request_repaint_after(Duration::from_millis(50));
+                        ctx.ctx().request_repaint_after(Duration::from_millis(50));
                     }
                 }
             }
 
-            ui.add_space(10.0);
+            ctx.add_space(10.0);
 
             match state.session.value().result.as_ref() {
                 None => {
@@ -1303,7 +1303,7 @@ pub fn notebook(nb: &mut NotebookCtx) {
                                 ..
                             } = state;
                             show_snapshot(
-                                ui,
+                                ctx,
                                 flame_mode,
                                 flame_zoom,
                                 selected_span,
@@ -1313,10 +1313,10 @@ pub fn notebook(nb: &mut NotebookCtx) {
                                 *min_duration_ms,
                             );
                         } else {
-                            ui.label(egui::RichText::new("Loading…").italics().small());
+                            ctx.label(egui::RichText::new("Loading…").italics().small());
                         }
                     } else {
-                        ui.label(
+                        ctx.label(
                             egui::RichText::new(
                                 "No session loaded (open pile and select a session).",
                             )
@@ -1326,9 +1326,10 @@ pub fn notebook(nb: &mut NotebookCtx) {
                     }
                 }
                 Some(Err(err)) => {
-                    ui.label(
+                    let error_color = ctx.visuals().error_fg_color;
+                    ctx.label(
                         egui::RichText::new(err)
-                            .color(ui.visuals().error_fg_color)
+                            .color(error_color)
                             .monospace(),
                     );
                 }
@@ -1349,7 +1350,7 @@ pub fn notebook(nb: &mut NotebookCtx) {
                             ..
                         } = state;
                         show_snapshot(
-                            ui,
+                            ctx,
                             flame_mode,
                             flame_zoom,
                             selected_span,
@@ -1369,7 +1370,7 @@ pub fn notebook(nb: &mut NotebookCtx) {
                     .and_then(|s| s.parse::<u64>().ok())
                     .unwrap_or(250)
                     .max(10);
-                ui.ctx()
+                ctx.ctx()
                     .request_repaint_after(Duration::from_millis(poll_ms));
             }
         });

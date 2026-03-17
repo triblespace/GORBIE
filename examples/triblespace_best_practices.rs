@@ -25,7 +25,6 @@ use triblespace::macros::{find, pattern};
 use triblespace::prelude::View;
 use triblespace::prelude::blobschemas::LongString;
 
-use GORBIE::cards::with_padding;
 use GORBIE::notebook;
 use GORBIE::widgets;
 use GORBIE::widgets::triblespace::{PileRepoState, PileRepoWidget};
@@ -201,23 +200,23 @@ fn main(nb: &mut NotebookCtx) {
         .nth(1)
         .unwrap_or_else(|| "./repo.pile".to_owned());
 
-    nb.view(|ui| {
+    nb.view(|ctx| {
         widgets::markdown(
-            ui,
+            ctx,
             "# TribleSpace + GORBIE best practices\n\nThis notebook demonstrates a simple pattern for *live* TribleSpace views inside a GORBIE notebook.\n\nKey ideas:\n- Keep the `.pile` open in notebook state.\n- Call `repo.pull(...)` repeatedly (even every frame). The underlying `Pile` refreshes branch heads internally.\n- Use `ws.checkout(prev_head..)` to load only deltas and incrementally update your own derived indices.\n- If you need heavier work, do it in a background thread (see `ComputedState`).\n\nThis keeps your notebook responsive even when the underlying history grows.\n",
         );
     });
 
-    let repo_state = nb.state("repo", PileRepoState::new(pile_path), move |ui, repo| {
-        with_padding(ui, padding, |ui| {
-            ui.heading("Pile");
-            PileRepoWidget::new(repo).show(ui);
+    let repo_state = nb.state("repo", PileRepoState::new(pile_path), move |ctx, repo| {
+        ctx.with_padding(padding, |ctx| {
+            ctx.heading("Pile");
+            PileRepoWidget::new(repo).show(ctx);
         });
     });
 
-    nb.state("state", BranchCardState::default(), move |ui, state| {
-        let mut repo_state_guard = repo_state.read_mut(ui);
-        with_padding(ui, padding, |ui| {
+    nb.state("state", BranchCardState::default(), move |ctx, state| {
+        let mut repo_state_guard = repo_state.read_mut(ctx);
+        ctx.with_padding(padding, |ctx| {
             {
                 let open_path = repo_state_guard.open_path().map(|p| p.to_path_buf());
                 let is_open = repo_state_guard.is_open();
@@ -228,18 +227,19 @@ fn main(nb: &mut NotebookCtx) {
                 }
             }
 
-            ui.horizontal(|ui| {
-                ui.label("Branch prefix:");
-                ui.add_sized(
-                    [ui.available_width(), 0.0],
+            ctx.horizontal(|ctx| {
+                ctx.label("Branch prefix:");
+                let w = ctx.available_width();
+                ctx.add_sized(
+                    [w, 0.0],
                     widgets::TextField::singleline(&mut state.branch_prefix),
                 );
             });
 
-            ui.add_space(10.0);
+            ctx.add_space(10.0);
 
             if !state.last_repo_open {
-                ui.label(egui::RichText::new("Open a pile to start.").italics().small());
+                ctx.label(egui::RichText::new("Open a pile to start.").italics().small());
                 return;
             }
 
@@ -254,11 +254,11 @@ fn main(nb: &mut NotebookCtx) {
                 }
             }
 
-            ui.horizontal_wrapped(|ui| {
-                ui.label("Mode:");
-                ui.add(widgets::ChoiceToggle::binary(&mut state.live, "PAUSED", "LIVE"));
+            ctx.horizontal_wrapped(|ctx| {
+                ctx.label("Mode:");
+                ctx.add(widgets::ChoiceToggle::binary(&mut state.live, "PAUSED", "LIVE"));
 
-                if ui.add(widgets::Button::new("Scan branches")).clicked() {
+                if ctx.add(widgets::Button::new("Scan branches")).clicked() {
                     if let Some(repo) = repo_state_guard.repo_mut() {
                         match scan_branches(repo, state.branch_prefix.trim()) {
                             Ok(branches) => {
@@ -272,8 +272,8 @@ fn main(nb: &mut NotebookCtx) {
                     }
                 }
 
-                ui.add_space(12.0);
-                ui.label("Session:");
+                ctx.add_space(12.0);
+                ctx.label("Session:");
                 egui::ComboBox::from_id_salt("branch_selector")
                     .selected_text(
                         state
@@ -282,7 +282,7 @@ fn main(nb: &mut NotebookCtx) {
                             .map(|b| b.name.as_str())
                             .unwrap_or("<none>"),
                     )
-                    .show_ui(ui, |ui| {
+                    .show_ui(ctx, |ui| {
                         for (idx, branch) in state.branches.iter().enumerate() {
                             let selected = state.selected == Some(idx);
                             if ui.selectable_label(selected, &branch.name).clicked() {
@@ -297,15 +297,16 @@ fn main(nb: &mut NotebookCtx) {
             });
 
             if let Some(err) = state.last_error.as_deref() {
-                ui.add_space(8.0);
-                ui.label(
+                ctx.add_space(8.0);
+                let color = ctx.visuals().error_fg_color;
+                ctx.label(
                     egui::RichText::new(err)
-                        .color(ui.visuals().error_fg_color)
+                        .color(color)
                         .monospace(),
                 );
             }
 
-            ui.add_space(10.0);
+            ctx.add_space(10.0);
 
             if state.live {
                 if let Some(repo) = repo_state_guard.repo_mut() {
@@ -320,20 +321,20 @@ fn main(nb: &mut NotebookCtx) {
                     )
                     .err();
                 }
-                ui.ctx().request_repaint();
+                ctx.ctx().request_repaint();
             }
 
-            ui.heading("Live snapshot");
-            ui.add_space(4.0);
+            ctx.heading("Live snapshot");
+            ctx.add_space(4.0);
 
             let head_label = state
                 .last_head
                 .map(fmt_commit_prefix)
                 .unwrap_or_else(|| "<none>".to_owned());
-            ui.label(format!("Head: {head_label}"));
-            ui.label(format!("Delta tribles: {}", state.last_delta_tribles));
+            ctx.label(format!("Head: {head_label}"));
+            ctx.label(format!("Delta tribles: {}", state.last_delta_tribles));
             if let Some(ts) = state.last_head_ts_ms {
-                ui.label(format!("Last commit age: {} ms", now_ms().saturating_sub(ts)));
+                ctx.label(format!("Last commit age: {} ms", now_ms().saturating_sub(ts)));
             }
         });
     });

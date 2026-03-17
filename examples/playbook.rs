@@ -8,7 +8,6 @@
 
 use egui::Color32;
 use egui::{self};
-use GORBIE::cards::with_padding;
 use GORBIE::md;
 use GORBIE::notebook;
 use GORBIE::widgets;
@@ -474,16 +473,16 @@ impl Default for FocusTarget {
 #[notebook]
 fn main(nb: &mut NotebookCtx) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    nb.view(move |ui| {
+    nb.view(move |ctx| {
         // Introduction
         md!(
-            ui,
+            ctx,
             "# Palette Playbook\n\nBase tokens map semantic roles → RAL paint chips. Derived colors are small blends on top."
         );
     });
 
-    nb.view(move |ui| {
-        with_padding(ui, padding, |ui| {
+    nb.view(move |ctx| {
+        ctx.with_padding(padding, |ctx| {
             let light_foreground = GORBIE::themes::ral(9011);
             let light_background = GORBIE::themes::ral(7047);
             let light_surface = GORBIE::themes::ral(7047);
@@ -501,11 +500,11 @@ fn main(nb: &mut NotebookCtx) {
             let dark_border = blend(dark_foreground, dark_background, 0.4);
             let dark_control_fill_hover = blend(dark_background, dark_foreground, 0.05);
 
-            ui.label(egui::RichText::new("TOKENS").monospace().strong());
+            ctx.label(egui::RichText::new("TOKENS").monospace().strong());
             egui::Grid::new("palette_tokens")
                 .num_columns(3)
                 .spacing(egui::vec2(16.0, 6.0))
-                .show(ui, |ui| {
+                .show(ctx.ui_mut(), |ui| {
                     ui.label("");
                     ui.monospace("LIGHT");
                     ui.monospace("DARK");
@@ -532,7 +531,7 @@ fn main(nb: &mut NotebookCtx) {
                     ui.end_row();
                 });
 
-            ui.collapsing(egui::RichText::new("DERIVED").monospace(), |ui| {
+            ctx.ui_mut().collapsing(egui::RichText::new("DERIVED").monospace(), |ui| {
                 egui::Grid::new("palette_derived")
                     .num_columns(3)
                     .spacing(egui::vec2(16.0, 6.0))
@@ -559,13 +558,13 @@ fn main(nb: &mut NotebookCtx) {
                     });
             });
 
-            ui.add_space(12.0);
-            ui.label(egui::RichText::new("SUBWAY LINES").monospace().strong());
-            ui.add_space(6.0);
+            ctx.add_space(12.0);
+            ctx.label(egui::RichText::new("SUBWAY LINES").monospace().strong());
+            ctx.add_space(6.0);
             let subway_palette = [1003, 2010, 3001, 4008, 5005, 6032, 3014];
-            ui.horizontal_wrapped(|ui| {
+            ctx.horizontal_wrapped(|ctx| {
                 for code in subway_palette {
-                    ral_cell(ui, code);
+                    ral_cell(ctx, code);
                 }
             });
         });
@@ -574,20 +573,20 @@ fn main(nb: &mut NotebookCtx) {
     let _palette_state = nb.state(
         "palette_state",
         PaletteState::default(),
-        move |ui, state| {
-            with_padding(ui, padding, |ui| {
-                ui.label(egui::RichText::new("RAL PICKER").monospace().strong());
-                ui.add_space(12.0);
+        move |ctx, state| {
+            ctx.with_padding(padding, |ctx| {
+                ctx.label(egui::RichText::new("RAL PICKER").monospace().strong());
+                ctx.add_space(12.0);
 
-                let histogram_size = rgb_histogram_editor_size(ui);
+                let histogram_size = rgb_histogram_editor_size(ctx);
                 let preview_size = egui::vec2(histogram_size.y, histogram_size.y);
 
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                ctx.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ctx| {
                     let (preview_rect, preview_resp) =
-                        ui.allocate_exact_size(preview_size, egui::Sense::hover());
-                    ui.add_space(16.0);
+                        ctx.allocate_exact_size(preview_size, egui::Sense::hover());
+                    ctx.add_space(16.0);
 
-                    let rgb_edit = rgb_histogram_editor(ui, &mut state.rgb);
+                    let rgb_edit = rgb_histogram_editor(ctx, &mut state.rgb);
                     if rgb_edit.changed || rgb_edit.interaction_ended {
                         state.ral_code = closest_ral_from_rgb(state.rgb);
                     }
@@ -597,8 +596,8 @@ fn main(nb: &mut NotebookCtx) {
                         }
                     }
 
-                    ui.add_space(24.0);
-                    ui.vertical(|ui| {
+                    ctx.add_space(24.0);
+                    ctx.ui_mut().vertical(|ui| {
                         ui.horizontal(|ui| {
                             ui.monospace("RAL");
                             let ral_response = ui.add(
@@ -631,12 +630,13 @@ fn main(nb: &mut NotebookCtx) {
 
                     let color = Color32::from_rgb(state.rgb[0], state.rgb[1], state.rgb[2]);
                     let hex = to_hex(color);
-                    if ui.is_rect_visible(preview_rect) {
-                        ui.painter().rect_filled(preview_rect, 0.0, color);
-                        ui.painter().rect_stroke(
+                    if ctx.is_rect_visible(preview_rect) {
+                        ctx.painter().rect_filled(preview_rect, 0.0, color);
+                        let window_stroke = ctx.visuals().window_stroke;
+                        ctx.painter().rect_stroke(
                             preview_rect,
                             0.0,
-                            ui.visuals().window_stroke,
+                            window_stroke,
                             egui::StrokeKind::Inside,
                         );
                     }
@@ -652,9 +652,9 @@ fn main(nb: &mut NotebookCtx) {
         },
     );
 
-    nb.view(move |ui| {
+    nb.view(move |ctx| {
         md!(
-            ui,
+            ctx,
             "## Widget Playbook\n\nA quick showcase of our custom widgets. The value is normalized to `[0, 1]`."
         );
     });
@@ -662,60 +662,60 @@ fn main(nb: &mut NotebookCtx) {
     let widget_state = nb.state(
         "widget_state",
         WidgetPlaybookState::default(),
-        move |ui, state| {
-            with_padding(ui, padding, |ui| {
-                ui.label(egui::RichText::new("BUTTONS").monospace().strong());
-                ui.horizontal(|ui| {
-                    let _ = ui.add(widgets::Button::new("BUTTON"));
-                    let _ = ui.add(widgets::Button::new("SMALL").small());
-                    ui.add_enabled(false, widgets::Button::new("DISABLED"));
-                    let _ = ui.add(widgets::Button::new("SELECTED").selected(true));
-                    let _ = ui.add(widgets::ToggleButton::new(&mut state.toggle_on, "TOGGLE"));
+        move |ctx, state| {
+            ctx.with_padding(padding, |ctx| {
+                ctx.label(egui::RichText::new("BUTTONS").monospace().strong());
+                ctx.horizontal(|ctx| {
+                    let _ = ctx.add(widgets::Button::new("BUTTON"));
+                    let _ = ctx.add(widgets::Button::new("SMALL").small());
+                    ctx.add_enabled(false, widgets::Button::new("DISABLED"));
+                    let _ = ctx.add(widgets::Button::new("SELECTED").selected(true));
+                    let _ = ctx.add(widgets::ToggleButton::new(&mut state.toggle_on, "TOGGLE"));
                 });
 
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("CHOICE TOGGLE").monospace().strong());
-                ui.horizontal(|ui| {
-                    ui.add(widgets::ChoiceToggle::binary(
+                ctx.add_space(12.0);
+                ctx.label(egui::RichText::new("CHOICE TOGGLE").monospace().strong());
+                ctx.horizontal(|ctx| {
+                    ctx.add(widgets::ChoiceToggle::binary(
                         &mut state.metric_bytes,
                         "COUNT",
                         "BYTES",
                     ));
                 });
 
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("RADIO").monospace().strong());
-                ui.horizontal(|ui| {
-                    ui.add(widgets::RadioButton::new(
+                ctx.add_space(12.0);
+                ctx.label(egui::RichText::new("RADIO").monospace().strong());
+                ctx.horizontal(|ctx| {
+                    ctx.add(widgets::RadioButton::new(
                         &mut state.radio_choice,
                         RadioChoice::Alpha,
                         "ALPHA",
                     ));
-                    ui.add(widgets::RadioButton::new(
+                    ctx.add(widgets::RadioButton::new(
                         &mut state.radio_choice,
                         RadioChoice::Beta,
                         "BETA",
                     ));
-                    ui.add(widgets::RadioButton::new(
+                    ctx.add(widgets::RadioButton::new(
                         &mut state.radio_choice,
                         RadioChoice::Gamma,
                         "GAMMA",
                     ));
                 });
 
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("ROW ALIGNMENT").monospace().strong());
+                ctx.add_space(12.0);
+                ctx.label(egui::RichText::new("ROW ALIGNMENT").monospace().strong());
                 let mut number_id = None;
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    let _ = widgets::row_label(ui, egui::RichText::new("LEVEL").monospace());
-                    let slider_response = ui.add(
+                ctx.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ctx| {
+                    let _ = widgets::row_label(ctx, egui::RichText::new("LEVEL").monospace());
+                    let slider_response = ctx.add(
                         widgets::Slider::new(&mut state.progress, 0.0..=1.0).show_value(false),
                     );
                     if slider_response.changed() {
                         state.level_percent = state.progress as f64 * 100.0;
                     }
-                    ui.add_space(8.0);
-                    let number_response = ui.add(
+                    ctx.add_space(8.0);
+                    let number_response = ctx.add(
                         widgets::NumberField::new(&mut state.level_percent)
                             .suffix("%")
                             .min_decimals(0)
@@ -727,14 +727,14 @@ fn main(nb: &mut NotebookCtx) {
                         state.progress = (state.level_percent / 100.0) as f32;
                     }
                     number_id = Some(number_response.id);
-                    ui.add_space(8.0);
-                    let _ = ui.add(widgets::Button::new("APPLY").small());
+                    ctx.add_space(8.0);
+                    let _ = ctx.add(widgets::Button::new("APPLY").small());
                 });
 
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("FOCUS").monospace().strong());
-                ui.horizontal(|ui| {
-                    ui.add(
+                ctx.add_space(12.0);
+                ctx.label(egui::RichText::new("FOCUS").monospace().strong());
+                ctx.horizontal(|ctx| {
+                    ctx.add(
                         widgets::ChoiceToggle::new(&mut state.focus_target)
                             .choice(FocusTarget::None, "NONE")
                             .choice(FocusTarget::NumberField, "NUMBER")
@@ -744,11 +744,11 @@ fn main(nb: &mut NotebookCtx) {
                     );
                 });
 
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("TEXT FIELDS").monospace().strong());
-                let line_response = ui.add(widgets::TextField::singleline(&mut state.line_text));
-                ui.add_space(8.0);
-                let multi_response = ui.add(widgets::TextField::multiline(&mut state.multi_text));
+                ctx.add_space(12.0);
+                ctx.label(egui::RichText::new("TEXT FIELDS").monospace().strong());
+                let line_response = ctx.add(widgets::TextField::singleline(&mut state.line_text));
+                ctx.add_space(8.0);
+                let multi_response = ctx.add(widgets::TextField::multiline(&mut state.multi_text));
 
                 let focus_id = match state.focus_target {
                     FocusTarget::None => None,
@@ -757,26 +757,26 @@ fn main(nb: &mut NotebookCtx) {
                     FocusTarget::Multiline => Some(multi_response.id),
                 };
                 if let Some(id) = focus_id {
-                    ui.memory_mut(|mem| mem.request_focus(id));
+                    ctx.memory_mut(|mem| mem.request_focus(id));
                 }
             });
         },
     );
 
-    nb.view(move |ui| {
-        let mut state = widget_state.read_mut(ui);
-        with_padding(ui, padding, |ui| {
-            ui.label(egui::RichText::new("SLIDER + METERS").monospace().strong());
+    nb.view(move |ctx| {
+        let mut state = widget_state.read_mut(ctx);
+        ctx.with_padding(padding, |ctx| {
+            ctx.label(egui::RichText::new("SLIDER + METERS").monospace().strong());
 
             let slider_response =
-                ui.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).text("LEVEL"));
+                ctx.add(widgets::Slider::new(&mut state.progress, 0.0..=1.0).text("LEVEL"));
             if slider_response.changed() {
                 state.level_percent = state.progress as f64 * 100.0;
             }
             let progress = state.progress;
 
-            ui.monospace(format!("Value: {progress:.3}"));
-            ui.add(
+            ctx.monospace(format!("Value: {progress:.3}"));
+            ctx.add(
                 widgets::ProgressBar::new(progress)
                     .text("OUTPUT")
                     .scale_percent(),
@@ -786,7 +786,7 @@ fn main(nb: &mut NotebookCtx) {
             let yellow = GORBIE::themes::ral(1023);
             let red = GORBIE::themes::ral(3020);
 
-            ui.add(
+            ctx.add(
                 widgets::ProgressBar::new(progress)
                     .text("SIGNAL")
                     .segments(60)
@@ -798,12 +798,12 @@ fn main(nb: &mut NotebookCtx) {
         });
     });
 
-    nb.view(move |ui| {
-        let state = widget_state.read(ui);
+    nb.view(move |ctx| {
+        let state = widget_state.read(ctx);
         let (progress, metric_bytes) = (state.progress, state.metric_bytes);
-        with_padding(ui, padding, |ui| {
-            ui.label(egui::RichText::new("HISTOGRAM").monospace().strong());
-            ui.monospace("Uses COUNT/BYTES + slider to shift the synthetic distribution.");
+        ctx.with_padding(padding, |ctx| {
+            ctx.label(egui::RichText::new("HISTOGRAM").monospace().strong());
+            ctx.monospace("Uses COUNT/BYTES + slider to shift the synthetic distribution.");
 
             let y_axis = if metric_bytes {
                 widgets::HistogramYAxis::Bytes
@@ -832,8 +832,8 @@ fn main(nb: &mut NotebookCtx) {
                 );
             }
 
-            ui.push_id("histogram-demo", |ui| {
-                ui.add(widgets::Histogram::new(&buckets, y_axis).plot_height(96.0));
+            ctx.push_id("histogram-demo", |ctx| {
+                ctx.add(widgets::Histogram::new(&buckets, y_axis).plot_height(96.0));
             });
         });
     });

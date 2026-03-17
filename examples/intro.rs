@@ -68,24 +68,24 @@ Praesent sodales eu felis sed vehicula. Donec condimentum efficitur sodales.
         );
     });
 
-    let slider = nb.state("slider", 0.5, move |ui, value: &mut f32| {
-        with_padding(ui, padding, |ui| {
-            ui.add(widgets::Slider::new(value, 0.0..=1.0).text("input"));
+    let slider = nb.state("slider", 0.5, move |ctx, value: &mut f32| {
+        ctx.with_padding(padding, |ctx| {
+            ctx.add(widgets::Slider::new(value, 0.0..=1.0).text("input"));
         });
     });
 
     let _progress = nb.state(
         "progress",
         ComputedState::<f32>::default(),
-        move |ui, value| {
-            let slider = *slider.read(ui);
-            with_padding(ui, padding, |ui| {
-                let progress = *widgets::load_button(ui, value, "Compute", move || {
+        move |ctx, value| {
+            let slider = *slider.read(ctx);
+            ctx.with_padding(padding, |ctx| {
+                let progress = *widgets::load_button(ctx, value, "Compute", move || {
                     std::thread::sleep(std::time::Duration::from_secs(10));
                     slider * 0.5
                 });
-                widgets::markdown(ui, &format!("Progress: {:.2}%", progress * 100.0));
-                ui.add(
+                widgets::markdown(ctx, &format!("Progress: {:.2}%", progress * 100.0));
+                ctx.add(
                     widgets::ProgressBar::new(progress)
                         .text("output")
                         .scale_percent(),

@@ -8,14 +8,15 @@ pub use crate::card_ctx::GRID_COL_WIDTH;
 pub use crate::card_ctx::GRID_COLUMNS;
 pub use crate::card_ctx::GRID_EDGE_PAD;
 pub use crate::card_ctx::GRID_GUTTER;
+pub use crate::card_ctx::FloatResponse;
 pub use crate::card_ctx::GRID_ROW_MODULE;
-pub use crate::cards::with_padding;
 pub use crate::dataflow::ComputedState;
 #[cfg(feature = "markdown")]
 pub use crate::md;
 #[cfg(feature = "markdown")]
 pub use crate::note;
 pub use crate::notebook;
+pub use crate::state::StateAccess;
 pub use crate::state::StateId;
 pub use crate::CardCtx;
 pub use crate::NotebookConfig;

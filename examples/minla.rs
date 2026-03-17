@@ -2557,40 +2557,40 @@ The first run can be slow while CubeCL builds shaders.
     });
 
     let config = nb.state("config", Config::default(), move |ui, config| {
-        with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
-            ui.label("Batch configuration");
-            ui.checkbox(&mut config.auto_batch, "Adaptive batch size");
-            ui.add_enabled(
+        ui.with_padding(DEFAULT_CARD_PADDING, |ctx| {
+            ctx.label("Batch configuration");
+            ctx.checkbox(&mut config.auto_batch, "Adaptive batch size");
+            ctx.add_enabled(
                 !config.auto_batch,
                 widgets::Slider::new(&mut config.batch_size, MIN_BATCH_SIZE..=MAX_BATCH_SIZE)
                     .text("batch"),
             );
             if config.auto_batch {
-                ui.horizontal(|ui| {
-                    ui.label("target");
-                    ui.add(widgets::Slider::new(&mut config.target_batch_ms, 10..=500).text("ms"));
+                ctx.horizontal(|ctx| {
+                    ctx.label("target");
+                    ctx.add(widgets::Slider::new(&mut config.target_batch_ms, 10..=500).text("ms"));
                 });
             }
-            ui.label("backend: wgpu");
-            ui.horizontal(|ui| {
-                ui.label("seed");
-                ui.add(DragValue::new(&mut config.seed).speed(1));
+            ctx.label("backend: wgpu");
+            ctx.horizontal(|ctx| {
+                ctx.label("seed");
+                ctx.add(DragValue::new(&mut config.seed).speed(1));
             });
-            ui.separator();
-            ui.label("Graph");
-            ui.horizontal(|ui| {
-                ui.label("difficulty");
-                ui.add(widgets::Slider::new(&mut config.difficulty, 0.0..=1.0).text("level"));
+            ctx.separator();
+            ctx.label("Graph");
+            ctx.horizontal(|ctx| {
+                ctx.label("difficulty");
+                ctx.add(widgets::Slider::new(&mut config.difficulty, 0.0..=1.0).text("level"));
             });
-            ui.checkbox(&mut config.use_difficulty, "Use difficulty slider");
+            ctx.checkbox(&mut config.use_difficulty, "Use difficulty slider");
 
             let manual = !config.use_difficulty;
             if manual {
                 egui::ComboBox::from_id_salt("minla_graph_pattern")
                     .selected_text(config.graph.pattern.label())
-                    .show_ui(ui, |ui| {
+                    .show_ui(ctx, |ctx| {
                         for pattern in GraphPattern::all() {
-                            ui.selectable_value(
+                            ctx.selectable_value(
                                 &mut config.graph.pattern,
                                 pattern,
                                 pattern.label(),
@@ -2603,7 +2603,7 @@ The first run can be slow while CubeCL builds shaders.
                     config.graph.node_count = DEFAULT_NODE_COUNT;
                     config.graph.edge_count = DEFAULT_EDGE_COUNT;
                 }
-                ui.add_enabled(
+                ctx.add_enabled(
                     !preset,
                     widgets::Slider::new(&mut config.graph.node_count, 2..=MAX_NODE_COUNT)
                         .text("nodes"),
@@ -2612,18 +2612,18 @@ The first run can be slow while CubeCL builds shaders.
                 if config.graph.edge_count > max_edges {
                     config.graph.edge_count = max_edges;
                 }
-                ui.add_enabled(
+                ctx.add_enabled(
                     !preset,
                     widgets::Slider::new(&mut config.graph.edge_count, 0..=max_edges).text("edges"),
                 );
             } else {
-                ui.label("Pattern, nodes, and edges follow the difficulty curve.");
+                ctx.label("Pattern, nodes, and edges follow the difficulty curve.");
             }
 
-            ui.horizontal(|ui| {
-                ui.label("seed");
-                ui.add(DragValue::new(&mut config.graph.seed).speed(1));
-                if ui
+            ctx.horizontal(|ctx| {
+                ctx.label("seed");
+                ctx.add(DragValue::new(&mut config.graph.seed).speed(1));
+                if ctx
                     .add_enabled(
                         !(manual && config.graph.pattern == GraphPattern::Preset),
                         widgets::Button::new("Regenerate"),
@@ -2634,13 +2634,13 @@ The first run can be slow while CubeCL builds shaders.
                 }
             });
             if manual && config.graph.pattern == GraphPattern::Preset {
-                ui.label("Preset keeps the original 10-node example graph.");
+                ctx.label("Preset keeps the original 10-node example graph.");
             }
 
             config.sync_graph();
 
             if config.use_difficulty {
-                ui.label(format!(
+                ctx.label(format!(
                     "pattern: {}, nodes: {}, edges: {}",
                     config.graph.pattern.label(),
                     config.graph.node_count,
@@ -2651,7 +2651,7 @@ The first run can be slow while CubeCL builds shaders.
             let baseline_order: Vec<usize> = (0..config.graph_data.node_count).collect();
             let baseline_cost = cost_cpu(&baseline_order, &config.graph_data);
             widgets::markdown(
-                ui,
+                ctx,
                 &format!(
                     "Baseline cost (identity order): `{}` for `{}` nodes and `{}` edges.",
                     baseline_cost, config.graph_data.node_count, config.graph_data.edge_count
@@ -2693,9 +2693,9 @@ The first run can be slow while CubeCL builds shaders.
         };
         let mut spawn_requested = false;
         let mut bump_seed = false;
-        with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
-            ui.label("Search");
-            ui.horizontal(|ui| {
+        ui.with_padding(DEFAULT_CARD_PADDING, |ctx| {
+            ctx.label("Search");
+            ctx.horizontal(|ctx| {
                 let toggle_label = if state.auto_run {
                     "Auto-run: on"
                 } else {
@@ -2704,24 +2704,24 @@ The first run can be slow while CubeCL builds shaders.
                 let auto_run_active = state.auto_run;
                 let mut toggle = widgets::ToggleButton::new(&mut state.auto_run, toggle_label);
                 if auto_run_active {
-                    let (fill, light) = auto_run_pulse(ui);
+                    let (fill, light) = auto_run_pulse(ctx);
                     toggle = toggle.fill(fill).light(light);
                 }
-                ui.add(toggle);
+                ctx.add(toggle);
                 if !state.auto_run
-                    && ui
+                    && ctx
                         .add_enabled(!running, widgets::Button::new("Run once"))
                         .clicked()
                 {
                     spawn_requested = true;
                 }
                 if running || state.auto_run {
-                    ui.ctx().request_repaint();
+                    ctx.ctx().request_repaint();
                 }
             });
             let last = &state.last;
             if let Some(error) = &last.error {
-                widgets::markdown(ui, &format!("Backend error: {error}"));
+                widgets::markdown(ctx, &format!("Backend error: {error}"));
             } else if last.batch_size > 0 {
                 let throughput = if last.elapsed_ms > 0 {
                     last.batch_size as f64 / last.elapsed_ms as f64
@@ -2729,7 +2729,7 @@ The first run can be slow while CubeCL builds shaders.
                     0.0
                 };
                 widgets::markdown(
-                    ui,
+                    ctx,
                     &format!(
                         "Last batch: `{}` candidates in `{}` ms ({:.2} candidates/ms). Best in batch: `{}`.",
                         last.batch_size,
@@ -2739,13 +2739,13 @@ The first run can be slow while CubeCL builds shaders.
                     ),
                 );
             } else {
-                widgets::markdown(ui, "No batch yet. Click \"Run once\" to start.");
+                widgets::markdown(ctx, "No batch yet. Click \"Run once\" to start.");
             }
 
 
             if state.best.cost != u32::MAX && !state.best.order.is_empty() {
                 widgets::markdown(
-                    ui,
+                    ctx,
                     &format!(
                         "Best overall: `{}` ({} runs, {} samples).",
                         state.best.cost, state.runs, state.total_samples
@@ -2754,9 +2754,9 @@ The first run can be slow while CubeCL builds shaders.
             }
 
             if !state.history.is_empty() {
-                ui.separator();
-                ui.label("Performance and improvement");
-                ui.columns(2, |columns| {
+                ctx.separator();
+                ctx.label("Performance and improvement");
+                ctx.columns(2, |columns| {
                     let perf_points: Vec<[f64; 2]> = state
                         .history
                         .iter()
@@ -2833,29 +2833,29 @@ The first run can be slow while CubeCL builds shaders.
         let mut spawn_requested = false;
         let mut reset_requested = false;
 
-        with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
-            ui.label("Simulated annealing (GPU)");
-            ui.label(format!(
+        ui.with_padding(DEFAULT_CARD_PADDING, |ctx| {
+            ctx.label("Simulated annealing (GPU)");
+            ctx.label(format!(
                 "Auto-tuned parameters (target ~{} ms/batch).",
                 target_ms
             ));
-            ui.label(format!(
+            ctx.label(format!(
                 "Steps/chain: {}, chains: {} (auto), initial temp: {:.2}.",
                 state.config.steps_per_batch,
                 state.chain_count,
                 state.config.initial_temp
             ));
-            ui.label(format!(
+            ctx.label(format!(
                 "Reheat adjust: {:.4}.",
                 state.config.cooling_adjust
             ));
-            ui.label(format!(
+            ctx.label(format!(
                 "Temp floor: {:.2}, stagnation scale: {} steps.",
                 state.config.temp_floor, RESEED_PLATEAU_STEPS
             ));
-            ui.label("Reset re-tunes parameters for the current graph.");
+            ctx.label("Reset re-tunes parameters for the current graph.");
 
-            ui.horizontal(|ui| {
+            ctx.horizontal(|ctx| {
                 let toggle_label = if state.auto_run {
                     "Auto-run: on"
                 } else {
@@ -2864,32 +2864,32 @@ The first run can be slow while CubeCL builds shaders.
                 let auto_run_active = state.auto_run;
                 let mut toggle = widgets::ToggleButton::new(&mut state.auto_run, toggle_label);
                 if auto_run_active {
-                    let (fill, light) = auto_run_pulse(ui);
+                    let (fill, light) = auto_run_pulse(ctx);
                     toggle = toggle.fill(fill).light(light);
                 }
-                ui.add(toggle);
+                ctx.add(toggle);
                 if !state.auto_run
-                    && ui
+                    && ctx
                         .add_enabled(!running, widgets::Button::new("Run once"))
                         .clicked()
                 {
                     spawn_requested = true;
                 }
                 if !state.auto_run
-                    && ui
+                    && ctx
                         .add_enabled(!running, widgets::Button::new("Reset"))
                         .clicked()
                 {
                     reset_requested = true;
                 }
                 if running || state.auto_run {
-                    ui.ctx().request_repaint();
+                    ctx.ctx().request_repaint();
                 }
             });
 
             let last = &state.last;
             if let Some(error) = &last.error {
-                widgets::markdown(ui, &format!("Backend error: {error}"));
+                widgets::markdown(ctx, &format!("Backend error: {error}"));
             } else if last.batch_size > 0 {
                 let chains_per_s = if last.elapsed_ms > 0 {
                     last.batch_size as f64 * 1000.0 / last.elapsed_ms as f64
@@ -2903,7 +2903,7 @@ The first run can be slow while CubeCL builds shaders.
                     0.0
                 };
                 widgets::markdown(
-                    ui,
+                    ctx,
                     &format!(
                         "Last batch: `{}` chains × `{}` steps in `{}` ms ({:.2} chains/s, {:.0} steps/s). Best: `{}`.",
                         last.batch_size,
@@ -2915,14 +2915,14 @@ The first run can be slow while CubeCL builds shaders.
                     ),
                 );
                 widgets::markdown(
-                    ui,
+                    ctx,
                     &format!(
                         "Reseeded chains: `{}` / `{}`.",
                         last.reseeded, last.batch_size
                     ),
                 );
             } else {
-                widgets::markdown(ui, "No annealing run yet.");
+                widgets::markdown(ctx, "No annealing run yet.");
             }
 
             if state.best_cost != u32::MAX {
@@ -2936,7 +2936,7 @@ The first run can be slow while CubeCL builds shaders.
                     if total_ms > 0 && last_entry.best_cost < first.best_cost {
                         let improvement = (first.best_cost - last_entry.best_cost) as f64;
                         let improvement_per_s = improvement * 1000.0 / total_ms as f64;
-                        ui.label(format!(
+                        ctx.label(format!(
                             "Best improvement rate: {:.2} cost/s over last {} runs.",
                             improvement_per_s,
                             state.history.len()
@@ -2949,14 +2949,14 @@ The first run can be slow while CubeCL builds shaders.
                         let improvement_per_s =
                             improvement * 1000.0 / state.total_elapsed_ms as f64;
                         let elapsed_s = state.total_elapsed_ms as f64 / 1000.0;
-                        ui.label(format!(
+                        ctx.label(format!(
                             "Overall improvement rate: {:.2} cost/s over {:.1} s.",
                             improvement_per_s, elapsed_s
                         ));
                     }
                 }
                 widgets::markdown(
-                    ui,
+                    ctx,
                     &format!(
                         "Best overall: `{}` ({} runs, {} chains, {} steps).",
                         state.best_cost,
@@ -2982,7 +2982,7 @@ The first run can be slow while CubeCL builds shaders.
                 Plot::new("anneal_cost")
                     .height(320.0)
                     .legend(Legend::default())
-                    .show(ui, move |plot_ui| {
+                    .show(ctx, move |plot_ui| {
                         if !best_points.is_empty() {
                             plot_ui.line(Line::new("best", PlotPoints::from(best_points)));
                         }
@@ -2991,18 +2991,18 @@ The first run can be slow while CubeCL builds shaders.
                 if !reseed_points.is_empty() {
                     Plot::new("anneal_reseeds")
                         .height(120.0)
-                        .show(ui, move |plot_ui| {
+                        .show(ctx, move |plot_ui| {
                             plot_ui.line(Line::new("reseeds", PlotPoints::from(reseed_points)));
                         });
                 }
             }
 
-            ui.separator();
-            ui.label("Stress over time");
-            ui.horizontal(|ui| {
-                ui.label("View");
+            ctx.separator();
+            ctx.label("Stress over time");
+            ctx.horizontal(|ctx| {
+                ctx.label("View");
                 let prev_view = state.stress_view;
-                ui.add(
+                ctx.add(
                     widgets::ChoiceToggle::new(&mut state.stress_view)
                         .choice(StressView::Tension, "Tension")
                         .choice(StressView::Touched, "Touched"),

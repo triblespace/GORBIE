@@ -5,6 +5,7 @@ use eframe::egui;
 use rand_core06::OsRng;
 use triblespace::core::repo::Repository;
 use triblespace::core::repo::pile::Pile;
+use triblespace::core::trible::TribleSet;
 use triblespace::core::value::schemas::hash::Blake3;
 
 /// Stateful wrapper that keeps a `.pile` file open as a TribleSpace repository.
@@ -106,7 +107,10 @@ impl PileRepoState {
                 let _ = pile.close();
                 return Err(format!("restore pile: {err:?}"));
             }
-            self.repo = Some(Repository::new(pile, self.signing_key.clone()));
+            self.repo = Some(
+                Repository::new(pile, self.signing_key.clone(), TribleSet::new())
+                    .map_err(|err| format!("create repository: {err:?}"))?,
+            );
             self.open_path = Some(open_path);
         }
 

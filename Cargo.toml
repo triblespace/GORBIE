@@ -103,3 +103,7 @@ required-features = ["telemetry"]
 [[example]]
 name = "triblespace_best_practices"
 required-features = ["triblespace"]
+
+[[example]]
+name = "wiki_viewer"
+required-features = ["triblespace", "markdown"]

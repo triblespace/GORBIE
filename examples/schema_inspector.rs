@@ -169,23 +169,23 @@ fn main(nb: &mut NotebookCtx) {
     let metadata_set = build_schema_metadata(&mut blobs);
     let reader = blobs.reader().expect("metadata blob reader");
 
-    nb.view(move |ui| {
-        with_padding(ui, padding, |ui| {
-            ui.label(egui::RichText::new("Schema metadata").heading());
-            ui.label("Built-in value and blob schemas with their discovery metadata.");
-            ui.add_space(6.0);
-            ui.separator();
-            ui.add_space(12.0);
+    nb.view(move |ctx| {
+        ctx.with_padding(padding, |ctx| {
+            ctx.label(egui::RichText::new("Schema metadata").heading());
+            ctx.label("Built-in value and blob schemas with their discovery metadata.");
+            ctx.add_space(6.0);
+            ctx.separator();
+            ctx.add_space(12.0);
             render_schema_sections(
-                ui,
+                ctx,
                 "Value schemas",
                 &metadata_set,
                 &reader,
                 metadata::KIND_VALUE_SCHEMA,
             );
-            ui.add_space(8.0);
+            ctx.add_space(8.0);
             render_schema_sections(
-                ui,
+                ctx,
                 "Blob schemas",
                 &metadata_set,
                 &reader,

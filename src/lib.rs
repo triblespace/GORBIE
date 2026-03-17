@@ -19,6 +19,7 @@
 pub mod card_ctx;
 pub mod cards;
 pub mod dataflow;
+pub(crate) mod floating;
 mod headless;
 pub mod prelude;
 pub mod state;
@@ -42,21 +43,6 @@ use std::time::Duration;
 
 use dark_light::Mode;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FloatingAnchor {
-    Content,
-    Viewport,
-}
-
-enum FloatingElement {
-    DetachedCard(DetachedCardDraw),
-}
-
-struct DetachedCardDraw {
-    index: usize,
-    area_id: egui::Id,
-    width: f32,
-}
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct SourceLocation {
@@ -148,8 +134,6 @@ struct CardEntry {
 #[derive(Clone, Default)]
 struct NotebookState {
     card_detached: Vec<bool>,
-    card_detached_positions: Vec<egui::Pos2>,
-    card_detached_anchors: Vec<FloatingAnchor>,
     card_placeholder_sizes: Vec<egui::Vec2>,
     card_identities: Vec<Option<egui::Id>>,
 }
@@ -157,9 +141,6 @@ struct NotebookState {
 impl NotebookState {
     fn sync_len(&mut self, len: usize) {
         self.card_detached.resize(len, false);
-        self.card_detached_positions.resize(len, egui::Pos2::ZERO);
-        self.card_detached_anchors
-            .resize(len, FloatingAnchor::Content);
         self.card_placeholder_sizes.resize(len, egui::Vec2::ZERO);
         self.card_identities.resize(len, None);
     }
@@ -175,14 +156,6 @@ impl NotebookState {
                 .card_detached
                 .get_mut(index)
                 .expect("card_detached synced to cards") = false;
-            *self
-                .card_detached_positions
-                .get_mut(index)
-                .expect("card_detached_positions synced to cards") = egui::Pos2::ZERO;
-            *self
-                .card_detached_anchors
-                .get_mut(index)
-                .expect("card_detached_anchors synced to cards") = FloatingAnchor::Content;
             *self
                 .card_placeholder_sizes
                 .get_mut(index)
@@ -243,7 +216,7 @@ pub use card_ctx::GRID_COL_WIDTH;
 pub use card_ctx::GRID_COLUMNS;
 pub use card_ctx::GRID_GUTTER;
 
-const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
+pub(crate) const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
 const NOTEBOOK_MIN_HEIGHT: f32 = 360.0;
 const HEADLESS_DEFAULT_PIXELS_PER_POINT: f32 = 2.0;
 const HEADLESS_DEFAULT_SETTLE_TIMEOUT: Duration = Duration::from_millis(2000);
@@ -414,6 +387,12 @@ fn log_missing_editor_hint() {
             "GORBIE_EDITOR is not set. Set it to an editor command with placeholders {{file}} {{line}} {{column}} to enable open-in-editor. Example: GORBIE_EDITOR='code -g {{file}}:{{line}}:{{column}}'."
         );
     });
+}
+
+impl state::StateAccess for NotebookCtx {
+    fn store(&self) -> &state::StateStore {
+        &self.state_store
+    }
 }
 
 impl NotebookCtx {
@@ -596,6 +575,16 @@ impl eframe::App for Notebook {
                     let clip_rect = ui.clip_rect();
                         let scroll_y = viewport.min.y;
 
+                    // Publish scroll info so floating cards can do anchor switching.
+                    floating::store_scroll_info(
+                        ui.ctx(),
+                        floating::NotebookScrollInfo {
+                            scroll_y,
+                            viewport_top: clip_rect.min.y,
+                            clip_rect,
+                        },
+                    );
+
                     let column_width = NOTEBOOK_COLUMN_WIDTH;
                     let left_margin_width = 0.0;
                     let card_width = column_width;
@@ -700,13 +689,6 @@ impl eframe::App for Notebook {
 
                                 let default_item_spacing = ui.style().spacing.item_spacing;
                                 ui.style_mut().spacing.item_spacing.y = 0.0;
-                                let mut floating_elements: Vec<FloatingElement> = Vec::new();
-                                let mut dragged_layer_ids: Vec<egui::LayerId> = Vec::new();
-                                let mut pending_anchor_updates: Vec<(
-                                    usize,
-                                    FloatingAnchor,
-                                    egui::Pos2,
-                                )> = Vec::new();
                                 let cards_len = notebook.cards.len();
                                 for (i, entry) in notebook.cards.iter_mut().enumerate() {
                                     let card_identity = entry.identity;
@@ -714,12 +696,6 @@ impl eframe::App for Notebook {
                                     let card_detached = runtime.card_detached
                                         .get_mut(i)
                                         .expect("card_detached synced to cards");
-                                    let card_detached_position = runtime.card_detached_positions
-                                        .get_mut(i)
-                                        .expect("card_detached_positions synced to cards");
-                                    let card_detached_anchor = runtime.card_detached_anchors
-                                        .get_mut(i)
-                                        .expect("card_detached_anchors synced to cards");
                                     let card_placeholder_size = runtime.card_placeholder_sizes
                                         .get_mut(i)
                                         .expect("card_placeholder_sizes synced to cards");
@@ -749,29 +725,31 @@ impl eframe::App for Notebook {
                                             }
 
                                             if *card_detached {
-                                                let detached_card_width = card_width;
-                                                if *card_detached_position == egui::Pos2::ZERO {
-                                                    let initial_screen_pos = egui::pos2(
-                                                        right_margin.min.x + 12.0,
-                                                        rect.top(),
-                                                    );
-                                                    *card_detached_anchor =
-                                                        FloatingAnchor::Content;
-                                                    *card_detached_position = screen_to_content_pos(
-                                                        initial_screen_pos,
-                                                        scroll_y,
-                                                        clip_rect.min.y,
-                                                    );
-                                                }
-
+                                                let initial_screen_pos = egui::pos2(
+                                                    right_margin.min.x + 12.0,
+                                                    rect.top(),
+                                                );
                                                 let detached_id = ui.id().with("detached_card");
-                                                floating_elements.push(FloatingElement::DetachedCard(
-                                                    DetachedCardDraw {
-                                                        index: i,
-                                                        area_id: detached_id,
-                                                        width: detached_card_width,
+                                                let float_resp = floating::show_floating_card(
+                                                    ui.ctx(),
+                                                    detached_id,
+                                                    initial_screen_pos,
+                                                    card_width,
+                                                    card_placeholder_size.y,
+                                                    store.as_ref(),
+                                                    "Dock card",
+                                                    &mut |ctx| {
+                                                        #[cfg(feature = "telemetry")]
+                                                        let _detached_span = tracing::info_span!(
+                                                            "detached_draw"
+                                                        )
+                                                        .entered();
+                                                        card.draw(ctx);
                                                     },
-                                                ));
+                                                );
+                                                if float_resp.handle_clicked {
+                                                    *card_detached = false;
+                                                }
                                             }
                                             rect
                                         } else {
@@ -997,23 +975,7 @@ impl eframe::App for Notebook {
                                                     });
 
                                                 if detach_resp.inner.clicked() {
-                                                    if *card_detached {
-                                                        *card_detached = false;
-                                                    } else {
-                                                        *card_detached = true;
-                                                        *card_detached_anchor =
-                                                            FloatingAnchor::Content;
-                                                        let initial_screen_pos = egui::pos2(
-                                                            right_margin.min.x + 12.0,
-                                                            card_rect.top(),
-                                                        );
-                                                        *card_detached_position =
-                                                            screen_to_content_pos(
-                                                                initial_screen_pos,
-                                                                scroll_y,
-                                                                clip_rect.min.y,
-                                                            );
-                                                    }
+                                                    *card_detached = !*card_detached;
                                                 }
                                             });
                                         }
@@ -1021,333 +983,7 @@ impl eframe::App for Notebook {
                                     });
                                 }
 
-                                for pass_anchor in
-                                    [FloatingAnchor::Content, FloatingAnchor::Viewport]
-                                {
-                                    for element in floating_elements.iter() {
-                                        match element {
-                                            FloatingElement::DetachedCard(draw) => {
-                                                let current_anchor = *runtime.card_detached_anchors
-                                                    .get(draw.index)
-                                                    .expect(
-                                                        "card_detached_anchors synced to cards",
-                                                    );
-                                                if current_anchor != pass_anchor {
-                                                    continue;
-                                                }
-
-                                                let card_detached = runtime.card_detached
-                                                    .get_mut(draw.index)
-                                                    .expect("card_detached synced to cards");
-                                                if !*card_detached {
-                                                    continue;
-                                                }
-
-                                                let card_detached_position = runtime.card_detached_positions
-                                                    .get_mut(draw.index)
-                                                    .expect(
-                                                        "card_detached_positions synced to cards",
-                                                    );
-                                                let card_detached_anchor = runtime.card_detached_anchors
-                                                    .get_mut(draw.index)
-                                                    .expect(
-                                                        "card_detached_anchors synced to cards",
-                                                    );
-
-                                                let detached_screen_pos =
-                                                    match *card_detached_anchor {
-                                                        FloatingAnchor::Content => {
-                                                            content_to_screen_pos(
-                                                                *card_detached_position,
-                                                                scroll_y,
-                                                                clip_rect.min.y,
-                                                            )
-                                                        }
-                                                        FloatingAnchor::Viewport => {
-                                                            *card_detached_position
-                                                        }
-                                                    };
-
-                                                let card_width = draw.width;
-                                                let detached_id = draw.area_id;
-                                                let placeholder_height = runtime
-                                                    .card_placeholder_sizes
-                                                    .get(draw.index)
-                                                    .map(|size| size.y)
-                                                    .unwrap_or(0.0);
-                                                let card: &mut dyn cards::Card = notebook
-                                                    .cards
-                                                    .get_mut(draw.index)
-                                                    .expect("cards synced to floating_elements")
-                                                    .card
-                                                    .as_mut();
-
-                                                let area_order = match pass_anchor {
-                                                    FloatingAnchor::Content => {
-                                                        egui::Order::Foreground
-                                                    }
-                                                    FloatingAnchor::Viewport => egui::Order::Tooltip,
-                                                };
-                                                let detached_area =
-                                                    egui::Area::new(detached_id)
-                                                        .order(area_order)
-                                                        .fixed_pos(detached_screen_pos)
-                                                        .movable(false)
-                                                        .constrain_to(egui::Rect::EVERYTHING);
-                                                detached_area.show(ui.ctx(), |ui| {
-                                                        let outline = ui
-                                                            .visuals()
-                                                            .widgets
-                                                            .noninteractive
-                                                            .bg_stroke
-                                                            .color;
-                                                        let shadow_color =
-                                                            crate::themes::ral(9004);
-                                                        let shadow = egui::epaint::Shadow {
-                                                            offset: [6, 6],
-                                                            blur: 0,
-                                                            spread: 0,
-                                                            color: shadow_color,
-                                                        };
-
-                                                        let frame = egui::Frame::new()
-                                                            .fill(ui.visuals().window_fill)
-                                                            .stroke(egui::Stroke::new(
-                                                                1.0, outline,
-                                                            ))
-                                                            .shadow(shadow)
-                                                            .corner_radius(0.0)
-                                                            .inner_margin(egui::Margin::ZERO);
-                                                        let background_idx =
-                                                            ui.painter().add(egui::Shape::Noop);
-                                                        let min_y = ui.min_rect().min.y;
-                                                        let max_y = ui
-                                                            .max_rect()
-                                                            .max
-                                                            .y
-                                                            .max(min_y + placeholder_height);
-                                                        let max_rect = egui::Rect::from_min_max(
-                                                            ui.min_rect().min,
-                                                            egui::pos2(
-                                                                ui.min_rect().min.x
-                                                                    + card_width,
-                                                                max_y,
-                                                            ),
-                                                        );
-                                                        let inner = ui.scope_builder(
-                                                            egui::UiBuilder::new()
-                                                                .max_rect(max_rect),
-                                                            |ui| {
-                                                                ui.reset_style();
-                                                                if placeholder_height > 0.0 {
-                                                                    ui.set_min_size(egui::vec2(
-                                                                        card_width,
-                                                                        placeholder_height,
-                                                                    ));
-                                                                }
-                                                                ui.set_width(card_width);
-                                                                let restore_clip_rect =
-                                                                    ui.clip_rect();
-                                                                let card_clip_rect =
-                                                                    egui::Rect::from_min_max(
-                                                                        egui::pos2(
-                                                                            ui.min_rect().left(),
-                                                                            restore_clip_rect
-                                                                                .min
-                                                                                .y,
-                                                                        ),
-                                                                        egui::pos2(
-                                                                            ui.min_rect().left()
-                                                                                + card_width,
-                                                                            restore_clip_rect
-                                                                                .max
-                                                                                .y,
-                                                                        ),
-                                                                    );
-                                                                ui.set_clip_rect(card_clip_rect);
-                                                                let mut ctx =
-                                                                    CardCtx::new(ui, store.as_ref());
-                                                                #[cfg(feature = "telemetry")]
-                                                                let _detached_span = tracing::info_span!(
-                                                                    "detached_draw"
-                                                                )
-                                                                .entered();
-                                                                card.draw(&mut ctx);
-                                                                ui.set_clip_rect(
-                                                                    restore_clip_rect,
-                                                                );
-                                                            },
-                                                        );
-                                                        let content_min =
-                                                            inner.response.rect.min;
-                                                        let card_rect = egui::Rect::from_min_size(
-                                                            content_min,
-                                                            egui::vec2(
-                                                                card_width,
-                                                                inner.response.rect.height(),
-                                                            ),
-                                                        );
-                                                        let content_rect = card_rect.shrink(
-                                                            frame.stroke.width,
-                                                        );
-                                                        ui.painter().set(
-                                                            background_idx,
-                                                            frame.paint(content_rect),
-                                                        );
-
-                                                        let handle_height = crate::card_ctx::GRID_ROW_MODULE;
-                                                        let handle_rect = egui::Rect::from_min_size(
-                                                            content_rect.min,
-                                                            egui::vec2(
-                                                                content_rect.width(),
-                                                                handle_height,
-                                                            ),
-                                                        );
-                                                        let handle_id =
-                                                            ui.id().with("detached_handle");
-                                                        let handle_resp = ui.interact(
-                                                            handle_rect,
-                                                            handle_id,
-                                                            egui::Sense::click_and_drag(),
-                                                        );
-
-                                                        if handle_resp.dragged() {
-                                                            ui.ctx().set_cursor_icon(
-                                                                egui::CursorIcon::Grabbing,
-                                                            );
-                                                        } else if handle_resp.hovered() {
-                                                            ui.ctx().set_cursor_icon(
-                                                                egui::CursorIcon::Grab,
-                                                            );
-                                                        }
-
-                                                        if handle_resp.hovered()
-                                                            || handle_resp.dragged()
-                                                        {
-                                                            let stripe_color =
-                                                                crate::themes::ral(9004);
-                                                            let stripe_stroke = egui::Stroke::new(
-                                                                1.0,
-                                                                stripe_color,
-                                                            );
-                                                            let stripe_x = handle_rect.x_range();
-                                                            let stripe_spacing = 3.0;
-                                                            let mut stripe_y = handle_rect.top()
-                                                                + stripe_spacing
-                                                                - stripe_stroke.width * 0.5;
-                                                            let painter = ui.painter();
-                                                            while stripe_y
-                                                                <= handle_rect.bottom()
-                                                            {
-                                                                painter.hline(
-                                                                    stripe_x,
-                                                                    stripe_y,
-                                                                    stripe_stroke,
-                                                                );
-                                                                stripe_y += stripe_spacing;
-                                                            }
-
-                                                            show_postit_tooltip(
-                                                                ui,
-                                                                &handle_resp,
-                                                                "Dock card",
-                                                            );
-                                                        }
-
-                                                        {
-                                                            if handle_resp.dragged() {
-                                                                ui.ctx().move_to_top(
-                                                                    handle_resp.layer_id,
-                                                                );
-                                                                dragged_layer_ids
-                                                                    .push(handle_resp.layer_id);
-                                                                let delta =
-                                                                    handle_resp.drag_delta();
-                                                                let moved_rect = inner
-                                                                    .response
-                                                                    .rect
-                                                                    .translate(delta);
-                                                                *card_detached_position += delta;
-
-                                                                let anchor_update = match *card_detached_anchor {
-                                                                    FloatingAnchor::Content => {
-                                                                        if right_outside_ratio(
-                                                                            moved_rect,
-                                                                            clip_rect,
-                                                                        )
-                                                                            >= STICK_RIGHT_OUTSIDE_RATIO
-                                                                        {
-                                                                            Some((
-                                                                                FloatingAnchor::Viewport,
-                                                                                moved_rect.min,
-                                                                            ))
-                                                                        } else {
-                                                                            None
-                                                                        }
-                                                                    }
-                                                                    FloatingAnchor::Viewport => {
-                                                                        if right_outside_ratio(
-                                                                            moved_rect,
-                                                                            clip_rect,
-                                                                        )
-                                                                            <= UNSTICK_RIGHT_OUTSIDE_RATIO
-                                                                        {
-                                                                            Some((
-                                                                                FloatingAnchor::Content,
-                                                                                screen_to_content_pos(
-                                                                                    moved_rect.min,
-                                                                                    scroll_y,
-                                                                                    clip_rect.min.y,
-                                                                                ),
-                                                                            ))
-                                                                        } else {
-                                                                            None
-                                                                        }
-                                                                    }
-                                                                };
-
-                                                                if let Some((anchor, pos)) =
-                                                                    anchor_update
-                                                                {
-                                                                    pending_anchor_updates
-                                                                        .retain(|(idx, _, _)| {
-                                                                            *idx != draw.index
-                                                                        });
-                                                                    pending_anchor_updates.push((
-                                                                        draw.index,
-                                                                        anchor,
-                                                                        pos,
-                                                                    ));
-                                                                }
-                                                            }
-
-                                                            if handle_resp.clicked() {
-                                                                *card_detached = false;
-                                                            }
-                                                        }
-                                                    });
-                                            }
-                                        }
-                                    }
-                                }
                                 ui.style_mut().spacing.item_spacing = default_item_spacing;
-
-                                for layer_id in dragged_layer_ids {
-                                    ui.ctx().move_to_top(layer_id);
-                                }
-
-                                for (index, anchor, pos) in pending_anchor_updates {
-                                    if let Some(slot) =
-                                        runtime.card_detached_anchors.get_mut(index)
-                                    {
-                                        *slot = anchor;
-                                    }
-                                    if let Some(slot) =
-                                        runtime.card_detached_positions.get_mut(index)
-                                    {
-                                        *slot = pos;
-                                    }
-                                }
 
                             });
                         ui.set_clip_rect(restore_clip_rect);
@@ -1444,29 +1080,7 @@ fn paint_hatching(painter: &egui::Painter, rect: egui::Rect, color: egui::Color3
     }
 }
 
-const STICK_RIGHT_OUTSIDE_RATIO: f32 = 0.5;
-const UNSTICK_RIGHT_OUTSIDE_RATIO: f32 = 0.4;
-
-fn screen_to_content_pos(pos: egui::Pos2, scroll_y: f32, viewport_top: f32) -> egui::Pos2 {
-    egui::pos2(pos.x, pos.y - viewport_top + scroll_y)
-}
-
-fn content_to_screen_pos(pos: egui::Pos2, scroll_y: f32, viewport_top: f32) -> egui::Pos2 {
-    egui::pos2(pos.x, pos.y - scroll_y + viewport_top)
-}
-
-fn right_outside_ratio(rect: egui::Rect, viewport: egui::Rect) -> f32 {
-    let width = rect.width().max(0.0);
-    if width <= 0.0 {
-        return 1.0;
-    }
-
-    let outside_width = (rect.right() - viewport.right()).max(0.0);
-    let ratio = outside_width / width;
-    ratio.clamp(0.0, 1.0)
-}
-
-fn show_postit_tooltip(ui: &egui::Ui, response: &egui::Response, text: &str) {
+pub(crate) fn show_postit_tooltip(ui: &egui::Ui, response: &egui::Response, text: &str) {
     let outline = ui.visuals().widgets.noninteractive.bg_stroke.color;
     let shadow_color = crate::themes::ral(9004);
     let shadow = egui::epaint::Shadow {

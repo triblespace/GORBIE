@@ -10,43 +10,43 @@ use GORBIE::prelude::*;
 
 #[notebook]
 fn main(nb: &mut NotebookCtx) {
-    let left = nb.state("left", 2_i64, |ui, value| {
-        with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
-            ui.label("Left counter");
-            ui.horizontal(|ui| {
-                if ui.add(widgets::Button::new("-1")).clicked() {
+    let left = nb.state("left", 2_i64, |ctx, value| {
+        ctx.with_padding(DEFAULT_CARD_PADDING, |ctx| {
+            ctx.label("Left counter");
+            ctx.horizontal(|ctx| {
+                if ctx.add(widgets::Button::new("-1")).clicked() {
                     *value -= 1;
                 }
-                if ui.add(widgets::Button::new("+1")).clicked() {
+                if ctx.add(widgets::Button::new("+1")).clicked() {
                     *value += 1;
                 }
             });
-            widgets::markdown(ui, &format!("Value: `{value}`"));
+            widgets::markdown(ctx, &format!("Value: `{value}`"));
         });
     });
 
-    let right = nb.state("right", 5_i64, |ui, value| {
-        with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
-            ui.label("Right counter");
-            ui.horizontal(|ui| {
-                if ui.add(widgets::Button::new("-1")).clicked() {
+    let right = nb.state("right", 5_i64, |ctx, value| {
+        ctx.with_padding(DEFAULT_CARD_PADDING, |ctx| {
+            ctx.label("Right counter");
+            ctx.horizontal(|ctx| {
+                if ctx.add(widgets::Button::new("-1")).clicked() {
                     *value -= 1;
                 }
-                if ui.add(widgets::Button::new("+1")).clicked() {
+                if ctx.add(widgets::Button::new("+1")).clicked() {
                     *value += 1;
                 }
             });
-            widgets::markdown(ui, &format!("Value: `{value}`"));
+            widgets::markdown(ctx, &format!("Value: `{value}`"));
         });
     });
 
-    nb.view(move |ui| {
-        let left = left.read(ui);
-        let right = right.read(ui);
-        with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
-            ui.label("Combined view (reads both states together)");
+    nb.view(move |ctx| {
+        let left = left.read(ctx);
+        let right = right.read(ctx);
+        ctx.with_padding(DEFAULT_CARD_PADDING, |ctx| {
+            ctx.label("Combined view (reads both states together)");
             widgets::markdown(
-                ui,
+                ctx,
                 &format!(
                     "Left: `{}`\nRight: `{}`\nSum: `{}`",
                     *left,
@@ -57,21 +57,21 @@ fn main(nb: &mut NotebookCtx) {
         });
     });
 
-    nb.view(move |ui| {
-        let mut left = left.read_mut(ui);
-        let mut right = right.read_mut(ui);
-        with_padding(ui, DEFAULT_CARD_PADDING, |ui| {
-            ui.label("Combined update (locks both states)");
+    nb.view(move |ctx| {
+        let mut left = left.read_mut(ctx);
+        let mut right = right.read_mut(ctx);
+        ctx.with_padding(DEFAULT_CARD_PADDING, |ctx| {
+            ctx.label("Combined update (locks both states)");
 
-            if ui.add(widgets::Button::new("Add 10 to both")).clicked() {
+            if ctx.add(widgets::Button::new("Add 10 to both")).clicked() {
                 *left += 10;
                 *right += 10;
             }
-            if ui.add(widgets::Button::new("Swap values")).clicked() {
+            if ctx.add(widgets::Button::new("Swap values")).clicked() {
                 std::mem::swap(&mut *left, &mut *right);
             }
 
-            widgets::markdown(ui, &format!("Left: `{}`\nRight: `{}`", *left, *right));
+            widgets::markdown(ctx, &format!("Left: `{}`\nRight: `{}`", *left, *right));
         });
     });
 }

@@ -39,7 +39,6 @@ use triblespace::core::value::Value;
 use triblespace::core::value_formatter::WasmValueFormatter;
 use triblespace::macros::{find, id_hex, pattern};
 use triblespace::prelude::View;
-use GORBIE::cards::with_padding;
 use GORBIE::dataflow::ComputedState;
 use GORBIE::md;
 use GORBIE::notebook;
@@ -357,7 +356,8 @@ fn checkout_space(
         return (pile, Err(format!("rng failed: {err}")));
     }
     let signing_key = SigningKey::from_bytes(&secret);
-    let mut repo = Repository::new(pile, signing_key);
+    let mut repo = Repository::new(pile, signing_key, TribleSet::new())
+        .expect("create repository from pile");
     let space_result = repo
         .pull(branch_id)
         .map_err(|err| format!("{err:?}"))
@@ -538,9 +538,9 @@ fn main(nb: &mut NotebookCtx) {
         .unwrap_or_else(|| "./repo.pile".to_owned());
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
 
-    nb.view(|ui| {
+    nb.view(|ctx| {
         md!(
-            ui,
+            ctx,
             "# Triblespace pile inspector\n\nOpen a `.pile` file on disk and inspect its blob and branch indices.\n\nTip: pass a path as the first CLI arg to prefill this field."
         );
     });
@@ -559,19 +559,19 @@ fn main(nb: &mut NotebookCtx) {
             commit_checkout: None,
             entity_selection: default_entity_selection(),
         },
-        move |ui, state| {
-            with_padding(ui, padding, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Pile path:");
-                    ui.add(widgets::TextField::singleline(&mut state.pile_path));
-                    ui.label("Items/page:");
-                    ui.add(
+        move |ctx, state| {
+            ctx.with_padding(padding, |ctx| {
+                ctx.horizontal(|ctx| {
+                    ctx.label("Pile path:");
+                    ctx.add(widgets::TextField::singleline(&mut state.pile_path));
+                    ctx.label("Items/page:");
+                    ctx.add(
                         widgets::NumberField::new(&mut state.max_rows)
                             .constrain_value(&|_, next| next.clamp(10, 10_000))
                             .speed(10.0),
                     );
 
-                    let open_clicked = ui.add(widgets::Button::new("Open pile")).clicked();
+                    let open_clicked = ctx.add(widgets::Button::new("Open pile")).clicked();
                     if open_clicked {
                         let open_path = PathBuf::from(state.pile_path.trim());
                         match open_pile(&open_path) {
@@ -598,7 +598,7 @@ fn main(nb: &mut NotebookCtx) {
                     (state.pile.as_mut(), state.pile_open_path.as_ref())
                 {
                     state.snapshot.set(Some(snapshot_pile(pile, path)));
-                    ui.ctx().request_repaint();
+                    ctx.ctx().request_repaint();
                 }
             });
         },
@@ -607,35 +607,35 @@ fn main(nb: &mut NotebookCtx) {
     let summary_tuning = nb.state(
         "summary_tuning",
         PileOverviewTuning::default(),
-        move |ui, tuning| {
-            with_padding(ui, padding, |ui| {
-                widgets::markdown(ui, "## Summary knobs");
-                ui.horizontal(|ui| {
-                    ui.label("MODE:");
-                    ui.add(widgets::ChoiceToggle::binary(
+        move |ctx, tuning| {
+            ctx.with_padding(padding, |ctx| {
+                widgets::markdown(ctx, "## Summary knobs");
+                ctx.horizontal(|ctx| {
+                    ctx.label("MODE:");
+                    ctx.add(widgets::ChoiceToggle::binary(
                         &mut tuning.enabled,
                         "LIVE",
                         "TUNE",
                     ));
                 });
-                ui.add_space(6.0);
-                ui.add(
+                ctx.add_space(6.0);
+                ctx.add(
                     widgets::Slider::new(&mut tuning.zoom, 0.35..=1.0)
                         .text("ZOOM")
                         .max_decimals(2),
                 );
-                ui.add(
+                ctx.add(
                     widgets::Slider::new(&mut tuning.sample_rate, 0.0..=1.0)
                         .text("SAMPLE")
                         .max_decimals(2),
                 );
-                ui.add(
+                ctx.add(
                     widgets::Slider::new(&mut tuning.insert_rate, 0.0..=1.0)
                         .text("INSERT")
                         .max_decimals(2),
                 );
-                ui.add_space(6.0);
-                ui.add_enabled_ui(tuning.enabled, |ui| {
+                ctx.add_space(6.0);
+                ctx.add_enabled_ui(tuning.enabled, |ui| {
                     ui.add(
                         widgets::Slider::new(&mut tuning.size_level, 0.0..=1.0)
                             .text("SIZE")
@@ -663,8 +663,8 @@ fn main(nb: &mut NotebookCtx) {
                     );
                 });
                 if !tuning.enabled {
-                    ui.add_space(4.0);
-                    ui.label(
+                    ctx.add_space(4.0);
+                    ctx.label(
                         egui::RichText::new("Enable TUNE to override the pile visualization.")
                             .small(),
                     );
@@ -673,14 +673,14 @@ fn main(nb: &mut NotebookCtx) {
         },
     );
 
-    nb.view(move |ui| {
-        let mut state = inspector.read_mut(ui);
-        with_padding(ui, padding, |ui| {
-            widgets::markdown(ui, "## Blob size distribution");
+    nb.view(move |ctx| {
+        let mut state = inspector.read_mut(ctx);
+        ctx.with_padding(padding, |ctx| {
+            widgets::markdown(ctx, "## Blob size distribution");
 
-            ui.horizontal(|ui| {
-                ui.label("METRIC:");
-                ui.add(widgets::ChoiceToggle::binary(
+            ctx.horizontal(|ctx| {
+                ctx.label("METRIC:");
+                ctx.add(widgets::ChoiceToggle::binary(
                     &mut state.histogram_bytes,
                     "COUNT",
                     "BYTES",
@@ -691,17 +691,17 @@ fn main(nb: &mut NotebookCtx) {
             state.snapshot.poll();
             let snapshot_value = state.snapshot.value().as_ref();
             let Some(result) = snapshot_value else {
-                widgets::markdown(ui, "_Load a pile to see the distribution._");
+                widgets::markdown(ctx, "_Load a pile to see the distribution._");
                 return;
             };
             let Ok(snapshot) = result else {
-                widgets::markdown(ui, "_Load a valid pile to see the distribution._");
+                widgets::markdown(ctx, "_Load a valid pile to see the distribution._");
                 return;
             };
 
             let stats = &snapshot.blob_stats;
             if stats.valid_blobs == 0 {
-                widgets::markdown(ui, "_No valid blob sizes found._");
+                widgets::markdown(ctx, "_No valid blob sizes found._");
                 return;
             }
 
@@ -799,18 +799,18 @@ fn main(nb: &mut NotebookCtx) {
             }
 
             if max_value == 0 {
-                widgets::markdown(ui, "_No data to plot._");
+                widgets::markdown(ctx, "_No data to plot._");
                 return;
             }
 
-            ui.add(
+            ctx.add(
                 widgets::Histogram::new(&histogram_buckets, y_axis)
                     .plot_height(80.0)
                     .max_x_labels(7),
             );
 
             widgets::markdown(
-                ui,
+                ctx,
                 &format!(
                     "_{} blobs, {} total._",
                     stats.valid_blobs,
@@ -820,11 +820,11 @@ fn main(nb: &mut NotebookCtx) {
         });
     });
 
-    nb.view(move |ui| {
+    nb.view(move |ctx| {
         let summary_padding = egui::Margin::ZERO;
-        let mut state = inspector.read_mut(ui);
-        let tuning = summary_tuning.read(ui);
-        with_padding(ui, summary_padding, |ui| {
+        let mut state = inspector.read_mut(ctx);
+        let tuning = summary_tuning.read(ctx);
+        ctx.with_padding(summary_padding, |ctx| {
             state.snapshot.poll();
             let snapshot_value = state.snapshot.value();
             let mut branch_heads = Vec::new();
@@ -862,15 +862,15 @@ fn main(nb: &mut NotebookCtx) {
             PileOverviewWidget::new(overview_state)
                 .tuning(&tuning)
                 .padding(summary_padding)
-                .cache_id(ui.id().with("pile_overview"))
-                .show(ui);
+                .cache_id(ctx.id().with("pile_overview"))
+                .show(ctx);
         });
     });
 
-    nb.view(move |ui| {
-        let mut state = inspector.read_mut(ui);
-        with_padding(ui, padding, |ui| {
-            widgets::markdown(ui, "## Commit graph");
+    nb.view(move |ctx| {
+        let mut state = inspector.read_mut(ctx);
+        ctx.with_padding(padding, |ctx| {
+            widgets::markdown(ctx, "## Commit graph");
 
             state.snapshot.poll();
             let snapshot_value = state.snapshot.value().clone();
@@ -927,24 +927,24 @@ fn main(nb: &mut NotebookCtx) {
                 }
             };
 
-            CommitHistoryWidget::new(history_state, &mut state.commit_selection).show(ui);
+            CommitHistoryWidget::new(history_state, &mut state.commit_selection).show(ctx);
         });
     });
 
-    nb.view(move |ui| {
-        let mut state = inspector.read_mut(ui);
-        with_padding(ui, padding, |ui| {
-            widgets::markdown(ui, "## Commit checkout");
+    nb.view(move |ctx| {
+        let mut state = inspector.read_mut(ctx);
+        ctx.with_padding(padding, |ctx| {
+            widgets::markdown(ctx, "## Commit checkout");
 
             state.snapshot.poll();
             let snapshot_value = state.snapshot.value().clone();
             let snapshot = match snapshot_value {
                 None => {
-                    widgets::markdown(ui, "_Load a pile to inspect commits._");
+                    widgets::markdown(ctx, "_Load a pile to inspect commits._");
                     return;
                 }
                 Some(Err(_)) => {
-                    widgets::markdown(ui, "_Load a valid pile to inspect commits._");
+                    widgets::markdown(ctx, "_Load a valid pile to inspect commits._");
                     return;
                 }
                 Some(Ok(snapshot)) => snapshot,
@@ -954,12 +954,12 @@ fn main(nb: &mut NotebookCtx) {
             if selection == CommitSelection::None {
                 state.commit_checkout = None;
                 state.entity_selection = default_entity_selection();
-                widgets::markdown(ui, "_Select a commit or range in the graph to inspect._");
+                widgets::markdown(ctx, "_Select a commit or range in the graph to inspect._");
                 return;
             }
 
             if let Some(label) = selection.label() {
-                ui.label(egui::RichText::new(label).small());
+                ctx.label(egui::RichText::new(label).small());
             }
 
             let needs_checkout = state
@@ -997,14 +997,14 @@ fn main(nb: &mut NotebookCtx) {
             }
 
             let Some(checkout) = state.commit_checkout.take() else {
-                widgets::markdown(ui, "_No commit data loaded yet._");
+                widgets::markdown(ctx, "_No commit data loaded yet._");
                 return;
             };
 
             let checkout_data = match checkout.result.as_ref() {
                 Ok(checkout_data) => checkout_data,
                 Err(err) => {
-                    widgets::markdown(ui, &format!("_Checkout failed: {err}_"));
+                    widgets::markdown(ctx, &format!("_Checkout failed: {err}_"));
                     state.commit_checkout = Some(checkout);
                     return;
                 }
@@ -1021,46 +1021,46 @@ fn main(nb: &mut NotebookCtx) {
                 &formatter_cache,
                 &mut state.entity_selection,
             )
-            .cache_id(ui.id().with("commit_checkout_graph"))
-            .show(ui);
+            .cache_id(ctx.id().with("commit_checkout_graph"))
+            .show(ctx);
             state.commit_checkout = Some(checkout);
             let stats = response.stats;
             if stats.nodes == 0 {
-                widgets::markdown(ui, "_Selection has no entities._");
+                widgets::markdown(ctx, "_Selection has no entities._");
                 return;
             }
             let selected = state.entity_selection;
-            ui.label(
+            ctx.label(
                 egui::RichText::new(format!(
                     "Entities: {}  Edges: {}  Components: {}  Columns: {}",
                     stats.nodes, stats.edges, stats.connected_components, stats.columns
                 ))
                 .small(),
             );
-            ui.label(
+            ctx.label(
                 egui::RichText::new(format!("Selected entity: {}", id_short(selected))).small(),
             );
         });
     });
 
-    nb.view(move |ui| {
-        let mut state = inspector.read_mut(ui);
-        with_padding(ui, padding, |ui| {
-            widgets::markdown(ui, "## Blobs");
+    nb.view(move |ctx| {
+        let mut state = inspector.read_mut(ctx);
+        ctx.with_padding(padding, |ctx| {
+            widgets::markdown(ctx, "## Blobs");
 
             state.snapshot.poll();
             let snapshot_value = state.snapshot.value().as_ref();
             let Some(result) = snapshot_value else {
-                widgets::markdown(ui, "_Load a pile to see blobs._");
+                widgets::markdown(ctx, "_Load a pile to see blobs._");
                 return;
             };
             let Ok(snapshot) = result else {
-                widgets::markdown(ui, "_Load a valid pile to see blobs._");
+                widgets::markdown(ctx, "_Load a valid pile to see blobs._");
                 return;
             };
 
             if snapshot.blob_order.is_empty() {
-                widgets::markdown(ui, "_No blobs found._");
+                widgets::markdown(ctx, "_No blobs found._");
                 return;
             }
 
@@ -1074,20 +1074,20 @@ fn main(nb: &mut NotebookCtx) {
             let end = (start + page_size).min(total);
             let display_start = start + 1;
 
-            ui.scope(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(6.0, 2.0);
+            ctx.scope(|ctx| {
+                ctx.spacing_mut().item_spacing = egui::vec2(6.0, 2.0);
 
                 let page_display = page + 1;
-                ui.horizontal(|ui| {
+                ctx.horizontal(|ctx| {
                     let page_label = if total_pages == 0 {
                         "Page —".to_owned()
                     } else {
                         format!("Page {page_display} of {total_pages}")
                     };
-                    ui.label(egui::RichText::new(page_label).small());
+                    ctx.label(egui::RichText::new(page_label).small());
 
                     if total_pages > 0 {
-                        ui.label(
+                        ctx.label(
                             egui::RichText::new(format!("{display_start}–{end} of {total}"))
                                 .small(),
                         );
@@ -1101,11 +1101,11 @@ fn main(nb: &mut NotebookCtx) {
                     .filter_map(|branch| branch.head)
                     .collect();
                 let card_spacing = egui::vec2(4.0, 4.0);
-                let card_height = ui.text_style_height(&egui::TextStyle::Small) + 6.0;
+                let card_height = ctx.text_style_height(&egui::TextStyle::Small) + 6.0;
                 let min_card_width = 56.0;
-                let card_fill = ui.visuals().widgets.noninteractive.bg_fill;
+                let card_fill = ctx.visuals().widgets.noninteractive.bg_fill;
                 let outline_stroke =
-                    egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color);
+                    egui::Stroke::new(1.0, ctx.visuals().widgets.noninteractive.bg_stroke.color);
                 let card_rounding = egui::CornerRadius::same(4);
                 let branch_color = egui::Color32::from_rgb(95, 210, 85);
                 let items: Vec<BlobInfo> = snapshot
@@ -1115,7 +1115,7 @@ fn main(nb: &mut NotebookCtx) {
                     .take(page_size)
                     .map(|&hash| blob_info(&snapshot.reader, hash))
                     .collect();
-                let available_width = ui.available_width();
+                let available_width = ctx.available_width();
                 let columns = ((available_width + card_spacing.x)
                     / (min_card_width + card_spacing.x))
                     .floor()
@@ -1127,8 +1127,8 @@ fn main(nb: &mut NotebookCtx) {
                     .max(1.0);
                 let card_size = egui::vec2(card_width, card_height);
 
-                ui.add_space(2.0);
-                ui.spacing_mut().item_spacing = card_spacing;
+                ctx.add_space(2.0);
+                ctx.spacing_mut().item_spacing = card_spacing;
 
                 let render_blob_card = |ui: &mut egui::Ui, blob: &BlobInfo| {
                     let is_head = branch_heads.contains(&blob.hash);
@@ -1194,12 +1194,12 @@ fn main(nb: &mut NotebookCtx) {
 
                 let row_width = available_width;
                 for row in items.chunks(columns) {
-                    let row_layout = if ui.layout().prefer_right_to_left() {
+                    let row_layout = if ctx.layout().prefer_right_to_left() {
                         egui::Layout::right_to_left(egui::Align::Center)
                     } else {
                         egui::Layout::left_to_right(egui::Align::Center)
                     };
-                    ui.allocate_ui_with_layout(
+                    ctx.allocate_ui_with_layout(
                         egui::vec2(row_width, card_height),
                         row_layout,
                         |ui| {
@@ -1212,11 +1212,12 @@ fn main(nb: &mut NotebookCtx) {
                 }
 
                 if total_pages > 1 {
-                    ui.add_space(6.0);
+                    ctx.add_space(6.0);
                     let mut page_select = page_display;
-                    ui.scope(|ui| {
-                        ui.spacing_mut().slider_width = ui.available_width();
-                        ui.add(
+                    ctx.scope(|ctx| {
+                        let w = ctx.available_width();
+                        ctx.spacing_mut().slider_width = w;
+                        ctx.add(
                             widgets::Slider::new(&mut page_select, 1..=total_pages)
                                 .show_value(false),
                         );
