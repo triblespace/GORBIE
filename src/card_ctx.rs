@@ -121,10 +121,11 @@ impl<'a> CardCtx<'a> {
         crate::widgets::markdown(self.ui, text);
     }
 
-    /// Render a full Typst document string.
+    /// Render a full Typst document string with GORBIE styling (RAL colors,
+    /// IosevkaGorbie font, page width matching the card, blue links).
     #[cfg(feature = "typst")]
     pub fn typst(&mut self, source: &str) {
-        crate::widgets::typst_widget::typst(self.ui, source);
+        crate::widgets::typst_widget::typst_with_preamble(self.ui, source);
     }
 
     /// Render an inline math expression via Typst: `$<expr>$`.

@@ -19,7 +19,7 @@ use triblespace::core::repo::pile::Pile;
 use triblespace::core::repo::{BlobStore, BlobStoreGet, BranchStore, Repository};
 use triblespace::core::trible::TribleSet;
 use triblespace::core::value::schemas::hash::{Blake3, Handle};
-use triblespace::core::value::Value;
+use triblespace::core::value::{RawValue, Value};
 use triblespace::macros::{find, pattern};
 use triblespace::prelude::blobschemas::LongString;
 use triblespace::prelude::View;
@@ -46,270 +46,269 @@ mod wiki {
 
 type TextHandle = Value<Handle<Blake3, LongString>>;
 
-// ── fragment index ────────────────────────────────────────────────────
-
-#[derive(Clone, Debug)]
-struct FragmentEntry {
-    fragment_id: Id,
-    title: String,
-    tags: Vec<String>,
-    archived: bool,
-}
-
 fn fmt_id(id: Id) -> String {
     let full = format!("{id:x}");
     full[..8.min(full.len())].to_string()
 }
 
-// ── pile operations (run on background threads) ───────────────────────
-
-fn open_repo(path: &std::path::Path) -> Result<Repository<Pile<Blake3>>, String> {
-    let mut pile = Pile::<Blake3>::open(path).map_err(|e| format!("open pile: {e:?}"))?;
-    if let Err(err) = pile.restore() {
-        let _ = pile.close();
-        return Err(format!("restore pile: {err:?}"));
-    }
-    let signing_key = ed25519_dalek::SigningKey::generate(&mut rand_core06::OsRng);
-    Repository::new(pile, signing_key, TribleSet::new())
-        .map_err(|e| format!("create repository: {e:?}"))
-}
-
-fn find_wiki_branch(repo: &mut Repository<Pile<Blake3>>) -> Result<Id, String> {
-    repo.storage_mut()
-        .refresh()
-        .map_err(|e| format!("refresh: {e:?}"))?;
-    let reader = repo
-        .storage_mut()
-        .reader()
-        .map_err(|e| format!("reader: {e:?}"))?;
-
-    for item in repo
-        .storage_mut()
-        .branches()
-        .map_err(|e| format!("branches: {e:?}"))?
-    {
-        let branch_id = item.map_err(|e| format!("branch id: {e:?}"))?;
-        let Some(head) = repo
-            .storage_mut()
-            .head(branch_id)
-            .map_err(|e| format!("head: {e:?}"))?
-        else {
-            continue;
-        };
-        let meta: TribleSet = reader.get(head).map_err(|e| format!("meta blob: {e:?}"))?;
-        let name = find!(
-            (h: TextHandle),
-            pattern!(&meta, [{ metadata::name: ?h }])
-        )
-        .into_iter()
-        .next()
-        .and_then(|(h,)| reader.get::<View<str>, LongString>(h).ok())
-        .map(|v| v.to_string());
-        if name.as_deref() == Some(WIKI_BRANCH_NAME) {
-            return Ok(branch_id);
-        }
-    }
-    Err("no 'wiki' branch found".to_string())
-}
-
-fn scan_fragments(
-    repo: &mut Repository<Pile<Blake3>>,
-    branch_id: Id,
-) -> Result<Vec<FragmentEntry>, String> {
-    repo.storage_mut()
-        .refresh()
-        .map_err(|e| format!("refresh: {e:?}"))?;
-    let mut ws = repo.pull(branch_id).map_err(|e| format!("pull: {e:?}"))?;
-    let space = ws.checkout(..).map_err(|e| format!("checkout: {e:?}"))?;
-
-    let mut tag_names: BTreeMap<Id, String> = BTreeMap::new();
-    for (tag_id, handle) in find!(
-        (tag_id: Id, handle: TextHandle),
-        pattern!(&space, [{ ?tag_id @ metadata::name: ?handle }])
-    ) {
-        if let Ok(view) = ws.get::<View<str>, LongString>(handle) {
-            tag_names.insert(tag_id, view.as_ref().to_string());
-        }
-    }
-
-    let mut latest: BTreeMap<Id, (Id, [u8; 32])> = BTreeMap::new();
-    for (vid, frag, ts) in find!(
-        (vid: Id, frag: Id, ts: Value<triblespace::prelude::valueschemas::NsTAIInterval>),
-        pattern!(&space, [{
-            ?vid @
-            metadata::tag: &KIND_VERSION_ID,
-            wiki::fragment: ?frag,
-            wiki::created_at: ?ts,
-        }])
-    ) {
-        let replace = match latest.get(&frag) {
-            None => true,
-            Some((_, prev_ts)) => ts.raw > *prev_ts,
-        };
-        if replace {
-            latest.insert(frag, (vid, ts.raw));
-        }
-    }
-
-    let mut entries = Vec::new();
-    for (frag, (vid, _)) in &latest {
-        let title = find!(
-            (h: TextHandle),
-            pattern!(&space, [{ *vid @ wiki::title: ?h }])
-        )
-        .next()
-        .and_then(|(h,)| ws.get::<View<str>, LongString>(h).ok())
-        .map(|v| v.as_ref().to_string())
-        .unwrap_or_default();
-
-        let vtags: Vec<Id> = find!(
-            (tag: Id),
-            pattern!(&space, [{ *vid @ metadata::tag: ?tag }])
-        )
-        .filter(|(t,)| *t != KIND_VERSION_ID)
-        .map(|(t,)| t)
-        .collect();
-
-        entries.push(FragmentEntry {
-            fragment_id: *frag,
-            title,
-            tags: vtags
-                .iter()
-                .filter(|t| **t != TAG_ARCHIVED_ID)
-                .map(|t| tag_names.get(t).cloned().unwrap_or_else(|| fmt_id(*t)))
-                .collect(),
-            archived: vtags.contains(&TAG_ARCHIVED_ID),
-        });
-    }
-
-    entries.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
-    Ok(entries)
-}
-
-fn load_fragment_content(
-    path: &std::path::Path,
-    branch_id: Id,
-    fragment_id: Id,
-) -> Result<String, String> {
-    let mut repo = open_repo(path)?;
-    let mut ws = repo.pull(branch_id).map_err(|e| format!("pull: {e:?}"))?;
-    let space = ws.checkout(..).map_err(|e| format!("checkout: {e:?}"))?;
-
-    let latest_vid = find!(
-        (vid: Id, ts: Value<triblespace::prelude::valueschemas::NsTAIInterval>),
-        pattern!(&space, [{
-            ?vid @
-            metadata::tag: &KIND_VERSION_ID,
-            wiki::fragment: &fragment_id,
-            wiki::created_at: ?ts,
-        }])
-    )
-    .max_by_key(|(_, ts)| ts.raw)
-    .map(|(vid, _)| vid)
-    .ok_or_else(|| "no version found".to_string())?;
-
-    let content_handle: TextHandle = find!(
-        (h: TextHandle),
-        pattern!(&space, [{ latest_vid @ wiki::content: ?h }])
-    )
-    .next()
-    .map(|(h,)| h)
-    .ok_or_else(|| "no content handle".to_string())?;
-
-    let view: View<str> = ws
-        .get(content_handle)
-        .map_err(|e| format!("read content: {e:?}"))?;
-    let content = view.as_ref().to_string();
-    let _ = repo.close();
-    Ok(content)
-}
-
-/// Background task: open pile, find wiki branch, scan all fragments.
-fn load_wiki_index(path: PathBuf) -> WikiIndex {
-    let mut repo = match open_repo(&path) {
-        Ok(r) => r,
-        Err(e) => return WikiIndex { error: Some(e), ..Default::default() },
-    };
-    let branch_id = match find_wiki_branch(&mut repo) {
-        Ok(id) => id,
-        Err(e) => {
-            let _ = repo.close();
-            return WikiIndex { error: Some(e), ..Default::default() };
-        }
-    };
-    let fragments = match scan_fragments(&mut repo, branch_id) {
-        Ok(f) => f,
-        Err(e) => {
-            let _ = repo.close();
-            return WikiIndex {
-                branch_id: Some(branch_id),
-                error: Some(e),
-                ..Default::default()
-            };
-        }
-    };
-    let _ = repo.close();
-    WikiIndex {
-        branch_id: Some(branch_id),
-        fragments,
-        error: None,
-    }
-}
-
-// ── shared state types ────────────────────────────────────────────────
+// ── wiki data (TribleSet + resolved blobs) ────────────────────────────
 
 #[derive(Clone, Default)]
-struct WikiIndex {
-    branch_id: Option<Id>,
-    fragments: Vec<FragmentEntry>,
+struct WikiData {
+    space: TribleSet,
+    /// All text blobs resolved to strings, keyed by handle raw bytes.
+    blobs: BTreeMap<RawValue, String>,
     error: Option<String>,
 }
 
-#[derive(Clone)]
-struct OpenPage {
-    fragment_id: Id,
-    title: String,
-    content: String,
+impl WikiData {
+    fn blob(&self, handle: TextHandle) -> &str {
+        self.blobs.get(&handle.raw).map(|s| s.as_str()).unwrap_or("")
+    }
+
+    /// Find the latest version ID for a fragment (by timestamp).
+    fn latest_version(&self, fragment_id: Id) -> Option<Id> {
+        find!(
+            (vid: Id, ts: Value<triblespace::prelude::valueschemas::NsTAIInterval>),
+            pattern!(&self.space, [{
+                ?vid @
+                metadata::tag: &KIND_VERSION_ID,
+                wiki::fragment: &fragment_id,
+                wiki::created_at: ?ts,
+            }])
+        )
+        .max_by_key(|(_, ts)| ts.raw)
+        .map(|(vid, _)| vid)
+    }
+
+    fn title(&self, vid: Id) -> &str {
+        find!(
+            (h: TextHandle),
+            pattern!(&self.space, [{ vid @ wiki::title: ?h }])
+        )
+        .next()
+        .map(|(h,)| self.blob(h))
+        .unwrap_or("")
+    }
+
+    fn content(&self, vid: Id) -> &str {
+        find!(
+            (h: TextHandle),
+            pattern!(&self.space, [{ vid @ wiki::content: ?h }])
+        )
+        .next()
+        .map(|(h,)| self.blob(h))
+        .unwrap_or("")
+    }
+
+    fn tags(&self, vid: Id) -> Vec<Id> {
+        find!(
+            (tag: Id),
+            pattern!(&self.space, [{ vid @ metadata::tag: ?tag }])
+        )
+        .filter(|(t,)| *t != KIND_VERSION_ID)
+        .map(|(t,)| t)
+        .collect()
+    }
+
+    fn tag_name(&self, tag_id: Id) -> &str {
+        find!(
+            (h: TextHandle),
+            pattern!(&self.space, [{ tag_id @ metadata::name: ?h }])
+        )
+        .next()
+        .map(|(h,)| self.blob(h))
+        .unwrap_or("")
+    }
+
+    fn is_archived(&self, vid: Id) -> bool {
+        self.tags(vid).contains(&TAG_ARCHIVED_ID)
+    }
+
+    fn is_markdown(&self, vid: Id) -> bool {
+        self.tags(vid)
+            .iter()
+            .any(|t| self.tag_name(*t) == "markdown")
+    }
+
+    /// All unique fragment IDs with their latest version, sorted by title.
+    fn fragments_sorted(&self) -> Vec<(Id, Id)> {
+        let mut latest: BTreeMap<Id, (Id, RawValue)> = BTreeMap::new();
+        for (vid, frag, ts) in find!(
+            (vid: Id, frag: Id, ts: Value<triblespace::prelude::valueschemas::NsTAIInterval>),
+            pattern!(&self.space, [{
+                ?vid @
+                metadata::tag: &KIND_VERSION_ID,
+                wiki::fragment: ?frag,
+                wiki::created_at: ?ts,
+            }])
+        ) {
+            let replace = match latest.get(&frag) {
+                None => true,
+                Some((_, prev_ts)) => ts.raw > *prev_ts,
+            };
+            if replace {
+                latest.insert(frag, (vid, ts.raw));
+            }
+        }
+        let mut entries: Vec<(Id, Id)> = latest
+            .into_iter()
+            .map(|(frag, (vid, _))| (frag, vid))
+            .collect();
+        entries.sort_by(|a, b| {
+            self.title(a.1)
+                .to_lowercase()
+                .cmp(&self.title(b.1).to_lowercase())
+        });
+        entries
+    }
+}
+
+// ── background loading ───────────────────────────────────────────────
+
+fn load_wiki_data(path: PathBuf) -> WikiData {
+    let open = || -> Result<WikiData, String> {
+        let mut pile =
+            Pile::<Blake3>::open(&path).map_err(|e| format!("open pile: {e:?}"))?;
+        if let Err(err) = pile.restore() {
+            let _ = pile.close();
+            return Err(format!("restore: {err:?}"));
+        }
+        let signing_key = ed25519_dalek::SigningKey::generate(&mut rand_core06::OsRng);
+        let mut repo = Repository::new(pile, signing_key, TribleSet::new())
+            .map_err(|e| format!("repo: {e:?}"))?;
+
+        // Find wiki branch.
+        repo.storage_mut()
+            .refresh()
+            .map_err(|e| format!("refresh: {e:?}"))?;
+        let reader = repo
+            .storage_mut()
+            .reader()
+            .map_err(|e| format!("reader: {e:?}"))?;
+        let mut wiki_branch = None;
+        for item in repo
+            .storage_mut()
+            .branches()
+            .map_err(|e| format!("branches: {e:?}"))?
+        {
+            let bid = item.map_err(|e| format!("branch: {e:?}"))?;
+            let Some(head) = repo
+                .storage_mut()
+                .head(bid)
+                .map_err(|e| format!("head: {e:?}"))?
+            else {
+                continue;
+            };
+            let meta: TribleSet = reader.get(head).map_err(|e| format!("meta: {e:?}"))?;
+            let name = find!(
+                (h: TextHandle),
+                pattern!(&meta, [{ metadata::name: ?h }])
+            )
+            .into_iter()
+            .next()
+            .and_then(|(h,)| reader.get::<View<str>, LongString>(h).ok())
+            .map(|v| v.to_string());
+            if name.as_deref() == Some(WIKI_BRANCH_NAME) {
+                wiki_branch = Some(bid);
+                break;
+            }
+        }
+        let branch_id =
+            wiki_branch.ok_or_else(|| "no 'wiki' branch found".to_string())?;
+
+        // Checkout and resolve all blobs.
+        let mut ws = repo.pull(branch_id).map_err(|e| format!("pull: {e:?}"))?;
+        let space = ws.checkout(..).map_err(|e| format!("checkout: {e:?}"))?;
+
+        let mut blobs = BTreeMap::new();
+        // Resolve all title handles.
+        for (h,) in find!(
+            (h: TextHandle),
+            pattern!(&space, [{ _?vid @ wiki::title: ?h }])
+        ) {
+            if !blobs.contains_key(&h.raw) {
+                if let Ok(view) = ws.get::<View<str>, LongString>(h) {
+                    blobs.insert(h.raw, view.as_ref().to_string());
+                }
+            }
+        }
+        // Resolve all content handles.
+        for (h,) in find!(
+            (h: TextHandle),
+            pattern!(&space, [{ _?vid @ wiki::content: ?h }])
+        ) {
+            if !blobs.contains_key(&h.raw) {
+                if let Ok(view) = ws.get::<View<str>, LongString>(h) {
+                    blobs.insert(h.raw, view.as_ref().to_string());
+                }
+            }
+        }
+        // Resolve all tag/metadata name handles.
+        for (h,) in find!(
+            (h: TextHandle),
+            pattern!(&space, [{ _?id @ metadata::name: ?h }])
+        ) {
+            if !blobs.contains_key(&h.raw) {
+                if let Ok(view) = ws.get::<View<str>, LongString>(h) {
+                    blobs.insert(h.raw, view.as_ref().to_string());
+                }
+            }
+        }
+
+        let _ = repo.close();
+        Ok(WikiData {
+            space,
+            blobs,
+            error: None,
+        })
+    };
+
+    open().unwrap_or_else(|e| WikiData {
+        error: Some(e),
+        ..Default::default()
+    })
 }
 
 // ── notebook state ────────────────────────────────────────────────────
 
 struct BrowserState {
     pile_path: String,
-    index: ComputedState<WikiIndex>,
-    open_pages: Vec<OpenPage>,
+    data: ComputedState<WikiData>,
+    open_pages: Vec<Id>,
     search: String,
     show_archived: bool,
-    content_loaders: Vec<ComputedState<Option<OpenPage>>>,
 }
 
 impl BrowserState {
     fn new(pile_path: String) -> Self {
         Self {
             pile_path,
-            index: ComputedState::default(),
+            data: ComputedState::default(),
             open_pages: Vec::new(),
             search: String::new(),
             show_archived: false,
-            content_loaders: Vec::new(),
         }
     }
 }
 
 // ── wiki-aware markdown rendering ─────────────────────────────────────
 
-/// Render markdown and intercept `wiki:<hex>` link clicks.
-/// Returns the resolved fragment Id if a wiki link was clicked.
-fn render_wiki_markdown(ctx: &mut CardCtx<'_>, content: &str) -> Option<Id> {
-    // Snapshot command count before rendering.
+/// Render wiki content (typst by default, markdown if tagged) and intercept
+/// `wiki:<hex>` link clicks.
+fn render_wiki_content(ctx: &mut CardCtx<'_>, content: &str, markdown: bool) -> Option<Id> {
     let cmd_count_before = ctx.ctx().output(|o| o.commands.len());
 
-    ctx.markdown(content);
+    if markdown {
+        ctx.markdown(content);
+    } else {
+        ctx.typst(content);
+    }
 
-    // Check for new commands — intercept wiki: URLs.
     let mut wiki_target = None;
     ctx.ctx().output_mut(|o| {
-        let new_commands: Vec<egui::OutputCommand> = o.commands.drain(cmd_count_before..).collect();
+        let new_commands: Vec<egui::OutputCommand> =
+            o.commands.drain(cmd_count_before..).collect();
         for cmd in new_commands {
             match &cmd {
                 egui::OutputCommand::OpenUrl(open_url) => {
@@ -318,7 +317,6 @@ fn render_wiki_markdown(ctx: &mut CardCtx<'_>, content: &str) -> Option<Id> {
                             wiki_target = Some(id);
                         }
                     } else {
-                        // Re-emit non-wiki URLs.
                         o.commands.push(cmd);
                     }
                 }
@@ -326,42 +324,7 @@ fn render_wiki_markdown(ctx: &mut CardCtx<'_>, content: &str) -> Option<Id> {
             }
         }
     });
-
     wiki_target
-}
-
-/// Open a wiki page by fragment ID, spawning a background content loader.
-/// Works directly on BrowserState (for use inside the browser card closure).
-fn open_wiki_page_direct(state: &mut BrowserState, target_id: Id) {
-    if state.open_pages.iter().any(|p| p.fragment_id == target_id) {
-        return;
-    }
-
-    let title = state
-        .index
-        .value()
-        .fragments
-        .iter()
-        .find(|f| f.fragment_id == target_id)
-        .map(|f| f.title.clone())
-        .unwrap_or_else(|| fmt_id(target_id));
-
-    if let Some(branch_id) = state.index.value().branch_id {
-        let path = PathBuf::from(state.pile_path.trim().to_owned());
-        let frag_id = target_id;
-        let frag_title = title;
-        let mut loader = ComputedState::new(None);
-        loader.spawn(move || {
-            let content = load_fragment_content(&path, branch_id, frag_id)
-                .unwrap_or_else(|e| format!("*Error: {e}*"));
-            Some(OpenPage {
-                fragment_id: frag_id,
-                title: frag_title,
-                content,
-            })
-        });
-        state.content_loaders.push(loader);
-    }
 }
 
 // ── entry point ───────────────────────────────────────────────────────
@@ -381,23 +344,10 @@ fn main(nb: &mut NotebookCtx) {
     });
 
     nb.state("browser", BrowserState::new(pile_path), move |ctx, state| {
-        // Keep repainting while background work is in flight.
-        if state.index.is_running() || !state.content_loaders.is_empty() {
+        if state.data.is_running() {
             ctx.ctx().request_repaint();
         }
-
-        // Poll background tasks.
-        state.index.poll();
-
-        // Drain finished content loaders into open_pages.
-        for loader in &mut state.content_loaders {
-            if loader.poll() {
-                if let Some(page) = loader.value().clone() {
-                    state.open_pages.push(page);
-                }
-            }
-        }
-        state.content_loaders.retain(|l| l.is_running());
+        state.data.poll();
 
         ctx.with_padding(padding, |ctx| {
             ctx.heading("Pile");
@@ -409,31 +359,30 @@ fn main(nb: &mut NotebookCtx) {
                     [field_w, 0.0],
                     widgets::TextField::singleline(&mut state.pile_path),
                 );
-                let is_loading = state.index.is_running();
-                if !is_loading {
+                if !state.data.is_running() {
                     if ctx.small_button("Open").clicked() {
                         let path = PathBuf::from(state.pile_path.trim().to_owned());
-                        state.index.spawn(move || load_wiki_index(path));
+                        state.data.spawn(move || load_wiki_data(path));
                         ctx.ctx().request_repaint();
                     }
                 } else {
                     ctx.label(egui::RichText::new("Loading...").weak().italics());
-                    ctx.ctx().request_repaint();
                 }
             });
 
-            let index = state.index.value();
-            if let Some(err) = &index.error {
-                let error_color = ctx.visuals().error_fg_color;
+            let data = state.data.value();
+            if let Some(err) = &data.error {
+                let color = ctx.visuals().error_fg_color;
                 ctx.add_space(4.0);
                 ctx.label(
-                    egui::RichText::new(err.as_str())
-                        .color(error_color)
-                        .monospace(),
+                    egui::RichText::new(err.as_str()).color(color).monospace(),
                 );
             }
 
-            if index.fragments.is_empty() && index.error.is_none() && !state.index.is_running() {
+            if data.space.is_empty() && data.error.is_none() && !state.data.is_running() {
+                return;
+            }
+            if data.space.is_empty() {
                 return;
             }
 
@@ -442,51 +391,61 @@ fn main(nb: &mut NotebookCtx) {
 
             ctx.horizontal(|ctx| {
                 ctx.label("Search:");
-                let field_w = ctx.available_width();
+                let w = ctx.available_width();
                 ctx.add_sized(
-                    [field_w, 0.0],
+                    [w, 0.0],
                     widgets::TextField::singleline(&mut state.search),
                 );
             });
-
             ctx.horizontal(|ctx| {
                 ctx.add(widgets::ToggleButton::new(
                     &mut state.show_archived,
                     "Show archived",
                 ));
             });
-
             ctx.add_space(8.0);
 
+            // Query the TribleSet directly for the fragment list.
             let needle = state.search.to_lowercase();
-            let open_ids: Vec<Id> = state.open_pages.iter().map(|p| p.fragment_id).collect();
             let sel_color = ctx.visuals().selection.stroke.color;
             let mut to_open = None;
 
-            for frag in &state.index.value().fragments {
-                if frag.archived && !state.show_archived {
+            for (frag_id, vid) in data.fragments_sorted() {
+                let archived = data.is_archived(vid);
+                if archived && !state.show_archived {
                     continue;
                 }
+
+                let title = data.title(vid);
+                let tags = data.tags(vid);
+                let tag_names: Vec<&str> = tags
+                    .iter()
+                    .filter(|t| **t != TAG_ARCHIVED_ID)
+                    .map(|t| data.tag_name(*t))
+                    .collect();
+
                 if !needle.is_empty()
-                    && !frag.title.to_lowercase().contains(&needle)
-                    && !frag.tags.iter().any(|t| t.to_lowercase().contains(&needle))
+                    && !title.to_lowercase().contains(&needle)
+                    && !tag_names
+                        .iter()
+                        .any(|t| t.to_lowercase().contains(&needle))
                 {
                     continue;
                 }
 
-                let already_open = open_ids.contains(&frag.fragment_id);
+                let already_open = state.open_pages.contains(&frag_id);
                 ctx.horizontal(|ctx| {
-                    let title = if frag.title.is_empty() {
-                        fmt_id(frag.fragment_id)
+                    let display_title = if title.is_empty() {
+                        fmt_id(frag_id)
                     } else {
-                        frag.title.clone()
+                        title.to_string()
                     };
-                    let label = if frag.archived {
-                        format!("{title} [archived]")
-                    } else if frag.tags.is_empty() {
-                        title
+                    let label = if archived {
+                        format!("{display_title} [archived]")
+                    } else if tag_names.is_empty() {
+                        display_title
                     } else {
-                        format!("{title}  [{}]", frag.tags.join(", "))
+                        format!("{display_title}  [{}]", tag_names.join(", "))
                     };
 
                     if already_open {
@@ -494,62 +453,47 @@ fn main(nb: &mut NotebookCtx) {
                             egui::RichText::new(label).strong().color(sel_color),
                         );
                     } else if ctx.link(label).clicked() {
-                        to_open = Some(frag.fragment_id);
+                        to_open = Some(frag_id);
                     }
                 });
             }
 
             if let Some(id) = to_open {
-                let title = state
-                    .index
-                    .value()
-                    .fragments
-                    .iter()
-                    .find(|f| f.fragment_id == id)
-                    .map(|f| f.title.clone())
-                    .unwrap_or_else(|| fmt_id(id));
-
-                if let Some(branch_id) = state.index.value().branch_id {
-                    let path = PathBuf::from(state.pile_path.trim().to_owned());
-                    let frag_id = id;
-                    let frag_title = title;
-                    let mut loader = ComputedState::new(None);
-                    loader.spawn(move || {
-                        let content = load_fragment_content(&path, branch_id, frag_id)
-                            .unwrap_or_else(|e| format!("*Error: {e}*"));
-                        Some(OpenPage {
-                            fragment_id: frag_id,
-                            title: frag_title,
-                            content,
-                        })
-                    });
-                    state.content_loaders.push(loader);
-                    ctx.ctx().request_repaint();
+                if !state.open_pages.contains(&id) {
+                    state.open_pages.push(id);
                 }
             }
         });
 
         // ── floating wiki page cards ─────────────────────────────────
-        let page_snapshot: Vec<OpenPage> = state.open_pages.clone();
+        let open_snapshot: Vec<Id> = state.open_pages.clone();
         let mut to_close = Vec::new();
         let mut to_open_from_link = Vec::new();
-        for page in &page_snapshot {
-            let frag_id = page.fragment_id;
+
+        for &frag_id in &open_snapshot {
             let frag_bytes: &[u8] = frag_id.as_ref();
             let mut frag_key = [0u8; 16];
             frag_key.copy_from_slice(frag_bytes);
+
+            let data = state.data.value();
+            let vid = data.latest_version(frag_id);
+            let title = vid.map(|v| data.title(v)).unwrap_or("");
+            let content = vid.map(|v| data.content(v)).unwrap_or("");
+            let is_md = vid.map(|v| data.is_markdown(v)).unwrap_or(true);
+
             ctx.push_id(frag_key, |ctx| {
                 let resp = ctx.float(|ctx| {
                     ctx.with_padding(padding, |ctx| {
-                        ctx.add(egui::Label::new(
-                            egui::RichText::new(&page.title).heading()
-                        ).wrap());
+                        ctx.add(
+                            egui::Label::new(egui::RichText::new(title).heading())
+                                .wrap(),
+                        );
                         ctx.label(
                             egui::RichText::new(fmt_id(frag_id)).monospace().weak(),
                         );
                         ctx.separator();
 
-                        if let Some(target_id) = render_wiki_markdown(ctx, &page.content) {
+                        if let Some(target_id) = render_wiki_content(ctx, content, is_md) {
                             to_open_from_link.push(target_id);
                         }
                     });
@@ -559,11 +503,14 @@ fn main(nb: &mut NotebookCtx) {
                 }
             });
         }
+
         for id in to_close {
-            state.open_pages.retain(|p| p.fragment_id != id);
+            state.open_pages.retain(|&p| p != id);
         }
         for id in to_open_from_link {
-            open_wiki_page_direct(state, id);
+            if !state.open_pages.contains(&id) {
+                state.open_pages.push(id);
+            }
         }
     });
 }
