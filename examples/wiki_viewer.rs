@@ -12,6 +12,8 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use cubecl::prelude::*;
+use cubecl::wgpu::{WgpuDevice, WgpuRuntime};
 use egui::{self};
 use triblespace::core::id::Id;
 use triblespace::core::metadata;
@@ -129,6 +131,16 @@ impl WikiData {
         self.tags(vid)
             .iter()
             .any(|t| self.tag_name(*t) == "markdown")
+    }
+
+    /// Outgoing wiki links from a version entity.
+    fn links(&self, vid: Id) -> Vec<Id> {
+        find!(
+            (target: Id),
+            pattern!(&self.space, [{ vid @ wiki::links_to: ?target }])
+        )
+        .map(|(t,)| t)
+        .collect()
     }
 
     /// All unique fragment IDs with their latest version, sorted by title.
@@ -272,12 +284,348 @@ fn load_wiki_data(path: PathBuf) -> WikiData {
 
 // ── notebook state ────────────────────────────────────────────────────
 
+// ── GPU force-directed layout kernel ──────────────────────────────────
+
+/// GPU kernel: compute forces for each node in parallel.
+/// Positions are interleaved as [x0, y0, x1, y1, ...].
+/// Velocities are the same layout.
+/// Edges are [from0, to0, from1, to1, ...].
+#[cube(launch)]
+fn force_step_kernel(
+    pos: &Array<f32>,
+    vel: &mut Array<f32>,
+    edges: &Array<u32>,
+    node_count: u32,
+    edge_count: u32,
+    pos_out: &mut Array<f32>,
+) {
+    let i = ABSOLUTE_POS as u32;
+    if i < node_count {
+        let repulsion = 8000.0f32;
+        let attraction = 0.005f32;
+        let damping = 0.85f32;
+        let max_force = 50.0f32;
+        let gravity = 0.001f32;
+
+        let ix = (i * 2) as usize;
+        let iy = ix + 1;
+        let px = pos[ix];
+        let py = pos[iy];
+
+        let mut fx = 0.0f32;
+        let mut fy = 0.0f32;
+
+        // Repulsion from all other nodes.
+        for j in 0..node_count {
+            if j != i {
+                let jx = (j * 2) as usize;
+                let dx = px - pos[jx];
+                let dy = py - pos[jx + 1];
+                let dist_sq = (dx * dx + dy * dy).max(1.0f32);
+                let dist = dist_sq.sqrt().max(0.001f32);
+                let f = repulsion / dist_sq;
+                fx += (dx / dist) * f;
+                fy += (dy / dist) * f;
+            }
+        }
+
+        // Attraction along edges.
+        for e in 0..edge_count {
+            let ea = edges[(e * 2) as usize];
+            let eb = edges[(e * 2 + 1) as usize];
+            if ea == i {
+                let bx = (eb * 2) as usize;
+                fx += (pos[bx] - px) * attraction;
+                fy += (pos[bx + 1] - py) * attraction;
+            }
+            if eb == i {
+                let ax = (ea * 2) as usize;
+                fx += (pos[ax] - px) * attraction;
+                fy += (pos[ax + 1] - py) * attraction;
+            }
+        }
+
+        // Center gravity.
+        fx -= px * gravity;
+        fy -= py * gravity;
+
+        // Clamp force.
+        let fmag = (fx * fx + fy * fy).sqrt();
+        if fmag > max_force {
+            let scale = max_force / fmag;
+            fx *= scale;
+            fy *= scale;
+        }
+
+        // Update velocity and position.
+        let vx = (vel[ix] + fx) * damping;
+        let vy = (vel[iy] + fy) * damping;
+        vel[ix] = vx;
+        vel[iy] = vy;
+        pos_out[ix] = px + vx;
+        pos_out[iy] = py + vy;
+    }
+}
+
+// ── force-directed graph ──────────────────────────────────────────────
+
+struct WikiGraph {
+    nodes: Vec<GraphNode>,
+    edges: Vec<(usize, usize)>,
+    // GPU state.
+    gpu: Option<GpuForceState>,
+}
+
+struct GpuForceState {
+    client: ComputeClient<WgpuRuntime>,
+    pos_handle: cubecl::server::Handle,
+    vel_handle: cubecl::server::Handle,
+    edges_handle: cubecl::server::Handle,
+    pos_out_handle: cubecl::server::Handle,
+    node_count: u32,
+    edge_count: u32,
+}
+
+struct GraphNode {
+    frag_id: Id,
+    label: String,
+    pos: egui::Vec2,
+}
+
+impl WikiGraph {
+    fn from_wiki(data: &WikiData) -> Self {
+        let fragments = data.fragments_sorted();
+        let mut frag_to_idx = BTreeMap::new();
+        let mut nodes = Vec::new();
+
+        let n = fragments.len().max(1) as f32;
+        for (i, &(frag_id, vid)) in fragments.iter().enumerate() {
+            let angle = (i as f32 / n) * std::f32::consts::TAU;
+            let radius = 200.0 + n * 5.0;
+            let title = data.title(vid);
+            frag_to_idx.insert(frag_id, i);
+            nodes.push(GraphNode {
+                frag_id,
+                label: if title.is_empty() {
+                    fmt_id(frag_id)
+                } else {
+                    title.to_string()
+                },
+                pos: egui::vec2(angle.cos() * radius, angle.sin() * radius),
+            });
+        }
+
+        let mut seen = std::collections::HashSet::new();
+        let mut edges = Vec::new();
+        for &(frag_id, vid) in &fragments {
+            let from = frag_to_idx[&frag_id];
+            for target in data.links(vid) {
+                if let Some(&to) = frag_to_idx.get(&target) {
+                    if from != to && seen.insert((from, to)) {
+                        edges.push((from, to));
+                    }
+                }
+            }
+        }
+
+        // Initialize GPU.
+        let gpu = Self::init_gpu(&nodes, &edges);
+
+        WikiGraph { nodes, edges, gpu }
+    }
+
+    fn init_gpu(nodes: &[GraphNode], edges: &[(usize, usize)]) -> Option<GpuForceState> {
+        let device = WgpuDevice::default();
+        let client = WgpuRuntime::client(&device);
+        let n = nodes.len();
+
+        let mut pos_flat: Vec<f32> = Vec::with_capacity(n * 2);
+        let mut vel_flat: Vec<f32> = vec![0.0; n * 2];
+        for node in nodes {
+            pos_flat.push(node.pos.x);
+            pos_flat.push(node.pos.y);
+        }
+
+        let edges_flat: Vec<u32> = edges
+            .iter()
+            .flat_map(|&(a, b)| [a as u32, b as u32])
+            .collect();
+
+        let pos_handle = client.create_from_slice(f32::as_bytes(&pos_flat));
+        let vel_handle = client.create_from_slice(f32::as_bytes(&vel_flat));
+        let edges_handle = if edges_flat.is_empty() {
+            client.create_from_slice(u32::as_bytes(&[0u32; 2]))
+        } else {
+            client.create_from_slice(u32::as_bytes(&edges_flat))
+        };
+        let pos_out_handle = client.empty(n * 2 * std::mem::size_of::<f32>());
+
+        Some(GpuForceState {
+            client,
+            pos_handle,
+            vel_handle,
+            edges_handle,
+            pos_out_handle,
+            node_count: n as u32,
+            edge_count: edges.len() as u32,
+        })
+    }
+
+    /// Run one iteration of force-directed layout on the GPU.
+    fn step(&mut self) {
+        let Some(gpu) = &mut self.gpu else {
+            return;
+        };
+        let n = gpu.node_count as usize;
+        if n == 0 {
+            return;
+        }
+
+        // Launch kernel — one thread per node.
+        // SAFETY: handles were created with matching sizes above.
+        unsafe {
+            force_step_kernel::launch::<WgpuRuntime>(
+                &gpu.client,
+                CubeCount::new_1d(n as u32),
+                CubeDim::new_1d(1),
+                ArrayArg::from_raw_parts::<f32>(&gpu.pos_handle, n * 2, 1),
+                ArrayArg::from_raw_parts::<f32>(&gpu.vel_handle, n * 2, 1),
+                ArrayArg::from_raw_parts::<u32>(&gpu.edges_handle, gpu.edge_count.max(1) as usize * 2, 1),
+                ScalarArg::new(gpu.node_count),
+                ScalarArg::new(gpu.edge_count),
+                ArrayArg::from_raw_parts::<f32>(&gpu.pos_out_handle, n * 2, 1),
+            );
+        }
+
+        // Swap buffers.
+        std::mem::swap(&mut gpu.pos_handle, &mut gpu.pos_out_handle);
+
+        // Read positions back to CPU for rendering.
+        let bytes = gpu.client.read_one(gpu.pos_handle.clone());
+        let positions: &[f32] = f32::from_bytes(&bytes);
+        for (i, node) in self.nodes.iter_mut().enumerate() {
+            node.pos = egui::vec2(positions[i * 2], positions[i * 2 + 1]);
+        }
+    }
+
+    /// Render the graph and return the clicked node's fragment ID (if any).
+    fn show(&self, ui: &mut egui::Ui) -> Option<Id> {
+        let available = ui.available_size();
+        let (response, painter) = ui.allocate_painter(
+            egui::vec2(available.x, available.y.max(400.0)),
+            egui::Sense::click_and_drag(),
+        );
+        let rect = response.rect;
+        let center = rect.center();
+
+        // Pan + zoom stored in egui memory.
+        let view_id = ui.id().with("wiki_graph_view");
+        let pan_id = view_id.with("pan");
+        let zoom_id = view_id.with("zoom");
+
+        let mut pan: egui::Vec2 = ui.ctx().memory_mut(|m| {
+            *m.data.get_temp_mut_or_insert_with(pan_id, || egui::Vec2::ZERO)
+        });
+        let mut zoom: f32 = ui.ctx().memory_mut(|m| {
+            *m.data.get_temp_mut_or_insert_with(zoom_id, || 1.0f32)
+        });
+
+        if response.hovered() {
+            // Pinch-to-zoom (trackpad) or ctrl+scroll (mouse).
+            let pinch = ui.input(|i| i.zoom_delta());
+            if pinch != 1.0 {
+                let old_zoom = zoom;
+                zoom = (zoom * pinch).clamp(0.05, 10.0);
+                if let Some(hp) = response.hover_pos() {
+                    let cursor_offset = hp - center - pan;
+                    pan -= cursor_offset * (zoom / old_zoom - 1.0);
+                }
+            }
+
+            // Two-finger scroll (trackpad) or scroll wheel for pan.
+            let scroll = ui.input(|i| i.smooth_scroll_delta);
+            if scroll != egui::Vec2::ZERO {
+                pan += scroll;
+            }
+
+            if pinch != 1.0 || scroll != egui::Vec2::ZERO {
+                ui.ctx().memory_mut(|m| {
+                    m.data.insert_temp(zoom_id, zoom);
+                    m.data.insert_temp(pan_id, pan);
+                });
+            }
+        }
+
+        // Also pan with right/middle drag (mouse).
+        if response.dragged_by(egui::PointerButton::Secondary)
+            || response.dragged_by(egui::PointerButton::Middle)
+        {
+            pan += response.drag_delta();
+            ui.ctx().memory_mut(|m| m.data.insert_temp(pan_id, pan));
+        }
+
+        // Transform: world pos → screen pos.
+        let to_screen =
+            |world: egui::Vec2| center + pan + egui::vec2(world.x * zoom, world.y * zoom);
+
+        let node_radius = 6.0 * zoom.max(0.3);
+        let edge_color = ui.visuals().weak_text_color();
+        let node_fill = GORBIE::themes::ral(5005);
+        let node_stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+        let label_color = ui.visuals().text_color();
+        let font_id = egui::TextStyle::Small.resolve(ui.style());
+
+        // Draw edges.
+        for &(a, b) in &self.edges {
+            let p1 = to_screen(self.nodes[a].pos);
+            let p2 = to_screen(self.nodes[b].pos);
+            if rect.expand(50.0).contains(p1) || rect.expand(50.0).contains(p2) {
+                painter.line_segment([p1, p2], egui::Stroke::new(0.5, edge_color));
+            }
+        }
+
+        // Draw nodes and detect clicks.
+        let mut clicked = None;
+        let hover_pos = response.hover_pos();
+        let show_labels = zoom > 0.3;
+        for node in &self.nodes {
+            let pos = to_screen(node.pos);
+
+            if !rect.expand(20.0).contains(pos) {
+                continue;
+            }
+
+            painter.circle(pos, node_radius, node_fill, node_stroke);
+            if show_labels {
+                painter.text(
+                    pos + egui::vec2(node_radius + 4.0, 0.0),
+                    egui::Align2::LEFT_CENTER,
+                    &node.label,
+                    font_id.clone(),
+                    label_color,
+                );
+            }
+
+            // Hit test.
+            if let Some(hp) = hover_pos {
+                if (hp - pos).length() < node_radius + 8.0 {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    if response.clicked() {
+                        clicked = Some(node.frag_id);
+                    }
+                }
+            }
+        }
+
+        clicked
+    }
+}
+
 struct BrowserState {
     pile_path: String,
     data: ComputedState<WikiData>,
+    graph: Option<WikiGraph>,
     open_pages: Vec<Id>,
-    search: String,
-    show_archived: bool,
 }
 
 impl BrowserState {
@@ -285,9 +633,8 @@ impl BrowserState {
         Self {
             pile_path,
             data: ComputedState::default(),
+            graph: None,
             open_pages: Vec::new(),
-            search: String::new(),
-            show_archived: false,
         }
     }
 }
@@ -387,81 +734,21 @@ fn main(nb: &mut NotebookCtx) {
             }
 
             ctx.add_space(8.0);
-            ctx.heading("Fragments");
 
-            ctx.horizontal(|ctx| {
-                ctx.label("Search:");
-                let w = ctx.available_width();
-                ctx.add_sized(
-                    [w, 0.0],
-                    widgets::TextField::singleline(&mut state.search),
-                );
-            });
-            ctx.horizontal(|ctx| {
-                ctx.add(widgets::ToggleButton::new(
-                    &mut state.show_archived,
-                    "Show archived",
-                ));
-            });
-            ctx.add_space(8.0);
-
-            // Query the TribleSet directly for the fragment list.
-            let needle = state.search.to_lowercase();
-            let sel_color = ctx.visuals().selection.stroke.color;
-            let mut to_open = None;
-
-            for (frag_id, vid) in data.fragments_sorted() {
-                let archived = data.is_archived(vid);
-                if archived && !state.show_archived {
-                    continue;
-                }
-
-                let title = data.title(vid);
-                let tags = data.tags(vid);
-                let tag_names: Vec<&str> = tags
-                    .iter()
-                    .filter(|t| **t != TAG_ARCHIVED_ID)
-                    .map(|t| data.tag_name(*t))
-                    .collect();
-
-                if !needle.is_empty()
-                    && !title.to_lowercase().contains(&needle)
-                    && !tag_names
-                        .iter()
-                        .any(|t| t.to_lowercase().contains(&needle))
-                {
-                    continue;
-                }
-
-                let already_open = state.open_pages.contains(&frag_id);
-                ctx.horizontal(|ctx| {
-                    let display_title = if title.is_empty() {
-                        fmt_id(frag_id)
-                    } else {
-                        title.to_string()
-                    };
-                    let label = if archived {
-                        format!("{display_title} [archived]")
-                    } else if tag_names.is_empty() {
-                        display_title
-                    } else {
-                        format!("{display_title}  [{}]", tag_names.join(", "))
-                    };
-
-                    if already_open {
-                        ctx.label(
-                            egui::RichText::new(label).strong().color(sel_color),
-                        );
-                    } else if ctx.link(label).clicked() {
-                        to_open = Some(frag_id);
-                    }
-                });
+            // Build graph on first load.
+            if state.graph.is_none() && !data.space.is_empty() {
+                state.graph = Some(WikiGraph::from_wiki(data));
             }
 
-            if let Some(id) = to_open {
-                if !state.open_pages.contains(&id) {
-                    state.open_pages.push(id);
+            // Step the force simulation and render.
+            if let Some(graph) = &mut state.graph {
+                graph.step();
+                if let Some(frag_id) = graph.show(ctx) {
+                    if !state.open_pages.contains(&frag_id) {
+                        state.open_pages.push(frag_id);
+                    }
                 }
+                ctx.ctx().request_repaint();
             }
         });
 
