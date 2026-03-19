@@ -24,7 +24,7 @@ pub fn load_button<'a, T: Send + 'static>(
     };
     let mut active = running;
     let button = ToggleButton::new(&mut active, label).light(light);
-    let clicked = ui.add_enabled(!running, button).clicked();
+    let clicked = ui.add(button).clicked();
     if clicked && !running {
         value.spawn(action);
         ui.ctx().request_repaint();
@@ -47,7 +47,6 @@ pub fn load_auto<'a, T: Send + 'static>(
         ui.ctx().request_repaint();
     }
     if value.is_running() {
-        ui.add(egui::widgets::Spinner::new());
         ui.ctx().request_repaint();
     }
     value.value_mut()

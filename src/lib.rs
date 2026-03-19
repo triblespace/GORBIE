@@ -684,6 +684,16 @@ impl eframe::App for Notebook {
 
                                 ui.add_space(12.0);
 
+                                // Separator between header and first card.
+                                {
+                                    let (gap_rect, _) = ui.allocate_exact_size(
+                                        egui::vec2(card_width, card_gap),
+                                        egui::Sense::hover(),
+                                    );
+                                    let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+                                    ui.painter().rect_filled(gap_rect, 0.0, stroke.color);
+                                }
+
                                 runtime.sync_len(notebook.cards.len());
                                 let store = notebook.state_store.clone();
 

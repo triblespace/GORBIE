@@ -681,66 +681,58 @@ fn main(nb: &mut NotebookCtx) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
     let pile_path = std::env::args()
         .nth(1)
+        .or_else(|| std::env::var("PILE").ok())
         .unwrap_or_else(|| "./self.pile".to_owned());
 
     nb.view(|ctx| {
-        widgets::markdown(
-            ctx,
-            "# Wiki Viewer\nBrowse wiki fragments stored in a TribleSpace pile.",
-        );
+        ctx.grid(|g| {
+            g.full(|ctx| {
+                ctx.markdown("# Wiki Viewer\nBrowse wiki fragments stored in a TribleSpace pile.");
+            });
+        });
     });
 
     nb.state("browser", BrowserState::new(pile_path), move |ctx, state| {
-        if state.data.is_running() {
-            ctx.ctx().request_repaint();
-        }
-        state.data.poll();
+        // Auto-load on first frame.
+        let pile_path_clone = state.pile_path.trim().to_owned();
+        widgets::load_auto(
+            ctx,
+            &mut state.data,
+            |data| data.space.is_empty() && data.error.is_none(),
+            move || load_wiki_data(PathBuf::from(pile_path_clone)),
+        );
 
-        ctx.with_padding(padding, |ctx| {
-            ctx.heading("Pile");
-
-            ctx.horizontal(|ctx| {
-                ctx.label("Path:");
-                let field_w = ctx.available_width() - 80.0;
-                ctx.add_sized(
-                    [field_w, 0.0],
-                    widgets::TextField::singleline(&mut state.pile_path),
-                );
-                if !state.data.is_running() {
-                    if ctx.small_button("Open").clicked() {
-                        let path = PathBuf::from(state.pile_path.trim().to_owned());
-                        state.data.spawn(move || load_wiki_data(path));
-                        ctx.ctx().request_repaint();
-                    }
-                } else {
-                    ctx.label(egui::RichText::new("Loading...").weak().italics());
-                }
+        ctx.grid(|g| {
+            g.place(10, |ctx| {
+                ctx.text_field(&mut state.pile_path);
             });
-
+            g.place(2, |ctx| {
+                let path = state.pile_path.trim().to_owned();
+                widgets::load_button(
+                    ctx,
+                    &mut state.data,
+                    "Open",
+                    move || load_wiki_data(PathBuf::from(path)),
+                );
+            });
             let data = state.data.value();
             if let Some(err) = &data.error {
-                let color = ctx.visuals().error_fg_color;
-                ctx.add_space(4.0);
-                ctx.label(
-                    egui::RichText::new(err.as_str()).color(color).monospace(),
-                );
+                g.full(|ctx| {
+                    let color = ctx.visuals().error_fg_color;
+                    ctx.label(
+                        egui::RichText::new(err.as_str()).color(color).monospace(),
+                    );
+                });
             }
+        });
 
-            if data.space.is_empty() && data.error.is_none() && !state.data.is_running() {
-                return;
-            }
-            if data.space.is_empty() {
-                return;
-            }
-
-            ctx.add_space(8.0);
-
-            // Build graph on first load.
-            if state.graph.is_none() && !data.space.is_empty() {
+        // Graph (outside the grid so it can use full card width).
+        let data = state.data.value();
+        if !data.space.is_empty() {
+            if state.graph.is_none() {
                 state.graph = Some(WikiGraph::from_wiki(data));
             }
 
-            // Step the force simulation and render.
             if let Some(graph) = &mut state.graph {
                 graph.step();
                 if let Some(frag_id) = graph.show(ctx) {
@@ -750,7 +742,7 @@ fn main(nb: &mut NotebookCtx) {
                 }
                 ctx.ctx().request_repaint();
             }
-        });
+        }
 
         // ── floating wiki page cards ─────────────────────────────────
         let open_snapshot: Vec<Id> = state.open_pages.clone();

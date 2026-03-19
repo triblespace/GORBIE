@@ -8,17 +8,28 @@ use triblespace::core::repo::pile::Pile;
 use triblespace::core::trible::TribleSet;
 use triblespace::core::value::schemas::hash::Blake3;
 
+use crate::dataflow::ComputedState;
+use crate::themes::GorbieToggleButtonStyle;
+use crate::widgets::ToggleButton;
+
+/// Result of a background pile open operation.
+struct OpenResult {
+    repo: Repository<Pile<Blake3>>,
+    path: PathBuf,
+}
+
 /// Stateful wrapper that keeps a `.pile` file open as a TribleSpace repository.
 ///
-/// This is the recommended pattern for live notebooks: keep the `Pile` open in
-/// state and repeatedly `pull` + `checkout(prev_head..)` as the underlying pile
-/// grows.
+/// Opening is asynchronous — `open()` spawns a background thread and the
+/// widget shows a spinner until it completes. Use `is_open()` / `repo()`
+/// to check availability.
 pub struct PileRepoState {
     pile_path: String,
     open_path: Option<PathBuf>,
     repo: Option<Repository<Pile<Blake3>>>,
     signing_key: SigningKey,
     last_error: Option<String>,
+    opener: ComputedState<Option<Result<OpenResult, String>>>,
 }
 
 impl Default for PileRepoState {
@@ -41,6 +52,7 @@ impl PileRepoState {
             repo: None,
             signing_key: SigningKey::generate(&mut OsRng),
             last_error: None,
+            opener: ComputedState::new(None),
         }
     }
 
@@ -60,6 +72,10 @@ impl PileRepoState {
 
     pub fn is_open(&self) -> bool {
         self.repo.is_some()
+    }
+
+    pub fn is_opening(&self) -> bool {
+        self.opener.is_running()
     }
 
     pub fn repo(&self) -> Option<&Repository<Pile<Blake3>>> {
@@ -90,32 +106,49 @@ impl PileRepoState {
         self.open_path.as_deref()
     }
 
-    /// Opens (or reopens) the pile path currently stored in `pile_path`.
-    pub fn open(&mut self) -> Result<(), String> {
-        let open_path = PathBuf::from(self.pile_path.trim());
-        let path_changed = self
-            .open_path
-            .as_ref()
-            .map_or(true, |existing| existing != &open_path);
-
-        if path_changed || self.repo.is_none() {
-            self.close();
-            let mut pile =
-                Pile::<Blake3>::open(&open_path).map_err(|err| format!("open pile: {err:?}"))?;
-            if let Err(err) = pile.restore() {
-                // Avoid Drop warnings on early errors.
-                let _ = pile.close();
-                return Err(format!("restore pile: {err:?}"));
+    /// Poll the background opener. Call this every frame.
+    pub fn poll(&mut self) {
+        if self.opener.poll() {
+            if let Some(result) = self.opener.value_mut().take() {
+                match result {
+                    Ok(open_result) => {
+                        self.close();
+                        self.repo = Some(open_result.repo);
+                        self.open_path = Some(open_result.path);
+                        self.last_error = None;
+                    }
+                    Err(err) => {
+                        self.last_error = Some(err);
+                    }
+                }
             }
-            self.repo = Some(
-                Repository::new(pile, self.signing_key.clone(), TribleSet::new())
-                    .map_err(|err| format!("create repository: {err:?}"))?,
-            );
-            self.open_path = Some(open_path);
         }
+    }
 
-        self.last_error = None;
-        Ok(())
+    /// Start opening the pile on a background thread.
+    pub fn open(&mut self) {
+        if self.opener.is_running() {
+            return;
+        }
+        let path = PathBuf::from(self.pile_path.trim());
+        let signing_key = self.signing_key.clone();
+        self.opener.spawn(move || {
+            let result = (|| -> Result<OpenResult, String> {
+                let mut pile =
+                    Pile::<Blake3>::open(&path).map_err(|err| format!("open pile: {err:?}"))?;
+                if let Err(err) = pile.restore() {
+                    let _ = pile.close();
+                    return Err(format!("restore pile: {err:?}"));
+                }
+                let repo = Repository::new(pile, signing_key, TribleSet::new())
+                    .map_err(|err| format!("create repository: {err:?}"))?;
+                Ok(OpenResult {
+                    repo,
+                    path: path.clone(),
+                })
+            })();
+            Some(result)
+        });
     }
 }
 
@@ -129,20 +162,44 @@ pub struct PileRepoResponse<'a> {
 #[must_use = "Use `PileRepoWidget::show(ui)` to render this widget."]
 pub struct PileRepoWidget<'a> {
     state: &'a mut PileRepoState,
+    auto_open: bool,
 }
 
 impl<'a> PileRepoWidget<'a> {
     pub fn new(state: &'a mut PileRepoState) -> Self {
-        Self { state }
+        Self {
+            state,
+            auto_open: false,
+        }
+    }
+
+    /// Auto-open the pile on first render if not already open.
+    pub fn auto_open(mut self) -> Self {
+        self.auto_open = true;
+        self
     }
 
     pub fn show(self, ui: &mut egui::Ui) -> PileRepoResponse<'a> {
         let mut opened = false;
         let mut closed = false;
 
+        // Poll background opener.
+        let was_opening = self.state.is_opening();
+        self.state.poll();
+        if was_opening && !self.state.is_opening() {
+            opened = self.state.is_open();
+        }
+
+        // Auto-open on first render.
+        if self.auto_open && !self.state.is_open() && !self.state.is_opening() && self.state.last_error.is_none() {
+            self.state.open();
+        }
+
+        if self.state.is_opening() {
+            ui.ctx().request_repaint();
+        }
+
         ui.horizontal(|ui| {
-            // Match heights across our LCD-style text field and the shadowed buttons by
-            // temporarily bumping `interact_size.y` for this row.
             let base_interact_h = ui.spacing().interact_size.y;
             let button_padding_y = ui.spacing().button_padding.y;
 
@@ -164,10 +221,6 @@ impl<'a> PileRepoWidget<'a> {
             ui.scope(|ui| {
                 ui.spacing_mut().interact_size.y = target_h;
 
-                // Place the fixed-width buttons first (right-to-left), then give the path field
-                // the remaining space.
-                // Align to the top so the LCD field visually lines up with the button "body"
-                // (buttons reserve extra space at the bottom/right for their drop shadow).
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                     if ui
                         .add_enabled(self.state.is_open(), super::super::Button::new("Close"))
@@ -177,16 +230,25 @@ impl<'a> PileRepoWidget<'a> {
                         closed = true;
                     }
 
-                    if ui.add(super::super::Button::new("Open")).clicked() {
-                        if let Err(err) = self.state.open() {
-                            self.state.last_error = Some(err);
-                        } else {
-                            opened = true;
-                        }
+                    let opening = self.state.is_opening();
+                    let open_enabled = !self.state.is_open() && !opening;
+                    let style = GorbieToggleButtonStyle::from(ui.style().as_ref());
+                    let light_on = crate::themes::button_light_on();
+                    let off = style.rail_bg;
+                    let light = if opening {
+                        let t = ui.input(|input| input.time) as f32;
+                        let wave = (t * std::f32::consts::TAU * 0.8).sin() * 0.5 + 0.5;
+                        crate::themes::blend(off, light_on, wave)
+                    } else {
+                        off
+                    };
+                    let mut active = opening;
+                    let button = ToggleButton::new(&mut active, "Open").light(light);
+                    if ui.add(button).clicked() && open_enabled {
+                        self.state.open();
+                        ui.ctx().request_repaint();
                     }
 
-                    // Reserve space for the label so the LCD field doesn't eat it in a
-                    // right-to-left layout.
                     let label_text = "Pile:";
                     let label_color = ui.visuals().text_color();
                     let label_galley = ui.fonts_mut(|fonts| {
@@ -200,14 +262,11 @@ impl<'a> PileRepoWidget<'a> {
                         super::super::TextField::singleline(&mut self.state.pile_path),
                     );
 
-                    // Center the label vertically so it aligns with our taller LCD field.
                     let (label_rect, _) = ui.allocate_exact_size(
                         egui::vec2(label_w, target_h),
                         egui::Sense::hover(),
                     );
                     if ui.is_rect_visible(label_rect) {
-                        // Align the label to the center of the LCD field, so we look visually
-                        // centered even when different fonts have different baseline metrics.
                         let anchor_pos =
                             egui::pos2(label_rect.left(), field_response.rect.center().y);
                         let rect =

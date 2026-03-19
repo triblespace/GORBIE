@@ -124,6 +124,7 @@ impl Widget for Button {
             }
         });
         body_size.y = body_size.y.at_least(min_body_height);
+        body_size.x = body_size.x.max(ui.available_width() - shadow_inset.x);
         let desired_size = body_size + shadow_inset;
 
         let (outer_rect, response) = ui.allocate_exact_size(desired_size, Sense::click());
@@ -320,6 +321,7 @@ impl Widget for ToggleButton<'_> {
             3.0 * crate::card_ctx::GRID_ROW_MODULE
         };
         body_size.y = body_size.y.at_least(min_body_height);
+        body_size.x = body_size.x.max(ui.available_width() - shadow_inset.x);
 
         let desired_size = body_size + shadow_inset;
         let (outer_rect, mut response) = ui.allocate_exact_size(desired_size, Sense::click());
@@ -526,7 +528,8 @@ where
             3.0 * crate::card_ctx::GRID_ROW_MODULE
         };
         let body_height = (content_height + padding.y * 2.0).at_least(min_body_height);
-        let body_width = padding.x + indicator_size + gap + galley.size().x + padding.x;
+        let mut body_width = padding.x + indicator_size + gap + galley.size().x + padding.x;
+        body_width = body_width.max(ui.available_width() - shadow_inset.x);
         let desired_size = vec2(body_width, body_height) + shadow_inset;
 
         let (outer_rect, mut response) = ui.allocate_exact_size(desired_size, Sense::click());

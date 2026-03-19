@@ -41,6 +41,40 @@ fn paint_scanline(painter: &egui::Painter, rect: Rect, color: Color32, height: f
     }
 }
 
+/// Paint a progress bar in the scanline area.
+/// `fraction` is 0.0..=1.0 — the filled portion.
+fn paint_progress_scanline(painter: &egui::Painter, rect: Rect, color: Color32, height: f32, fraction: f32) {
+    let inset = 2.0;
+    let available_h = (rect.height() - inset * 2.0).max(0.0);
+    let height = height.min(available_h);
+    if height <= 0.0 {
+        return;
+    }
+
+    let y1 = rect.bottom() - inset;
+    let y0 = y1 - height;
+    let left = rect.left() + inset;
+    let right = rect.right() - inset;
+    let total_w = right - left;
+    if total_w <= 0.0 {
+        return;
+    }
+
+    // Background (dim).
+    let dim = crate::themes::blend(color, Color32::TRANSPARENT, 0.7);
+    let bg_rect = Rect::from_min_max(pos2(left, y0), pos2(right, y1));
+    if bg_rect.is_positive() {
+        painter.rect_filled(bg_rect, 0.0, dim);
+    }
+
+    // Filled portion.
+    let fill_w = total_w * fraction.clamp(0.0, 1.0);
+    if fill_w > 0.0 {
+        let fill_rect = Rect::from_min_max(pos2(left, y0), pos2(left + fill_w, y1));
+        painter.rect_filled(fill_rect, 0.0, color);
+    }
+}
+
 fn selection_rects(galley: &egui::Galley, cursor_range: egui::text::CCursorRange) -> Vec<Rect> {
     if cursor_range.is_empty() {
         return Vec::new();
@@ -216,40 +250,46 @@ struct LcdTextEditOutput {
     changed: bool,
 }
 
-#[allow(clippy::too_many_arguments)]
-fn lcd_text_edit(
-    ui: &mut Ui,
-    id: Id,
-    text: &mut dyn egui::TextBuffer,
-    multiline: bool,
-    expand_width: bool,
-    desired_width: f32,
-    desired_height_rows: usize,
-    max_rows: Option<usize>,
-    min_size: Vec2,
-    margin: Margin,
-    align: Align2,
-    clip_text: bool,
+struct LcdStyle {
     fill: Color32,
     outline: Color32,
     rounding: f32,
     ink: Color32,
     text_color: Color32,
     scanline_height: f32,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn lcd_text_edit(
+    ui: &mut Ui,
+    id: Id,
+    text: &mut dyn egui::TextBuffer,
+    multiline: bool,
+    desired_height_rows: usize,
+    max_rows: Option<usize>,
+    align: Align2,
+    style: &LcdStyle,
+    progress: Option<f32>,
 ) -> LcdTextEditOutput {
     let interactive = ui.is_enabled() && text.is_mutable();
     let event_filter = default_event_filter();
 
     let font_id = lcd_font_id(ui);
     let row_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
+    let margin = if multiline {
+        ui.spacing().button_padding.into()
+    } else {
+        singleline_margin(ui, row_height)
+    };
+    let clip_text = !multiline;
+    let fill = style.fill;
+    let outline = style.outline;
+    let ink = style.ink;
+    let text_color = style.text_color;
+    let scanline_height = style.scanline_height;
 
     const MIN_WIDTH: f32 = 24.0;
-    let available_width = (ui.available_width() - margin.sum().x).at_least(MIN_WIDTH);
-    let wrap_width = if expand_width {
-        available_width
-    } else {
-        desired_width.min(available_width)
-    };
+    let wrap_width = (ui.available_width() - margin.sum().x).at_least(MIN_WIDTH);
 
     let mut galley = ui.fonts_mut(|fonts| {
         fonts.layout_job(layout_lcd_job(
@@ -278,6 +318,9 @@ fn lcd_text_edit(
         None => galley.size().y.max(desired_height),
     };
     let desired_inner_size = vec2(desired_inner_width, desired_inner_height);
+    let row_mod = crate::card_ctx::GRID_ROW_MODULE;
+    let min_h = (2.0 * row_mod).max(ui.spacing().interact_size.y);
+    let min_size = vec2(ui.spacing().interact_size.x, min_h);
     let desired_outer_size = (desired_inner_size + margin.sum()).at_least(min_size);
     let (_auto_id, outer_rect) = ui.allocate_space(desired_outer_size);
     let rect = outer_rect - margin;
@@ -334,7 +377,7 @@ fn lcd_text_edit(
 
     let mut changed = false;
     let has_focus = ui.memory(|mem| mem.has_focus(id));
-    paint_field_frame(ui.painter(), outer_rect, fill, outline, rounding);
+    paint_field_frame(ui.painter(), outer_rect, fill, outline, style.rounding);
     let os = ui.ctx().os();
 
     let mut cursor_range = state
@@ -597,9 +640,16 @@ fn lcd_text_edit(
             }
         }
 
-        paint_scanline(ui.painter(), outer_rect, ink, scanline_height);
+        if let Some(fraction) = progress {
+            paint_progress_scanline(ui.painter(), outer_rect, ink, scanline_height, fraction);
+        } else {
+            paint_scanline(ui.painter(), outer_rect, ink, scanline_height);
+        }
     } else {
         text_painter.galley(galley_pos, galley.clone(), text_color);
+        if let Some(fraction) = progress {
+            paint_progress_scanline(ui.painter(), outer_rect, ink, scanline_height, fraction);
+        }
     }
 
     if changed {
@@ -826,24 +876,11 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
                 id,
                 &mut edit_text,
                 false,
-                false,
-                desired_width,
                 1,
                 None,
-                {
-                    let row_mod = crate::card_ctx::GRID_ROW_MODULE;
-                    let min_h = (2.0 * row_mod).max(ui.spacing().interact_size.y);
-                    vec2(ui.spacing().interact_size.x, min_h)
-                },
-                margin,
                 Align2::CENTER_CENTER,
-                true,
-                fill,
-                outline,
-                gstyle.rounding,
-                ink,
-                text_color,
-                gstyle.scanline_height,
+                &LcdStyle { fill, outline, rounding: gstyle.rounding, ink, text_color, scanline_height: gstyle.scanline_height },
+                None,
             );
             let mut response = output.response;
             if kb_changed {
@@ -880,7 +917,7 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
 
             response
         } else {
-            let desired_inner_width = desired_width.max(display_galley.size().x);
+            let desired_inner_width = desired_width.max(display_galley.size().x).max(ui.available_width() - margin.sum().x);
             let desired_inner_height = (ui.spacing().interact_size.y - margin.sum().y)
                 .max(row_height)
                 .max(display_galley.size().y);
@@ -973,6 +1010,7 @@ pub struct TextField<'a> {
     gorbie_style: Option<GorbieTextFieldStyle>,
     rows: Option<usize>,
     max_rows: Option<usize>,
+    progress: Option<f32>,
 }
 
 impl<'a> TextField<'a> {
@@ -983,6 +1021,7 @@ impl<'a> TextField<'a> {
             gorbie_style: None,
             rows: None,
             max_rows: None,
+            progress: None,
         }
     }
 
@@ -993,7 +1032,15 @@ impl<'a> TextField<'a> {
             gorbie_style: None,
             rows: None,
             max_rows: None,
+            progress: None,
         }
+    }
+
+    /// Show a progress bar in the scanline area (0.0..=1.0).
+    /// `None` = no progress bar, `Some(fraction)` = filled to that fraction.
+    pub fn progress(mut self, progress: Option<f32>) -> Self {
+        self.progress = progress;
+        self
     }
 
     pub fn rows(mut self, rows: usize) -> Self {
@@ -1015,6 +1062,7 @@ impl Widget for TextField<'_> {
             gorbie_style,
             rows,
             max_rows,
+            progress,
         } = self;
 
         let enabled = ui.is_enabled();
@@ -1037,41 +1085,22 @@ impl Widget for TextField<'_> {
 
         let font_id = lcd_font_id(ui);
         let row_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
-        let margin = if multiline {
-            ui.spacing().button_padding.into()
-        } else {
-            singleline_margin(ui, row_height)
-        };
         let align = if multiline {
             Align2::LEFT_TOP
         } else {
             Align2::LEFT_CENTER
         };
-
         let min_rows = if multiline { rows.unwrap_or(4) } else { 1 };
         let output = lcd_text_edit(
             ui,
             ui.next_auto_id(),
             text,
             multiline,
-            ui.layout().horizontal_justify(),
-            ui.spacing().text_edit_width,
             min_rows,
             max_rows,
-            {
-                let row_mod = crate::card_ctx::GRID_ROW_MODULE;
-                let min_h = (2.0 * row_mod).max(ui.spacing().interact_size.y);
-                vec2(ui.spacing().interact_size.x, min_h)
-            },
-            margin,
             align,
-            !multiline,
-            fill,
-            outline,
-            gstyle.rounding,
-            ink,
-            text_color,
-            gstyle.scanline_height,
+            &LcdStyle { fill, outline, rounding: gstyle.rounding, ink, text_color, scanline_height: gstyle.scanline_height },
+            progress,
         );
 
         output.response
