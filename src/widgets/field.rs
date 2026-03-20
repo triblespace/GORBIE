@@ -1083,8 +1083,6 @@ impl Widget for TextField<'_> {
             crate::themes::blend(ink, fill, 0.55)
         };
 
-        let font_id = lcd_font_id(ui);
-        let row_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
         let align = if multiline {
             Align2::LEFT_TOP
         } else {

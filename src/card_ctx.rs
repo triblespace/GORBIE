@@ -79,14 +79,9 @@ impl<'a> CardCtx<'a> {
         self.ui.add(crate::widgets::Button::new(text))
     }
 
-    /// GORBIE-styled small button (2× grid row height).
-    pub fn small_button(&mut self, text: impl Into<egui::WidgetText>) -> egui::Response {
-        self.ui.add(crate::widgets::Button::new(text).small())
-    }
-
     /// GORBIE-styled toggle button (checkbox-like, latching on/off).
     pub fn toggle(&mut self, on: &mut bool, text: impl Into<egui::WidgetText>) -> egui::Response {
-        self.ui.add(crate::widgets::ToggleButton::new(on, text))
+        self.ui.add(crate::widgets::Button::new(text).on(on))
     }
 
     /// GORBIE-styled slider.

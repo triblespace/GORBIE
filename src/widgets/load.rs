@@ -1,6 +1,6 @@
 use crate::dataflow::ComputedState;
 use crate::themes::GorbieToggleButtonStyle;
-use crate::widgets::ToggleButton;
+use crate::widgets::Button;
 use eframe::egui;
 
 pub fn load_button<'a, T: Send + 'static>(
@@ -23,7 +23,7 @@ pub fn load_button<'a, T: Send + 'static>(
         off
     };
     let mut active = running;
-    let button = ToggleButton::new(&mut active, label).light(light);
+    let button = Button::new(label).on(&mut active).light(light);
     let clicked = ui.add(button).clicked();
     if clicked && !running {
         value.spawn(action);

@@ -454,7 +454,7 @@ subtle visual tension that keeps the layout from feeling sterile."
                     ctx.label("Buttons");
                     ctx.horizontal(|ctx| {
                         ctx.button("Regular");
-                        ctx.small_button("Small");
+                        ctx.button("Small");
                         if ctx.button("Animate").clicked() {
                             s.progress = (s.progress + 0.1) % 1.1;
                         }

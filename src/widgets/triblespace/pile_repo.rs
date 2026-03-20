@@ -10,7 +10,7 @@ use triblespace::core::value::schemas::hash::Blake3;
 
 use crate::dataflow::ComputedState;
 use crate::themes::GorbieToggleButtonStyle;
-use crate::widgets::ToggleButton;
+use crate::widgets::Button;
 
 /// Result of a background pile open operation.
 struct OpenResult {
@@ -243,7 +243,7 @@ impl<'a> PileRepoWidget<'a> {
                         off
                     };
                     let mut active = opening;
-                    let button = ToggleButton::new(&mut active, "Open").light(light);
+                    let button = Button::new("Open").on(&mut active).light(light);
                     if ui.add(button).clicked() && open_enabled {
                         self.state.open();
                         ui.ctx().request_repaint();

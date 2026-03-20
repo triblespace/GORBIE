@@ -7,36 +7,39 @@ use crate::themes::{
     GorbieButtonStyle, GorbieChoiceToggleStyle, GorbieRadioStyle, GorbieToggleButtonStyle,
 };
 
+/// A momentary or toggle button with optional LED indicator.
+///
+/// - Momentary (default): click returns `response.clicked()`
+/// - Toggle: pass `on(&mut bool)` to toggle state on click
+/// - Disabled = flush (no shadow), not grayed out
+/// - Always fills available container width
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
-pub struct Button {
+pub struct Button<'a> {
     text: WidgetText,
-    small: bool,
+    on: Option<&'a mut bool>,
     selected: bool,
     fill: Option<Color32>,
     light: Option<Color32>,
     latched: bool,
-    latch_on_click: bool,
-    min_height: Option<f32>,
     gorbie_style: Option<GorbieButtonStyle>,
 }
 
-impl Button {
+impl<'a> Button<'a> {
     pub fn new(text: impl Into<WidgetText>) -> Self {
         Self {
             text: text.into(),
-            small: false,
+            on: None,
             selected: false,
             fill: None,
             light: None,
             latched: false,
-            latch_on_click: false,
-            min_height: None,
             gorbie_style: None,
         }
     }
 
-    pub fn small(mut self) -> Self {
-        self.small = true;
+    /// Make this a toggle button that flips `on` when clicked.
+    pub fn on(mut self, on: &'a mut bool) -> Self {
+        self.on = Some(on);
         self
     }
 
@@ -59,33 +62,17 @@ impl Button {
         self.latched = latched;
         self
     }
-
-    pub fn latch_on_click(mut self, latch_on_click: bool) -> Self {
-        self.latch_on_click = latch_on_click;
-        self
-    }
-
-    /// Override the minimum body height (excluding shadow).
-    ///
-    /// Use a multiple of [`GRID_ROW_MODULE`](crate::card_ctx::GRID_ROW_MODULE)
-    /// for pixel-perfect alignment on the modular grid.
-    pub fn min_height(mut self, height: f32) -> Self {
-        self.min_height = Some(height);
-        self
-    }
 }
 
-impl Widget for Button {
+impl Widget for Button<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let Self {
             text,
-            small,
+            on,
             selected,
             fill,
             light,
             latched,
-            latch_on_click,
-            min_height,
             gorbie_style,
         } = self;
 
@@ -93,17 +80,7 @@ impl Widget for Button {
         let gstyle = gorbie_style.unwrap_or_else(|| GorbieButtonStyle::from(ui.style().as_ref()));
         let shadow_offset = gstyle.shadow_offset;
         let shadow_inset = vec2(shadow_offset.x.max(0.0), shadow_offset.y.max(0.0));
-
-        let padding = if small {
-            ui.spacing().button_padding * 0.7
-        } else {
-            ui.spacing().button_padding
-        };
-        let text_style = if small {
-            TextStyle::Small
-        } else {
-            TextStyle::Button
-        };
+        let padding = ui.spacing().button_padding;
 
         let label_text = text.text().to_string();
         let max_text_width =
@@ -112,22 +89,25 @@ impl Widget for Button {
             ui,
             Some(egui::TextWrapMode::Truncate),
             max_text_width,
-            text_style,
+            TextStyle::Button,
         );
 
         let mut body_size = galley.size() + padding * 2.0;
-        let min_body_height = min_height.unwrap_or_else(|| {
-            if small {
-                2.0 * crate::card_ctx::GRID_ROW_MODULE
-            } else {
-                3.0 * crate::card_ctx::GRID_ROW_MODULE
-            }
-        });
-        body_size.y = body_size.y.at_least(min_body_height);
+        body_size.y = body_size.y.at_least(3.0 * crate::card_ctx::GRID_ROW_MODULE);
         body_size.x = body_size.x.max(ui.available_width() - shadow_inset.x);
         let desired_size = body_size + shadow_inset;
 
-        let (outer_rect, response) = ui.allocate_exact_size(desired_size, Sense::click());
+        let (outer_rect, mut response) = ui.allocate_exact_size(desired_size, Sense::click());
+
+        // Toggle behavior.
+        let mut toggled_on = false;
+        if let Some(on) = on {
+            if response.clicked() && enabled {
+                *on = !*on;
+                response.mark_changed();
+            }
+            toggled_on = *on;
+        }
 
         response.widget_info(move || {
             WidgetInfo::labeled(WidgetType::Button, enabled, label_text.as_str())
@@ -141,87 +121,78 @@ impl Widget for Button {
         let outline = gstyle.outline;
         let accent = gstyle.accent;
         let shadow_color = gstyle.shadow;
-
         let base_fill = fill.unwrap_or(gstyle.fill);
-        let disabled_fill = crate::themes::blend(base_fill, visuals.window_fill, 0.65);
 
-        let mut latched = latched;
-        if latch_on_click && response.clicked() {
-            latched = true;
-        }
         let keyboard_down = response.has_focus()
             && ui.input(|input| input.key_down(Key::Space) || input.key_down(Key::Enter));
-        let is_down = enabled && (response.is_pointer_button_down_on() || keyboard_down || latched);
-        let prepress = enabled && !is_down && (response.hovered() || response.has_focus());
+        let is_down = enabled
+            && (response.is_pointer_button_down_on() || keyboard_down || latched || toggled_on);
+        let prepress =
+            enabled && !is_down && (response.hovered() || response.has_focus());
 
-        let fill = if enabled { base_fill } else { disabled_fill };
         let stroke_color = if enabled && selected { accent } else { outline };
-        let stroke_width = 1.0;
 
-        let mut body_rect =
+        let body_rect_up =
             Rect::from_min_max(outer_rect.min, outer_rect.max - shadow_inset).intersect(outer_rect);
-        let press_offset = if is_down {
-            shadow_offset
+
+        // Disabled = flush (no shadow, no offset).
+        let (body_rect, show_shadow) = if !enabled {
+            (body_rect_up, false)
+        } else if is_down {
+            (body_rect_up.translate(shadow_offset), false)
         } else if prepress {
-            shadow_offset * 0.5
+            (body_rect_up.translate(shadow_offset * 0.5), true)
         } else {
-            vec2(0.0, 0.0)
+            (body_rect_up, true)
         };
-        if press_offset != vec2(0.0, 0.0) {
-            body_rect = body_rect.translate(press_offset);
-        }
 
         let rounding = gstyle.rounding;
         let painter = ui.painter();
 
-        if enabled && !is_down {
-            let shadow_offset = if prepress {
+        if show_shadow {
+            let shadow_off = if prepress {
                 shadow_offset * 0.5
             } else {
                 shadow_offset
             };
-            let shadow_rect = body_rect.translate(shadow_offset);
-            painter.rect_filled(shadow_rect, rounding, shadow_color);
+            painter.rect_filled(body_rect.translate(shadow_off), rounding, shadow_color);
         }
 
-        painter.rect_filled(body_rect, rounding, fill);
+        painter.rect_filled(body_rect, rounding, base_fill);
         painter.rect_stroke(
             body_rect,
             rounding,
-            Stroke::new(stroke_width, stroke_color),
+            Stroke::new(1.0, stroke_color),
             egui::StrokeKind::Inside,
         );
 
-        let text_color = if enabled {
-            crate::themes::ral(9011)
-        } else {
-            crate::themes::blend(crate::themes::ral(9011), fill, 0.55)
-        };
+        let text_color = crate::themes::ral(9011);
         let text_pos = pos2(
             body_rect.center().x - galley.size().x / 2.0,
             body_rect.center().y - galley.size().y / 2.0,
         );
         painter.galley(text_pos, galley, text_color);
 
-        if let Some(light) = light {
-            let led_height = if small { 3.0 } else { 4.0 };
+        // LED indicator.
+        if light.is_some() || toggled_on {
+            let led_height = 4.0;
             let led_inset_x = 2.0;
             let led_inset_y = 2.0;
             let led_rect = Rect::from_min_max(
-                pos2(
-                    body_rect.left() + led_inset_x,
-                    body_rect.top() + led_inset_y,
-                ),
+                pos2(body_rect.left() + led_inset_x, body_rect.top() + led_inset_y),
                 pos2(
                     body_rect.right() - led_inset_x,
                     (body_rect.top() + led_inset_y + led_height).min(body_rect.bottom()),
                 ),
             );
             if led_rect.is_positive() {
-                let mut led_fill = light;
-                if !enabled {
-                    led_fill = crate::themes::blend(led_fill, visuals.window_fill, 0.6);
-                }
+                let led_fill = light.unwrap_or_else(|| {
+                    if toggled_on {
+                        crate::themes::button_light_on()
+                    } else {
+                        gstyle.shadow // dim
+                    }
+                });
                 painter.rect_filled(led_rect, 1.0, led_fill);
             }
         }
@@ -230,7 +201,7 @@ impl Widget for Button {
     }
 }
 
-impl crate::themes::Styled for Button {
+impl crate::themes::Styled for Button<'_> {
     type Style = GorbieButtonStyle;
 
     fn set_style(&mut self, style: Option<Self::Style>) {
@@ -238,199 +209,6 @@ impl crate::themes::Styled for Button {
     }
 }
 
-#[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
-pub struct ToggleButton<'a> {
-    on: &'a mut bool,
-    text: WidgetText,
-    small: bool,
-    fill: Option<Color32>,
-    light: Option<Color32>,
-    gorbie_style: Option<GorbieToggleButtonStyle>,
-}
-
-impl<'a> ToggleButton<'a> {
-    pub fn new(on: &'a mut bool, text: impl Into<WidgetText>) -> Self {
-        Self {
-            on,
-            text: text.into(),
-            small: false,
-            fill: None,
-            light: None,
-            gorbie_style: None,
-        }
-    }
-
-    pub fn small(mut self) -> Self {
-        self.small = true;
-        self
-    }
-
-    pub fn fill(mut self, fill: Color32) -> Self {
-        self.fill = Some(fill);
-        self
-    }
-
-    pub fn light(mut self, color: Color32) -> Self {
-        self.light = Some(color);
-        self
-    }
-}
-
-impl Widget for ToggleButton<'_> {
-    fn ui(self, ui: &mut Ui) -> Response {
-        let Self {
-            on,
-            text,
-            small,
-            fill,
-            light,
-            gorbie_style,
-        } = self;
-
-        let enabled = ui.is_enabled();
-        let gstyle =
-            gorbie_style.unwrap_or_else(|| GorbieToggleButtonStyle::from(ui.style().as_ref()));
-        let shadow_offset = gstyle.shadow_offset;
-        let shadow_inset = vec2(shadow_offset.x.max(0.0), shadow_offset.y.max(0.0));
-
-        let padding = if small {
-            ui.spacing().button_padding * 0.7
-        } else {
-            ui.spacing().button_padding
-        };
-        let text_style = if small {
-            TextStyle::Small
-        } else {
-            TextStyle::Button
-        };
-
-        let label_text = text.text().to_string();
-        let max_text_width =
-            (ui.available_width() - padding.x * 2.0 - shadow_inset.x).at_least(0.0);
-        let galley = text.into_galley(
-            ui,
-            Some(egui::TextWrapMode::Truncate),
-            max_text_width,
-            text_style,
-        );
-
-        let mut body_size = galley.size() + padding * 2.0;
-        let min_body_height = if small {
-            2.0 * crate::card_ctx::GRID_ROW_MODULE
-        } else {
-            3.0 * crate::card_ctx::GRID_ROW_MODULE
-        };
-        body_size.y = body_size.y.at_least(min_body_height);
-        body_size.x = body_size.x.max(ui.available_width() - shadow_inset.x);
-
-        let desired_size = body_size + shadow_inset;
-        let (outer_rect, mut response) = ui.allocate_exact_size(desired_size, Sense::click());
-
-        if response.clicked() && enabled {
-            *on = !*on;
-            response.mark_changed();
-        }
-
-        response.widget_info(move || WidgetInfo::labeled(WidgetType::Button, enabled, &label_text));
-
-        if !ui.is_rect_visible(outer_rect) {
-            return response;
-        }
-
-        let visuals = ui.visuals();
-        let outline = gstyle.outline;
-        let shadow_color = gstyle.shadow;
-
-        let base_fill = fill.unwrap_or(gstyle.fill);
-        let disabled_fill = crate::themes::blend(base_fill, visuals.window_fill, 0.65);
-
-        let keyboard_down = response.has_focus()
-            && ui.input(|input| input.key_down(Key::Space) || input.key_down(Key::Enter));
-        let is_down = enabled && (response.is_pointer_button_down_on() || keyboard_down);
-        let toggled_on = *on;
-        let prepress =
-            enabled && !is_down && !toggled_on && (response.hovered() || response.has_focus());
-
-        let fill = if enabled { base_fill } else { disabled_fill };
-        let stroke_color = outline;
-
-        let body_rect_up =
-            Rect::from_min_max(outer_rect.min, outer_rect.max - shadow_inset).intersect(outer_rect);
-        let body_rect = if is_down {
-            body_rect_up.translate(shadow_offset)
-        } else if toggled_on || prepress {
-            body_rect_up.translate(shadow_offset / 2.0)
-        } else {
-            body_rect_up
-        };
-
-        let rounding = gstyle.rounding;
-        let painter = ui.painter();
-
-        if enabled && !is_down {
-            let offset = if toggled_on || prepress {
-                shadow_offset / 2.0
-            } else {
-                shadow_offset
-            };
-            painter.rect_filled(body_rect.translate(offset), rounding, shadow_color);
-        }
-
-        painter.rect_filled(body_rect, rounding, fill);
-        painter.rect_stroke(
-            body_rect,
-            rounding,
-            Stroke::new(1.0, stroke_color),
-            egui::StrokeKind::Inside,
-        );
-
-        let text_color = if enabled {
-            crate::themes::ral(9011)
-        } else {
-            crate::themes::blend(crate::themes::ral(9011), fill, 0.55)
-        };
-        let text_pos = pos2(
-            body_rect.center().x - galley.size().x / 2.0,
-            body_rect.center().y - galley.size().y / 2.0,
-        );
-        painter.galley(text_pos, galley, text_color);
-
-        let led_height = if small { 3.0 } else { 4.0 };
-        let led_inset_x = 2.0;
-        let led_inset_y = 2.0;
-        let led_rect = Rect::from_min_max(
-            pos2(
-                body_rect.left() + led_inset_x,
-                body_rect.top() + led_inset_y,
-            ),
-            pos2(
-                body_rect.right() - led_inset_x,
-                (body_rect.top() + led_inset_y + led_height).min(body_rect.bottom()),
-            ),
-        );
-        if led_rect.is_positive() {
-            let on_color = light.unwrap_or(gstyle.led_on);
-            let off_color = crate::themes::blend(gstyle.rail_bg, fill, gstyle.led_off_towards_fill);
-
-            let mut led_fill = if toggled_on { on_color } else { off_color };
-            if !enabled {
-                led_fill = crate::themes::blend(led_fill, visuals.window_fill, 0.6);
-            }
-
-            painter.rect_filled(led_rect, 1.0, led_fill);
-        }
-
-        response
-    }
-}
-
-impl crate::themes::Styled for ToggleButton<'_> {
-    type Style = GorbieToggleButtonStyle;
-
-    fn set_style(&mut self, style: Option<Self::Style>) {
-        self.gorbie_style = style;
-    }
-}
 
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct RadioButton<'a, T> {

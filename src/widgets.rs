@@ -30,7 +30,6 @@ pub mod typst_widget;
 pub use button::Button;
 pub use button::ChoiceToggle;
 pub use button::RadioButton;
-pub use button::ToggleButton;
 #[cfg(feature = "polars")]
 pub use dataframe::{data_export_tiny, data_summary_tiny, dataframe, dataframe_summary};
 pub use field::NumberField;

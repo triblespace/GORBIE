@@ -2702,7 +2702,7 @@ The first run can be slow while CubeCL builds shaders.
                     "Auto-run: off"
                 };
                 let auto_run_active = state.auto_run;
-                let mut toggle = widgets::ToggleButton::new(&mut state.auto_run, toggle_label);
+                let mut toggle = widgets::Button::new(toggle_label).on(&mut state.auto_run);
                 if auto_run_active {
                     let (fill, light) = auto_run_pulse(ctx);
                     toggle = toggle.fill(fill).light(light);
@@ -2862,7 +2862,7 @@ The first run can be slow while CubeCL builds shaders.
                     "Auto-run: off"
                 };
                 let auto_run_active = state.auto_run;
-                let mut toggle = widgets::ToggleButton::new(&mut state.auto_run, toggle_label);
+                let mut toggle = widgets::Button::new(toggle_label).on(&mut state.auto_run);
                 if auto_run_active {
                     let (fill, light) = auto_run_pulse(ctx);
                     toggle = toggle.fill(fill).light(light);

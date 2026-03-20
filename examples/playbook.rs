@@ -667,10 +667,10 @@ fn main(nb: &mut NotebookCtx) {
                 ctx.label(egui::RichText::new("BUTTONS").monospace().strong());
                 ctx.horizontal(|ctx| {
                     let _ = ctx.add(widgets::Button::new("BUTTON"));
-                    let _ = ctx.add(widgets::Button::new("SMALL").small());
+                    let _ = ctx.add(widgets::Button::new("SMALL"));
                     ctx.add_enabled(false, widgets::Button::new("DISABLED"));
                     let _ = ctx.add(widgets::Button::new("SELECTED").selected(true));
-                    let _ = ctx.add(widgets::ToggleButton::new(&mut state.toggle_on, "TOGGLE"));
+                    let _ = ctx.add(widgets::Button::new("TOGGLE").on(&mut state.toggle_on));
                 });
 
                 ctx.add_space(12.0);
@@ -728,7 +728,7 @@ fn main(nb: &mut NotebookCtx) {
                     }
                     number_id = Some(number_response.id);
                     ctx.add_space(8.0);
-                    let _ = ctx.add(widgets::Button::new("APPLY").small());
+                    let _ = ctx.add(widgets::Button::new("APPLY"));
                 });
 
                 ctx.add_space(12.0);
