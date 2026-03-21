@@ -23,7 +23,27 @@ pub(crate) struct NotebookScrollInfo {
 const SCROLL_INFO_ID: &str = "gorbie_notebook_scroll_info";
 
 pub(crate) fn store_scroll_info(ctx: &egui::Context, info: NotebookScrollInfo) {
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new(SCROLL_INFO_ID), info));
+    ctx.data_mut(|d| {
+        d.insert_temp(egui::Id::new(SCROLL_INFO_ID), info);
+        // Reset the float extent tracker each frame.
+        d.insert_temp(egui::Id::new(FLOAT_MAX_BOTTOM_ID), 0.0f32);
+    });
+}
+
+const FLOAT_MAX_BOTTOM_ID: &str = "gorbie_float_max_content_bottom";
+
+/// Returns the maximum content-space bottom Y across all floating cards this frame.
+pub(crate) fn max_float_content_bottom(ctx: &egui::Context) -> f32 {
+    ctx.data(|d| d.get_temp(egui::Id::new(FLOAT_MAX_BOTTOM_ID)).unwrap_or(0.0))
+}
+
+fn record_float_extent(ctx: &egui::Context, content_bottom: f32) {
+    ctx.data_mut(|d| {
+        let current: f32 = d.get_temp(egui::Id::new(FLOAT_MAX_BOTTOM_ID)).unwrap_or(0.0);
+        if content_bottom > current {
+            d.insert_temp(egui::Id::new(FLOAT_MAX_BOTTOM_ID), content_bottom);
+        }
+    });
 }
 
 fn read_scroll_info(ctx: &egui::Context) -> Option<NotebookScrollInfo> {
@@ -187,6 +207,12 @@ pub fn show_floating_card(
         }
 
         handle_clicked = resp.handle_clicked;
+
+        // Track the content-space extent of this float for scroll area sizing.
+        if fstate.anchor == Anchor::Content {
+            let content_bottom = fstate.pos.y + resp.card_rect.height();
+            record_float_extent(ui.ctx(), content_bottom);
+        }
     });
 
     if handle_clicked {

@@ -1005,6 +1005,13 @@ impl eframe::App for Notebook {
                         let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
                         ui.painter()
                             .rect_stroke(frame_rect, 0.0, stroke, egui::StrokeKind::Inside);
+
+                        // Extend scroll content to include content-anchored floating cards.
+                        let inline_bottom = frame_rect.bottom();
+                        let float_bottom = floating::max_float_content_bottom(ui.ctx());
+                        if float_bottom > inline_bottom {
+                            ui.allocate_space(egui::vec2(0.0, float_bottom - inline_bottom));
+                        }
                     });
                 });
         });

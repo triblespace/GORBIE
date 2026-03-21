@@ -2,7 +2,7 @@ use std::ops::RangeInclusive;
 
 use eframe::egui::{
     self, pos2, vec2, Align, Align2, Color32, CursorIcon, Event, EventFilter, FontId, Id, Key,
-    Margin, NumExt as _, Pos2, Rect, Response, Stroke, StrokeKind, Ui, Vec2, Widget,
+    Margin, NumExt as _, Pos2, Rect, Response, Stroke, StrokeKind, Ui, Widget,
 };
 
 use egui::text::{CCursor, CCursorRange, LayoutJob};

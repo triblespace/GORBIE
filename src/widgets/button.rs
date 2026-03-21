@@ -4,7 +4,7 @@ use eframe::egui::{
 };
 
 use crate::themes::{
-    GorbieButtonStyle, GorbieChoiceToggleStyle, GorbieRadioStyle, GorbieToggleButtonStyle,
+    GorbieButtonStyle, GorbieChoiceToggleStyle, GorbieRadioStyle,
 };
 
 /// A momentary or toggle button with optional LED indicator.
@@ -93,7 +93,8 @@ impl Widget for Button<'_> {
         );
 
         let mut body_size = galley.size() + padding * 2.0;
-        body_size.y = body_size.y.at_least(3.0 * crate::card_ctx::GRID_ROW_MODULE);
+        let target_h = (2.0 * crate::card_ctx::GRID_ROW_MODULE).max(ui.spacing().interact_size.y);
+        body_size.y = body_size.y.at_least(target_h - shadow_inset.y);
         body_size.x = body_size.x.max(ui.available_width() - shadow_inset.x);
         let desired_size = body_size + shadow_inset;
 
@@ -117,7 +118,6 @@ impl Widget for Button<'_> {
             return response;
         }
 
-        let visuals = ui.visuals();
         let outline = gstyle.outline;
         let accent = gstyle.accent;
         let shadow_color = gstyle.shadow;
