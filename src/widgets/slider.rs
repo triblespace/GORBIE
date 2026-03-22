@@ -441,8 +441,12 @@ impl<'a> Slider<'a> {
     }
 
     /// Set the height in grid modules (1 module = 12px). Default is 3.
+    /// At 1-2 modules, the value display is hidden automatically.
     pub fn modules(mut self, n: u32) -> Self {
         self.modules = Some(n);
+        if n <= 2 {
+            self.show_value = false;
+        }
         self
     }
 

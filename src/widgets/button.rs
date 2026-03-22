@@ -21,7 +21,7 @@ pub struct Button<'a> {
     fill: Option<Color32>,
     light: Option<Color32>,
     latched: bool,
-    modules: Option<u32>,
+    min_height: Option<f32>,
     gorbie_style: Option<GorbieButtonStyle>,
 }
 
@@ -34,7 +34,7 @@ impl<'a> Button<'a> {
             fill: None,
             light: None,
             latched: false,
-            modules: None,
+            min_height: None,
             gorbie_style: None,
         }
     }
@@ -68,7 +68,7 @@ impl<'a> Button<'a> {
     /// Set the height in grid modules (1 module = 12px).
     /// Default is 2 modules. The shadow is included in the total.
     pub fn modules(mut self, n: u32) -> Self {
-        self.modules = Some(n);
+        self.min_height = Some(n as f32 * crate::card_ctx::GRID_ROW_MODULE);
         self
     }
 }
@@ -82,7 +82,7 @@ impl Widget for Button<'_> {
             fill,
             light,
             latched,
-            modules,
+            min_height,
             gorbie_style,
         } = self;
 
@@ -103,8 +103,9 @@ impl Widget for Button<'_> {
         );
 
         let mut body_size = galley.size() + padding * 2.0;
-        let default_modules = modules.unwrap_or(2);
-        let target_h = (default_modules as f32 * crate::card_ctx::GRID_ROW_MODULE).max(ui.spacing().interact_size.y);
+        let target_h = min_height
+            .unwrap_or(2.0 * crate::card_ctx::GRID_ROW_MODULE)
+            .max(ui.spacing().interact_size.y);
         body_size.y = body_size.y.at_least(target_h - shadow_inset.y);
         body_size.x = body_size.x.max(ui.available_width() - shadow_inset.x);
         let desired_size = body_size + shadow_inset;
@@ -226,7 +227,7 @@ pub struct RadioButton<'a, T> {
     value: &'a mut T,
     option: T,
     text: WidgetText,
-    modules: Option<u32>,
+    min_height: Option<f32>,
     fill: Option<Color32>,
     light: Option<Color32>,
     gorbie_style: Option<GorbieRadioStyle>,
@@ -238,7 +239,7 @@ impl<'a, T> RadioButton<'a, T> {
             value,
             option,
             text: text.into(),
-            modules: None,
+            min_height: None,
             fill: None,
             light: None,
             gorbie_style: None,
@@ -247,7 +248,7 @@ impl<'a, T> RadioButton<'a, T> {
 
     /// Set the height in grid modules (1 module = 12px). Default is 2.
     pub fn modules(mut self, n: u32) -> Self {
-        self.modules = Some(n);
+        self.min_height = Some(n as f32 * crate::card_ctx::GRID_ROW_MODULE);
         self
     }
 
@@ -271,7 +272,7 @@ where
             value,
             option,
             text,
-            modules,
+            min_height,
             fill,
             light,
             gorbie_style,
@@ -283,7 +284,6 @@ where
         let shadow_offset = gstyle.shadow_offset;
         let shadow_inset = vec2(shadow_offset.x.max(0.0), shadow_offset.y.max(0.0));
 
-        let default_modules = modules.unwrap_or(2);
         let padding = ui.spacing().button_padding;
         let indicator_size = (ui.spacing().interact_size.y - 6.0).at_least(14.0);
         let gap = (padding.x * 0.8).at_least(6.0);
@@ -300,7 +300,9 @@ where
 
         let content_height = galley.size().y.max(indicator_size);
         let min_body_height = {
-            let target_h = (default_modules as f32 * crate::card_ctx::GRID_ROW_MODULE).max(ui.spacing().interact_size.y);
+            let target_h = min_height
+                .unwrap_or(2.0 * crate::card_ctx::GRID_ROW_MODULE)
+                .max(ui.spacing().interact_size.y);
             target_h - shadow_inset.y
         };
         let body_height = (content_height + padding.y * 2.0).at_least(min_body_height);
@@ -427,7 +429,7 @@ struct ChoiceToggleOption<T> {
 pub struct ChoiceToggle<'a, T> {
     value: &'a mut T,
     options: Vec<ChoiceToggleOption<T>>,
-    modules: Option<u32>,
+    min_height: Option<f32>,
     fill: Option<Color32>,
     light: Option<Color32>,
     gorbie_style: Option<GorbieChoiceToggleStyle>,
@@ -438,7 +440,7 @@ impl<'a, T> ChoiceToggle<'a, T> {
         Self {
             value,
             options: Vec::new(),
-            modules: None,
+            min_height: None,
             fill: None,
             light: None,
             gorbie_style: None,
@@ -455,7 +457,7 @@ impl<'a, T> ChoiceToggle<'a, T> {
 
     /// Set the height in grid modules (1 module = 12px). Default is 2.
     pub fn modules(mut self, n: u32) -> Self {
-        self.modules = Some(n);
+        self.min_height = Some(n as f32 * crate::card_ctx::GRID_ROW_MODULE);
         self
     }
 
@@ -493,7 +495,7 @@ where
         let Self {
             value,
             options,
-            modules,
+            min_height,
             fill,
             light,
             gorbie_style,
@@ -503,8 +505,6 @@ where
             let (_rect, response) = ui.allocate_exact_size(vec2(0.0, 0.0), Sense::hover());
             return response;
         }
-
-        let default_modules = modules.unwrap_or(2);
         let enabled = ui.is_enabled();
         let gstyle =
             gorbie_style.unwrap_or_else(|| GorbieChoiceToggleStyle::from(ui.style().as_ref()));
@@ -548,7 +548,9 @@ where
         }
         segment_size += padding * 2.0;
 
-        let target_h = (default_modules as f32 * crate::card_ctx::GRID_ROW_MODULE).max(ui.spacing().interact_size.y);
+        let target_h = min_height
+            .unwrap_or(2.0 * crate::card_ctx::GRID_ROW_MODULE)
+            .max(ui.spacing().interact_size.y);
         segment_size.y = segment_size.y.at_least(target_h - shadow_inset.y);
 
         let body_width = segment_size.x * segment_count as f32
