@@ -85,41 +85,40 @@ impl WikiData {
 
     fn title(&self, vid: Id) -> &str {
         find!(
-            (h: TextHandle),
+            h: TextHandle,
             pattern!(&self.space, [{ vid @ wiki::title: ?h }])
         )
         .next()
-        .map(|(h,)| self.blob(h))
+        .map(|h| self.blob(h))
         .unwrap_or("")
     }
 
     fn content(&self, vid: Id) -> &str {
         find!(
-            (h: TextHandle),
+            h: TextHandle,
             pattern!(&self.space, [{ vid @ wiki::content: ?h }])
         )
         .next()
-        .map(|(h,)| self.blob(h))
+        .map(|h| self.blob(h))
         .unwrap_or("")
     }
 
     fn tags(&self, vid: Id) -> Vec<Id> {
         find!(
-            (tag: Id),
+            tag: Id,
             pattern!(&self.space, [{ vid @ metadata::tag: ?tag }])
         )
-        .filter(|(t,)| *t != KIND_VERSION_ID)
-        .map(|(t,)| t)
+        .filter(|t| *t != KIND_VERSION_ID)
         .collect()
     }
 
     fn tag_name(&self, tag_id: Id) -> &str {
         find!(
-            (h: TextHandle),
+            h: TextHandle,
             pattern!(&self.space, [{ tag_id @ metadata::name: ?h }])
         )
         .next()
-        .map(|(h,)| self.blob(h))
+        .map(|h| self.blob(h))
         .unwrap_or("")
     }
 
@@ -136,10 +135,9 @@ impl WikiData {
     /// Outgoing wiki links from a version entity.
     fn links(&self, vid: Id) -> Vec<Id> {
         find!(
-            (target: Id),
+            target: Id,
             pattern!(&self.space, [{ vid @ wiki::links_to: ?target }])
         )
-        .map(|(t,)| t)
         .collect()
     }
 
@@ -235,8 +233,8 @@ fn load_wiki_data(path: PathBuf) -> WikiData {
 
         let mut blobs = BTreeMap::new();
         // Resolve all title handles.
-        for (h,) in find!(
-            (h: TextHandle),
+        for h in find!(
+            h: TextHandle,
             pattern!(&space, [{ _?vid @ wiki::title: ?h }])
         ) {
             if !blobs.contains_key(&h.raw) {
@@ -246,8 +244,8 @@ fn load_wiki_data(path: PathBuf) -> WikiData {
             }
         }
         // Resolve all content handles.
-        for (h,) in find!(
-            (h: TextHandle),
+        for h in find!(
+            h: TextHandle,
             pattern!(&space, [{ _?vid @ wiki::content: ?h }])
         ) {
             if !blobs.contains_key(&h.raw) {
@@ -257,8 +255,8 @@ fn load_wiki_data(path: PathBuf) -> WikiData {
             }
         }
         // Resolve all tag/metadata name handles.
-        for (h,) in find!(
-            (h: TextHandle),
+        for h in find!(
+            h: TextHandle,
             pattern!(&space, [{ _?id @ metadata::name: ?h }])
         ) {
             if !blobs.contains_key(&h.raw) {
@@ -755,10 +753,20 @@ fn main(nb: &mut NotebookCtx) {
             frag_key.copy_from_slice(frag_bytes);
 
             let data = state.data.value();
-            let vid = data.latest_version(frag_id);
+            // The ID might be a fragment or a version — resolve to latest either way
+            let vid = data.latest_version(frag_id)
+                .or_else(|| {
+                    // frag_id might be a version ID — find its fragment, then latest
+                    find!(
+                        frag: Id,
+                        pattern!(&data.space, [{ frag_id @ wiki::fragment: ?frag }])
+                    )
+                    .next()
+                    .and_then(|f| data.latest_version(f))
+                });
             let title = vid.map(|v| data.title(v)).unwrap_or("");
             let content = vid.map(|v| data.content(v)).unwrap_or("");
-            let is_md = vid.map(|v| data.is_markdown(v)).unwrap_or(true);
+            let is_md = vid.map(|v| data.is_markdown(v)).unwrap_or(false); // default typst, not markdown
 
             ctx.push_id(frag_key, |ctx| {
                 let resp = ctx.float(|ctx| {
