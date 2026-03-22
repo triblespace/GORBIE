@@ -474,6 +474,8 @@ fn all_glyphs_covered(
 /// falls within [span_raw_lo, span_raw_hi].
 ///
 /// Uses binary search since glyphs are in document (span) order.
+/// Generated content (detached spans) is excluded from chars during
+/// rendering, so the sorted invariant holds.
 fn glyph_index_range(
     chars: &[painter::PositionedChar],
     span_raw_lo: u64,

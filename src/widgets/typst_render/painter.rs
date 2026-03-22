@@ -250,17 +250,20 @@ fn render_text(
         }
 
         // Collect text layout info for selection.
+        // Skip generated content (detached spans) — it has no source location
+        // and can't be meaningfully selected. Copying the source that produced
+        // it is sufficient (e.g. list numbers regenerate from the enum syntax).
         let adv_x = glyph.x_advance.get() as f32 * size;
-        // Selection rect: advance box from cursor_x to cursor_x + adv_x,
-        // ascender above baseline to descender below.
-        let top_left = state.transform_point(cursor_x, cursor_y - ascender);
-        let bottom_right = state.transform_point(cursor_x + adv_x, cursor_y - descender);
-        let glyph_text = &text.text[glyph.range()];
-        text_layout.chars.push(PositionedChar {
-            rect: egui::Rect::from_two_pos(top_left, bottom_right),
-            text: glyph_text.to_string(),
-            span: glyph.span,
-        });
+        if !glyph.span.0.is_detached() {
+            let top_left = state.transform_point(cursor_x, cursor_y - ascender);
+            let bottom_right = state.transform_point(cursor_x + adv_x, cursor_y - descender);
+            let glyph_text = &text.text[glyph.range()];
+            text_layout.chars.push(PositionedChar {
+                rect: egui::Rect::from_two_pos(top_left, bottom_right),
+                text: glyph_text.to_string(),
+                span: glyph.span,
+            });
+        }
 
         cursor_x += adv_x;
         cursor_y += glyph.y_advance.get() as f32 * size;
