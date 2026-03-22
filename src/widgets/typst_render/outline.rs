@@ -1,16 +1,9 @@
-use std::collections::HashMap;
-
 use eframe::egui;
 use egui::epaint;
 
-/// Cached tessellated glyph meshes.
-pub struct GlyphCache {
-    /// Keyed by (font data pointer, glyph ID) → pre-triangulated glyph.
-    meshes: HashMap<(usize, u16), GlyphMesh>,
-}
-
 /// A pre-triangulated glyph stored at unit scale (1 unit = 1 font design unit).
 /// At render time, vertices are scaled by (font_size / units_per_em).
+#[derive(Clone)]
 pub struct GlyphMesh {
     /// Vertices in font coordinates (Y-up).
     pub vertices: Vec<[f32; 2]>,
@@ -24,33 +17,9 @@ pub struct GlyphMesh {
     pub contours: Vec<Vec<[f32; 2]>>,
 }
 
-impl GlyphCache {
-    pub fn new() -> Self {
-        Self {
-            meshes: HashMap::new(),
-        }
-    }
-
-    /// Get or build the glyph mesh for the given font and glyph ID.
-    pub fn get(
-        &mut self,
-        font: &typst::text::Font,
-        glyph_id: u16,
-    ) -> &GlyphMesh {
-        let key = (font_key(font), glyph_id);
-        self.meshes.entry(key).or_insert_with(|| {
-            build_glyph_mesh(font, glyph_id)
-        })
-    }
-}
-
-/// Stable key for a font (pointer to its backing data).
-fn font_key(font: &typst::text::Font) -> usize {
-    let info = font.info();
-    typst::utils::hash128(info) as usize
-}
-
-fn build_glyph_mesh(font: &typst::text::Font, glyph_id: u16) -> GlyphMesh {
+/// Get or build a glyph mesh, memoized by comemo.
+#[comemo::memoize]
+pub fn glyph_mesh(font: typst::text::Font, glyph_id: u16) -> GlyphMesh {
     let ttf = font.ttf();
     let mut builder = ContourBuilder::new();
     let id = ttf_parser::GlyphId(glyph_id);

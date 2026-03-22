@@ -155,6 +155,7 @@ pub fn show_floating_card(
         .order(area_order)
         .fixed_pos(screen_pos)
         .movable(false)
+        .interactable(false)
         .constrain_to(egui::Rect::EVERYTHING);
 
     let mut handle_clicked = false;
@@ -276,9 +277,10 @@ fn draw_card_chrome(
         ui.set_width(card_width);
 
         let restore_clip = ui.clip_rect();
+        let screen = ui.ctx().screen_rect();
         let card_clip = egui::Rect::from_min_max(
-            egui::pos2(ui.min_rect().left(), restore_clip.min.y),
-            egui::pos2(ui.min_rect().left() + card_width, restore_clip.max.y),
+            egui::pos2(ui.min_rect().left(), restore_clip.min.y.max(screen.min.y)),
+            egui::pos2(ui.min_rect().left() + card_width, restore_clip.max.y.min(screen.max.y)),
         );
         ui.set_clip_rect(card_clip);
         let mut ctx = CardCtx::new(ui, store);

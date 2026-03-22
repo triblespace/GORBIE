@@ -6,6 +6,7 @@ version = 4
 name = "GORBIE"
 version = "0.8.2"
 dependencies = [
+ "comemo",
  "ctrlc",
  "cubecl",
  "dark-light",

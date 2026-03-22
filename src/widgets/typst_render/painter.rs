@@ -5,9 +5,10 @@ use typst::model::Destination;
 use typst::syntax::Span;
 use typst::visualize::{CurveItem, FillRule, Geometry, Paint};
 
-use super::outline::{self, GlyphCache};
+use super::outline;
 
 /// A positioned character for text selection.
+#[derive(Clone)]
 pub struct PositionedChar {
     /// Bounding rect in frame-relative coordinates.
     pub rect: egui::Rect,
@@ -18,6 +19,7 @@ pub struct PositionedChar {
 }
 
 /// A non-text element (shape/line/rect) with a source span.
+#[derive(Clone)]
 pub struct PositionedSpan {
     /// Bounding rect in frame-relative coordinates.
     pub rect: egui::Rect,
@@ -26,6 +28,7 @@ pub struct PositionedSpan {
 }
 
 /// A positioned link region for hit-testing.
+#[derive(Clone)]
 pub struct PositionedLink {
     /// Bounding rect in frame-relative coordinates.
     pub rect: egui::Rect,
@@ -34,6 +37,7 @@ pub struct PositionedLink {
 }
 
 /// Layout info collected during rendering for selection.
+#[derive(Clone, Default)]
 pub struct TextLayout {
     /// All positioned characters in document order.
     pub chars: Vec<PositionedChar>,
@@ -49,7 +53,6 @@ pub struct TextLayout {
 /// `pixels_per_point` is used to compute anti-aliasing feathering width.
 pub fn render_frame_to_shapes(
     frame: &Frame,
-    glyph_cache: &mut GlyphCache,
     text_color: egui::Color32,
     pixels_per_point: f32,
 ) -> (Vec<egui::Shape>, egui::Vec2, TextLayout) {
@@ -57,7 +60,7 @@ pub fn render_frame_to_shapes(
     let mut shapes = Vec::new();
     let mut text_layout = TextLayout { chars: Vec::new(), spans: Vec::new(), links: Vec::new() };
     let state = RenderState::identity();
-    render_frame_inner(&mut shapes, &mut text_layout, frame, state, glyph_cache, text_color, feathering);
+    render_frame_inner(&mut shapes, &mut text_layout, frame, state, text_color, feathering);
 
     let size = egui::vec2(
         frame.width().to_pt() as f32,
@@ -131,7 +134,6 @@ fn render_frame_inner(
     text_layout: &mut TextLayout,
     frame: &Frame,
     state: RenderState,
-    glyph_cache: &mut GlyphCache,
     text_color: egui::Color32,
     feathering: f32,
 ) {
@@ -141,10 +143,10 @@ fn render_frame_inner(
         match item {
             FrameItem::Group(group) => {
                 let child = local.pre_concat(&group.transform);
-                render_frame_inner(shapes, text_layout, &group.frame, child, glyph_cache, text_color, feathering);
+                render_frame_inner(shapes, text_layout, &group.frame, child, text_color, feathering);
             }
             FrameItem::Text(text_item) => {
-                render_text(shapes, text_layout, text_item, local, glyph_cache, text_color, feathering);
+                render_text(shapes, text_layout, text_item, local, text_color, feathering);
             }
             FrameItem::Shape(shape, span) => {
                 let shape_rect = shape_bounds(shape, local);
@@ -181,7 +183,6 @@ fn render_text(
     text_layout: &mut TextLayout,
     text: &typst::text::TextItem,
     state: RenderState,
-    glyph_cache: &mut GlyphCache,
     default_color: egui::Color32,
     feathering: f32,
 ) {
@@ -217,10 +218,10 @@ fn render_text(
 
         let origin = state.transform_point(gx, gy);
 
-        let glyph_mesh = glyph_cache.get(font, glyph.id);
+        let glyph_mesh = outline::glyph_mesh(font.clone(), glyph.id);
 
         // Fill pass.
-        let mesh = outline::render_glyph_mesh(glyph_mesh, origin, scale, color, feathering);
+        let mesh = outline::render_glyph_mesh(&glyph_mesh, origin, scale, color, feathering);
         if !mesh.is_empty() {
             shapes.push(egui::Shape::mesh(mesh));
         }

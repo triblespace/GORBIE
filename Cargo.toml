@@ -54,6 +54,7 @@ typst-syntax = { version = "0.14", optional = true }
 ttf-parser = { version = "0.25", optional = true }
 earcutr = { version = "0.5", optional = true }
 egui_graphs = { version = "0.29.0", features = ["events"], optional = true }
+comemo = { version = "0.5.1", optional = true }
 
 [features]
 default = ["markdown"]
@@ -65,9 +66,10 @@ plots = ["dep:egui_plot"]
 triblespace = ["dep:triblespace", "dep:ed25519-dalek", "dep:rand_core06"]
 gloss = ["triblespace", "dep:hifitime", "dep:rapier2d"]
 cubecl = ["dep:cubecl"]
-typst = ["dep:typst", "dep:typst-syntax", "dep:ttf-parser", "dep:earcutr"]
+typst = ["dep:typst", "dep:typst-syntax", "dep:ttf-parser", "dep:earcutr", "dep:comemo"]
 telemetry = ["triblespace", "triblespace/telemetry"]
 egui_graphs = ["dep:egui_graphs"]
+comemo = ["dep:comemo"]
 
 [workspace]
 members = ["gorbie-macros"]

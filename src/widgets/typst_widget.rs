@@ -8,24 +8,21 @@ use typst::syntax::{Source, Span, SyntaxKind};
 
 use crate::themes::colorhash::RAL_CATEGORICAL;
 use crate::themes::ral::RAL_COLORS;
-use super::typst_render::outline::GlyphCache;
 use super::typst_render::painter;
 use super::typst_render::world::GorbieWorld;
 
 /// Persistent state for Typst compilation and rendering.
 ///
 /// Holds a `GorbieWorld` (benefits from comemo's incremental memoization)
-/// and a `GlyphCache` (tessellated glyph meshes, never invalidated).
+/// Glyph meshes are cached via comemo.
 struct TypstState {
     world: GorbieWorld,
-    glyph_cache: GlyphCache,
 }
 
 impl TypstState {
     fn new() -> Self {
         Self {
             world: GorbieWorld::new(),
-            glyph_cache: GlyphCache::new(),
         }
     }
 }
@@ -756,12 +753,28 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
     let pixels_per_point = ui.ctx().pixels_per_point();
 
     for page in doc.pages.iter() {
-        let (shapes, size, text_layout) = painter::render_frame_to_shapes(
-            &page.frame,
-            &mut state.glyph_cache,
-            text_color,
-            pixels_per_point,
-        );
+        // Cache shapes keyed on page content + render params.
+        // Page derives Hash, so identical pages hit the cache.
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        page.hash(&mut h);
+        text_color.hash(&mut h);
+        pixels_per_point.to_bits().hash(&mut h);
+        let cache_key = h.finish();
+
+        let cache_id = ui.id().with(("typst_shapes_cache", cache_key));
+        let cached: Option<(Vec<egui::Shape>, egui::Vec2, painter::TextLayout)> =
+            ui.ctx().data_mut(|d| d.get_temp(cache_id));
+
+        let (shapes, size, text_layout) = cached.unwrap_or_else(|| {
+            let result = painter::render_frame_to_shapes(
+                &page.frame,
+                text_color,
+                pixels_per_point,
+            );
+            ui.ctx().data_mut(|d| d.insert_temp(cache_id, result.clone()));
+            result
+        });
 
         let (rect, response) =
             ui.allocate_exact_size(size, egui::Sense::click_and_drag());

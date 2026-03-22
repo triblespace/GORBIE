@@ -75,8 +75,10 @@ impl GorbieWorld {
     }
 
     /// Set the source content for the next compilation.
+    /// Uses `Source::replace` for incremental reparsing — only the
+    /// changed portion of the syntax tree is rebuilt.
     pub fn set_source(&mut self, text: String) {
-        self.source = Source::new(self.main_id, text);
+        self.source.replace(&text);
     }
 
     /// Compile the current source into a paged document.

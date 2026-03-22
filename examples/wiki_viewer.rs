@@ -528,8 +528,8 @@ impl WikiGraph {
             *m.data.get_temp_mut_or_insert_with(zoom_id, || 1.0f32)
         });
 
+        // Pinch-to-zoom (trackpad) or ctrl+scroll (mouse).
         if response.hovered() {
-            // Pinch-to-zoom (trackpad) or ctrl+scroll (mouse).
             let pinch = ui.input(|i| i.zoom_delta());
             if pinch != 1.0 {
                 let old_zoom = zoom;
@@ -538,15 +538,6 @@ impl WikiGraph {
                     let cursor_offset = hp - center - pan;
                     pan -= cursor_offset * (zoom / old_zoom - 1.0);
                 }
-            }
-
-            // Two-finger scroll (trackpad) or scroll wheel for pan.
-            let scroll = ui.input(|i| i.smooth_scroll_delta);
-            if scroll != egui::Vec2::ZERO {
-                pan += scroll;
-            }
-
-            if pinch != 1.0 || scroll != egui::Vec2::ZERO {
                 ui.ctx().memory_mut(|m| {
                     m.data.insert_temp(zoom_id, zoom);
                     m.data.insert_temp(pan_id, pan);
@@ -554,10 +545,8 @@ impl WikiGraph {
             }
         }
 
-        // Also pan with right/middle drag (mouse).
-        if response.dragged_by(egui::PointerButton::Secondary)
-            || response.dragged_by(egui::PointerButton::Middle)
-        {
+        // Drag to pan (any mouse button).
+        if response.dragged() {
             pan += response.drag_delta();
             ui.ctx().memory_mut(|m| m.data.insert_temp(pan_id, pan));
         }
