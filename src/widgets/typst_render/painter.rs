@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use eframe::egui;
 use egui::epaint;
 use typst::layout::{Frame, FrameItem, Transform};
@@ -7,15 +9,15 @@ use typst::visualize::{CurveItem, FillRule, Geometry, Paint};
 
 use super::outline;
 
-/// A positioned character for text selection.
+/// A positioned glyph for selection and highlighting.
 #[derive(Clone)]
 pub struct PositionedChar {
     /// Bounding rect in frame-relative coordinates.
     pub rect: egui::Rect,
     /// The unicode text this glyph represents.
     pub text: String,
-    /// Source span for resolving back to Typst markup.
-    pub span: (Span, u16),
+    /// Source span — `None` for generated content (detached spans).
+    pub span: Option<(Span, u16)>,
 }
 
 /// A non-text element (shape/line/rect) with a source span.
@@ -36,35 +38,30 @@ pub struct PositionedLink {
     pub url: String,
 }
 
-/// A generated glyph (detached span) with its Tag scope for conditional highlighting.
-#[derive(Clone)]
-pub struct DetachedChar {
-    /// Bounding rect in frame-relative coordinates.
-    pub rect: egui::Rect,
-    /// Tag scope ID — indexes into `TextLayout.tag_scopes`.
-    pub scope: usize,
-}
-
-/// A Tag scope: tracks which source-content glyph indices belong to a
-/// particular element (list item, equation, etc.) so we can determine
-/// whether the entire element is selected.
+/// A node in the selection tree, mirroring the layout tree's Group/Tag hierarchy.
+///
+/// Each node covers a contiguous range of glyphs in `TextLayout.chars`.
+/// Children are nested sub-ranges. The tree enables LCA-based selection:
+/// find the smallest node containing both drag endpoints, then select
+/// all glyphs in that node's range.
 #[derive(Clone, Default)]
-pub struct TagScope {
-    /// Index range [start, end) into `TextLayout.chars` for non-detached
-    /// glyphs that belong to this scope.
-    pub char_start: usize,
-    pub char_end: usize,
+pub struct SelectionNode {
+    /// Glyph index range [start, end) in `TextLayout.chars`.
+    pub glyph_range: Range<usize>,
+    /// Source span from the Tag element that produced this node.
+    /// Resolved to a byte range via `source.range(span)` during copy.
+    pub span: Option<Span>,
+    /// Child nodes (sub-ranges).
+    pub children: Vec<SelectionNode>,
 }
 
 /// Layout info collected during rendering for selection.
 #[derive(Clone, Default)]
 pub struct TextLayout {
-    /// All positioned characters in document order (detached spans excluded).
+    /// All positioned glyphs in layout order (source + generated).
     pub chars: Vec<PositionedChar>,
-    /// Generated content glyphs (detached spans) with their Tag scope.
-    pub detached: Vec<DetachedChar>,
-    /// Tag scopes for conditional highlighting of detached glyphs.
-    pub tag_scopes: Vec<TagScope>,
+    /// Selection tree root nodes (one per top-level Tag scope or Group).
+    pub selection_roots: Vec<SelectionNode>,
     /// Non-text elements with spans (table borders, lines, rects, etc.).
     pub spans: Vec<PositionedSpan>,
     /// Link regions for click/hover handling.
@@ -165,17 +162,35 @@ fn render_frame_inner(
     text_color: egui::Color32,
     feathering: f32,
 ) {
-    render_frame_scoped(shapes, text_layout, frame, state, text_color, feathering, &mut Vec::new());
+    // Build selection tree from Tag::Start/End pairs in the frame tree.
+    let mut stack = Vec::new();
+    let mut roots = Vec::new();
+    render_frame_tree(shapes, text_layout, frame, state, text_color, feathering, &mut stack, &mut roots);
+    // Any unclosed tags become roots too.
+    for mut node in stack.drain(..) {
+        node.glyph_range.end = text_layout.chars.len();
+        roots.push(node);
+    }
+    text_layout.selection_roots = roots;
+
 }
 
-fn render_frame_scoped(
+/// Render a frame, building selection tree nodes.
+///
+/// Uses a stack of in-progress SelectionNodes. Tag::Start pushes a new
+/// node, Tag::End pops it and nests it into the parent (or into
+/// `completed` if there's no parent). Groups recurse with the same stack.
+fn render_frame_tree(
     shapes: &mut Vec<egui::Shape>,
     text_layout: &mut TextLayout,
     frame: &Frame,
     state: RenderState,
     text_color: egui::Color32,
     feathering: f32,
-    scope_stack: &mut Vec<usize>,
+    // Stack of in-progress nodes (Tag::Start pushes, Tag::End pops).
+    stack: &mut Vec<SelectionNode>,
+    // Completed top-level nodes (no parent Tag).
+    completed: &mut Vec<SelectionNode>,
 ) {
     for (pos, item) in frame.items() {
         let local = state.pre_translate(pos.x.to_pt() as f32, pos.y.to_pt() as f32);
@@ -183,11 +198,10 @@ fn render_frame_scoped(
         match item {
             FrameItem::Group(group) => {
                 let child = local.pre_concat(&group.transform);
-                render_frame_scoped(shapes, text_layout, &group.frame, child, text_color, feathering, scope_stack);
+                render_frame_tree(shapes, text_layout, &group.frame, child, text_color, feathering, stack, completed);
             }
             FrameItem::Text(text_item) => {
-                let scope = scope_stack.last().copied();
-                render_text(shapes, text_layout, text_item, local, text_color, feathering, scope);
+                render_text(shapes, text_layout, text_item, local, text_color, feathering);
             }
             FrameItem::Shape(shape, span) => {
                 let shape_rect = shape_bounds(shape, local);
@@ -215,17 +229,22 @@ fn render_frame_scoped(
             FrameItem::Tag(tag) => {
                 use typst::introspection::Tag;
                 match tag {
-                    Tag::Start(..) => {
-                        let scope_id = text_layout.tag_scopes.len();
-                        text_layout.tag_scopes.push(TagScope {
-                            char_start: text_layout.chars.len(),
-                            char_end: text_layout.chars.len(),
+                    Tag::Start(content, _) => {
+                        let span = content.span();
+                        stack.push(SelectionNode {
+                            glyph_range: text_layout.chars.len()..text_layout.chars.len(),
+                            span: if span.is_detached() { None } else { Some(span) },
+                            children: Vec::new(),
                         });
-                        scope_stack.push(scope_id);
                     }
                     Tag::End(..) => {
-                        if let Some(scope_id) = scope_stack.pop() {
-                            text_layout.tag_scopes[scope_id].char_end = text_layout.chars.len();
+                        if let Some(mut node) = stack.pop() {
+                            node.glyph_range.end = text_layout.chars.len();
+                            if let Some(parent) = stack.last_mut() {
+                                parent.children.push(node);
+                            } else {
+                                completed.push(node);
+                            }
                         }
                     }
                 }
@@ -242,7 +261,6 @@ fn render_text(
     state: RenderState,
     default_color: egui::Color32,
     feathering: f32,
-    scope: Option<usize>,
 ) {
     let font = &text.font;
     let size = text.size.to_pt() as f32;
@@ -305,27 +323,15 @@ fn render_text(
 
         // Collect text layout info for selection.
         let adv_x = glyph.x_advance.get() as f32 * size;
-        if glyph.span.0.is_detached() {
-            // Generated content: store separately with scope for conditional
-            // highlighting. Only if inside a Tag scope.
-            if let Some(scope_id) = scope {
-                let top_left = state.transform_point(cursor_x, cursor_y - ascender);
-                let bottom_right = state.transform_point(cursor_x + adv_x, cursor_y - descender);
-                text_layout.detached.push(DetachedChar {
-                    rect: egui::Rect::from_two_pos(top_left, bottom_right),
-                    scope: scope_id,
-                });
-            }
-        } else {
-            let top_left = state.transform_point(cursor_x, cursor_y - ascender);
-            let bottom_right = state.transform_point(cursor_x + adv_x, cursor_y - descender);
-            let glyph_text = &text.text[glyph.range()];
-            text_layout.chars.push(PositionedChar {
-                rect: egui::Rect::from_two_pos(top_left, bottom_right),
-                text: glyph_text.to_string(),
-                span: glyph.span,
-            });
-        }
+        let top_left = state.transform_point(cursor_x, cursor_y - ascender);
+        let bottom_right = state.transform_point(cursor_x + adv_x, cursor_y - descender);
+        let glyph_text = &text.text[glyph.range()];
+        let span = if glyph.span.0.is_detached() { None } else { Some(glyph.span) };
+        text_layout.chars.push(PositionedChar {
+            rect: egui::Rect::from_two_pos(top_left, bottom_right),
+            text: glyph_text.to_string(),
+            span,
+        });
 
         cursor_x += adv_x;
         cursor_y += glyph.y_advance.get() as f32 * size;
