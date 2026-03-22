@@ -175,9 +175,7 @@ fn render_frame_inner(
                     });
                 }
             }
-            FrameItem::Image(..) | FrameItem::Tag(..) => {
-                // Skip for now.
-            }
+            FrameItem::Image(..) | FrameItem::Tag(..) => {}
         }
     }
 }
@@ -250,9 +248,9 @@ fn render_text(
         }
 
         // Collect text layout info for selection.
-        // Skip generated content (detached spans) — it has no source location
-        // and can't be meaningfully selected. Copying the source that produced
-        // it is sufficient (e.g. list numbers regenerate from the enum syntax).
+        // Skip generated content (detached spans) — selection operates on
+        // source content only. Detached glyphs (list bullets, math operators)
+        // are rendered but not selectable; copying the source regenerates them.
         let adv_x = glyph.x_advance.get() as f32 * size;
         if !glyph.span.0.is_detached() {
             let top_left = state.transform_point(cursor_x, cursor_y - ascender);
