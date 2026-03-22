@@ -36,11 +36,35 @@ pub struct PositionedLink {
     pub url: String,
 }
 
+/// A generated glyph (detached span) with its Tag scope for conditional highlighting.
+#[derive(Clone)]
+pub struct DetachedChar {
+    /// Bounding rect in frame-relative coordinates.
+    pub rect: egui::Rect,
+    /// Tag scope ID — indexes into `TextLayout.tag_scopes`.
+    pub scope: usize,
+}
+
+/// A Tag scope: tracks which source-content glyph indices belong to a
+/// particular element (list item, equation, etc.) so we can determine
+/// whether the entire element is selected.
+#[derive(Clone, Default)]
+pub struct TagScope {
+    /// Index range [start, end) into `TextLayout.chars` for non-detached
+    /// glyphs that belong to this scope.
+    pub char_start: usize,
+    pub char_end: usize,
+}
+
 /// Layout info collected during rendering for selection.
 #[derive(Clone, Default)]
 pub struct TextLayout {
-    /// All positioned characters in document order.
+    /// All positioned characters in document order (detached spans excluded).
     pub chars: Vec<PositionedChar>,
+    /// Generated content glyphs (detached spans) with their Tag scope.
+    pub detached: Vec<DetachedChar>,
+    /// Tag scopes for conditional highlighting of detached glyphs.
+    pub tag_scopes: Vec<TagScope>,
     /// Non-text elements with spans (table borders, lines, rects, etc.).
     pub spans: Vec<PositionedSpan>,
     /// Link regions for click/hover handling.
@@ -62,7 +86,7 @@ pub fn render_frame_to_shapes(
     let pixels_per_point = f32::from_bits(pixels_per_point_bits);
     let feathering = 1.0 / pixels_per_point;
     let mut shapes = Vec::new();
-    let mut text_layout = TextLayout { chars: Vec::new(), spans: Vec::new(), links: Vec::new() };
+    let mut text_layout = TextLayout::default();
     let state = RenderState::identity();
     render_frame_inner(&mut shapes, &mut text_layout, frame, state, text_color, feathering);
 
@@ -141,16 +165,29 @@ fn render_frame_inner(
     text_color: egui::Color32,
     feathering: f32,
 ) {
+    render_frame_scoped(shapes, text_layout, frame, state, text_color, feathering, &mut Vec::new());
+}
+
+fn render_frame_scoped(
+    shapes: &mut Vec<egui::Shape>,
+    text_layout: &mut TextLayout,
+    frame: &Frame,
+    state: RenderState,
+    text_color: egui::Color32,
+    feathering: f32,
+    scope_stack: &mut Vec<usize>,
+) {
     for (pos, item) in frame.items() {
         let local = state.pre_translate(pos.x.to_pt() as f32, pos.y.to_pt() as f32);
 
         match item {
             FrameItem::Group(group) => {
                 let child = local.pre_concat(&group.transform);
-                render_frame_inner(shapes, text_layout, &group.frame, child, text_color, feathering);
+                render_frame_scoped(shapes, text_layout, &group.frame, child, text_color, feathering, scope_stack);
             }
             FrameItem::Text(text_item) => {
-                render_text(shapes, text_layout, text_item, local, text_color, feathering);
+                let scope = scope_stack.last().copied();
+                render_text(shapes, text_layout, text_item, local, text_color, feathering, scope);
             }
             FrameItem::Shape(shape, span) => {
                 let shape_rect = shape_bounds(shape, local);
@@ -175,7 +212,25 @@ fn render_frame_inner(
                     });
                 }
             }
-            FrameItem::Image(..) | FrameItem::Tag(..) => {}
+            FrameItem::Tag(tag) => {
+                use typst::introspection::Tag;
+                match tag {
+                    Tag::Start(..) => {
+                        let scope_id = text_layout.tag_scopes.len();
+                        text_layout.tag_scopes.push(TagScope {
+                            char_start: text_layout.chars.len(),
+                            char_end: text_layout.chars.len(),
+                        });
+                        scope_stack.push(scope_id);
+                    }
+                    Tag::End(..) => {
+                        if let Some(scope_id) = scope_stack.pop() {
+                            text_layout.tag_scopes[scope_id].char_end = text_layout.chars.len();
+                        }
+                    }
+                }
+            }
+            FrameItem::Image(..) => {}
         }
     }
 }
@@ -187,6 +242,7 @@ fn render_text(
     state: RenderState,
     default_color: egui::Color32,
     feathering: f32,
+    scope: Option<usize>,
 ) {
     let font = &text.font;
     let size = text.size.to_pt() as f32;
@@ -248,11 +304,19 @@ fn render_text(
         }
 
         // Collect text layout info for selection.
-        // Skip generated content (detached spans) — selection operates on
-        // source content only. Detached glyphs (list bullets, math operators)
-        // are rendered but not selectable; copying the source regenerates them.
         let adv_x = glyph.x_advance.get() as f32 * size;
-        if !glyph.span.0.is_detached() {
+        if glyph.span.0.is_detached() {
+            // Generated content: store separately with scope for conditional
+            // highlighting. Only if inside a Tag scope.
+            if let Some(scope_id) = scope {
+                let top_left = state.transform_point(cursor_x, cursor_y - ascender);
+                let bottom_right = state.transform_point(cursor_x + adv_x, cursor_y - descender);
+                text_layout.detached.push(DetachedChar {
+                    rect: egui::Rect::from_two_pos(top_left, bottom_right),
+                    scope: scope_id,
+                });
+            }
+        } else {
             let top_left = state.transform_point(cursor_x, cursor_y - ascender);
             let bottom_right = state.transform_point(cursor_x + adv_x, cursor_y - descender);
             let glyph_text = &text.text[glyph.range()];

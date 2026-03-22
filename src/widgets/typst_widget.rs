@@ -993,6 +993,26 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
                     );
                 }
             }
+            // Highlight detached glyphs (bullets, math operators) when
+            // their entire Tag scope is selected.
+            for dc in &text_layout.detached {
+                let scope = &text_layout.tag_scopes[dc.scope];
+                // Find the content range: this scope's char_start to the
+                // next non-empty scope's char_end (sibling content).
+                let content_start = scope.char_start;
+                let content_end = text_layout.tag_scopes[dc.scope..]
+                    .iter()
+                    .find(|s| s.char_end > content_start)
+                    .map_or(content_start, |s| s.char_end);
+                if content_start < content_end
+                    && (content_start..content_end)
+                        .all(|i| *selected.get(i).unwrap_or(&false))
+                {
+                    ui.painter().rect_filled(
+                        dc.rect.translate(offset), 0.0, highlight_color,
+                    );
+                }
+            }
         }
 
         // ── Paint text shapes ──────────────────────────────────────
