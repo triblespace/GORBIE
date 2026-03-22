@@ -740,7 +740,7 @@ fn main(nb: &mut NotebookCtx) {
                             .choice(FocusTarget::NumberField, "NUMBER")
                             .choice(FocusTarget::SingleLine, "LINE")
                             .choice(FocusTarget::Multiline, "MULTI")
-                            .small(),
+                            ,
                     );
                 });
 

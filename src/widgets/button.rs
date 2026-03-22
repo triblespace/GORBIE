@@ -21,6 +21,7 @@ pub struct Button<'a> {
     fill: Option<Color32>,
     light: Option<Color32>,
     latched: bool,
+    modules: Option<u32>,
     gorbie_style: Option<GorbieButtonStyle>,
 }
 
@@ -33,6 +34,7 @@ impl<'a> Button<'a> {
             fill: None,
             light: None,
             latched: false,
+            modules: None,
             gorbie_style: None,
         }
     }
@@ -62,6 +64,13 @@ impl<'a> Button<'a> {
         self.latched = latched;
         self
     }
+
+    /// Set the height in grid modules (1 module = 12px).
+    /// Default is 2 modules. The shadow is included in the total.
+    pub fn modules(mut self, n: u32) -> Self {
+        self.modules = Some(n);
+        self
+    }
 }
 
 impl Widget for Button<'_> {
@@ -73,6 +82,7 @@ impl Widget for Button<'_> {
             fill,
             light,
             latched,
+            modules,
             gorbie_style,
         } = self;
 
@@ -93,7 +103,8 @@ impl Widget for Button<'_> {
         );
 
         let mut body_size = galley.size() + padding * 2.0;
-        let target_h = (2.0 * crate::card_ctx::GRID_ROW_MODULE).max(ui.spacing().interact_size.y);
+        let default_modules = modules.unwrap_or(2);
+        let target_h = (default_modules as f32 * crate::card_ctx::GRID_ROW_MODULE).max(ui.spacing().interact_size.y);
         body_size.y = body_size.y.at_least(target_h - shadow_inset.y);
         body_size.x = body_size.x.max(ui.available_width() - shadow_inset.x);
         let desired_size = body_size + shadow_inset;
@@ -215,7 +226,7 @@ pub struct RadioButton<'a, T> {
     value: &'a mut T,
     option: T,
     text: WidgetText,
-    small: bool,
+    modules: Option<u32>,
     fill: Option<Color32>,
     light: Option<Color32>,
     gorbie_style: Option<GorbieRadioStyle>,
@@ -227,15 +238,16 @@ impl<'a, T> RadioButton<'a, T> {
             value,
             option,
             text: text.into(),
-            small: false,
+            modules: None,
             fill: None,
             light: None,
             gorbie_style: None,
         }
     }
 
-    pub fn small(mut self) -> Self {
-        self.small = true;
+    /// Set the height in grid modules (1 module = 12px). Default is 2.
+    pub fn modules(mut self, n: u32) -> Self {
+        self.modules = Some(n);
         self
     }
 
@@ -259,7 +271,7 @@ where
             value,
             option,
             text,
-            small,
+            modules,
             fill,
             light,
             gorbie_style,
@@ -271,24 +283,11 @@ where
         let shadow_offset = gstyle.shadow_offset;
         let shadow_inset = vec2(shadow_offset.x.max(0.0), shadow_offset.y.max(0.0));
 
-        let padding = if small {
-            ui.spacing().button_padding * 0.7
-        } else {
-            ui.spacing().button_padding
-        };
-        let text_style = if small {
-            TextStyle::Small
-        } else {
-            TextStyle::Button
-        };
-
-        let label_text = text.text().to_string();
-        let indicator_size = if small {
-            (ui.spacing().interact_size.y - 10.0).at_least(12.0)
-        } else {
-            (ui.spacing().interact_size.y - 6.0).at_least(14.0)
-        };
+        let default_modules = modules.unwrap_or(2);
+        let padding = ui.spacing().button_padding;
+        let indicator_size = (ui.spacing().interact_size.y - 6.0).at_least(14.0);
         let gap = (padding.x * 0.8).at_least(6.0);
+        let label_text = text.text().to_string();
         let max_text_width =
             (ui.available_width() - padding.x * 2.0 - indicator_size - gap - shadow_inset.x)
                 .at_least(0.0);
@@ -296,14 +295,13 @@ where
             ui,
             Some(egui::TextWrapMode::Truncate),
             max_text_width,
-            text_style,
+            TextStyle::Button,
         );
 
         let content_height = galley.size().y.max(indicator_size);
-        let min_body_height = if small {
-            2.0 * crate::card_ctx::GRID_ROW_MODULE
-        } else {
-            3.0 * crate::card_ctx::GRID_ROW_MODULE
+        let min_body_height = {
+            let target_h = (default_modules as f32 * crate::card_ctx::GRID_ROW_MODULE).max(ui.spacing().interact_size.y);
+            target_h - shadow_inset.y
         };
         let body_height = (content_height + padding.y * 2.0).at_least(min_body_height);
         let mut body_width = padding.x + indicator_size + gap + galley.size().x + padding.x;
@@ -429,7 +427,7 @@ struct ChoiceToggleOption<T> {
 pub struct ChoiceToggle<'a, T> {
     value: &'a mut T,
     options: Vec<ChoiceToggleOption<T>>,
-    small: bool,
+    modules: Option<u32>,
     fill: Option<Color32>,
     light: Option<Color32>,
     gorbie_style: Option<GorbieChoiceToggleStyle>,
@@ -440,7 +438,7 @@ impl<'a, T> ChoiceToggle<'a, T> {
         Self {
             value,
             options: Vec::new(),
-            small: false,
+            modules: None,
             fill: None,
             light: None,
             gorbie_style: None,
@@ -455,8 +453,9 @@ impl<'a, T> ChoiceToggle<'a, T> {
         self
     }
 
-    pub fn small(mut self) -> Self {
-        self.small = true;
+    /// Set the height in grid modules (1 module = 12px). Default is 2.
+    pub fn modules(mut self, n: u32) -> Self {
+        self.modules = Some(n);
         self
     }
 
@@ -494,7 +493,7 @@ where
         let Self {
             value,
             options,
-            small,
+            modules,
             fill,
             light,
             gorbie_style,
@@ -505,22 +504,14 @@ where
             return response;
         }
 
+        let default_modules = modules.unwrap_or(2);
         let enabled = ui.is_enabled();
         let gstyle =
             gorbie_style.unwrap_or_else(|| GorbieChoiceToggleStyle::from(ui.style().as_ref()));
         let shadow_offset = gstyle.shadow_offset;
         let shadow_inset = vec2(shadow_offset.x.max(0.0), shadow_offset.y.max(0.0));
-
-        let padding = if small {
-            ui.spacing().button_padding * 0.7
-        } else {
-            ui.spacing().button_padding
-        };
-        let text_style = if small {
-            TextStyle::Small
-        } else {
-            TextStyle::Button
-        };
+        let padding = ui.spacing().button_padding;
+        let text_style = TextStyle::Button;
 
         let wrap_mode = Some(egui::TextWrapMode::Truncate);
         let max_text_width = ui.available_width().at_least(0.0);
@@ -557,12 +548,8 @@ where
         }
         segment_size += padding * 2.0;
 
-        let min_body_height = if small {
-            2.0 * crate::card_ctx::GRID_ROW_MODULE
-        } else {
-            3.0 * crate::card_ctx::GRID_ROW_MODULE
-        };
-        segment_size.y = segment_size.y.at_least(min_body_height);
+        let target_h = (default_modules as f32 * crate::card_ctx::GRID_ROW_MODULE).max(ui.spacing().interact_size.y);
+        segment_size.y = segment_size.y.at_least(target_h - shadow_inset.y);
 
         let body_width = segment_size.x * segment_count as f32
             + segment_gap * (segment_count.saturating_sub(1) as f32);
@@ -745,7 +732,7 @@ where
             );
             painter.galley(text_pos, galley, text_color);
 
-            let led_height = if small { 3.0 } else { 4.0 };
+            let led_height = 4.0;
             let led_inset_x = 2.0;
             let led_inset_y = 2.0;
             let led_rect = Rect::from_min_max(

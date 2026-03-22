@@ -156,6 +156,7 @@ pub struct Slider<'a> {
     custom_parser: Option<NumParser<'a>>,
     trailing_fill: Option<bool>,
     handle_shape: Option<HandleShape>,
+    modules: Option<u32>,
     /// Optional gorbie-specific style override for this widget
     gorbie_style: Option<crate::themes::GorbieSliderStyle>,
     update_while_editing: bool,
@@ -209,6 +210,7 @@ impl<'a> Slider<'a> {
             custom_parser: None,
             trailing_fill: None,
             handle_shape: None,
+            modules: None,
             gorbie_style: None,
             update_while_editing: true,
         }
@@ -435,6 +437,12 @@ impl<'a> Slider<'a> {
     #[inline]
     pub fn handle_shape(mut self, handle_shape: HandleShape) -> Self {
         self.handle_shape = Some(handle_shape);
+        self
+    }
+
+    /// Set the height in grid modules (1 module = 12px). Default is 3.
+    pub fn modules(mut self, n: u32) -> Self {
+        self.modules = Some(n);
         self
     }
 
@@ -1102,9 +1110,10 @@ impl Slider<'_> {
             self.set_value(old_value);
         }
 
+        let default_modules = self.modules.unwrap_or(3);
         let thickness = ui
             .text_style_height(&TextStyle::Body)
-            .at_least(3.0 * crate::card_ctx::GRID_ROW_MODULE);
+            .at_least(default_modules as f32 * crate::card_ctx::GRID_ROW_MODULE);
         let mut response = self.allocate_slider_space(ui, thickness);
         self.slider_ui(ui, &response);
 

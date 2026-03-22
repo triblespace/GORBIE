@@ -65,6 +65,11 @@ impl ProgressBar {
         self
     }
 
+    /// Set the height in grid modules (1 module = 12px).
+    pub fn modules(self, n: u32) -> Self {
+        self.desired_height(n as f32 * crate::card_ctx::GRID_ROW_MODULE)
+    }
+
     /// The fill color of the bar. Defaults to `selection.bg_fill`.
     pub fn fill(mut self, fill: Color32) -> Self {
         self.fill = Some(fill);
