@@ -367,6 +367,7 @@ fn double_click_range(
 /// max selected glyphs, then selects the range of LCA children between
 /// them. If all non-trivia children are covered, the selection collapses
 /// to the LCA node itself.
+#[derive(Clone)]
 struct AstSelection {
     /// Source byte ranges of the selected units, with transparency flag.
     /// `true` = transparent (allows partial selection).
@@ -738,6 +739,42 @@ fn render_typst_errors_inner(
     ui.spacing_mut().item_spacing.y = prev_spacing;
 }
 
+/// Compute the AST selection and selected glyph set from the current selection state.
+fn compute_selection(
+    source: &typst::syntax::Source,
+    chars: &[painter::PositionedChar],
+    glyph_range: &Option<std::ops::RangeInclusive<usize>>,
+) -> (AstSelection, Vec<bool>) {
+    let Some(ref range) = glyph_range else {
+        return (AstSelection { units: Vec::new(), single_leaf: false }, Vec::new());
+    };
+
+    let ast_sel = ast_select(source, chars, range);
+
+    let mut sel_set = vec![false; chars.len()];
+    if ast_sel.single_leaf {
+        for i in range.clone() {
+            if i < sel_set.len() { sel_set[i] = true; }
+        }
+    } else {
+        for (unit, transparent) in &ast_sel.units {
+            let full = !transparent
+                || all_glyphs_covered(source, chars, unit, range);
+            for (i, ch) in chars.iter().enumerate() {
+                if let Some(r) = source.range(ch.span.0) {
+                    if r.start >= unit.start && r.end <= unit.end
+                        && (full || range.contains(&i))
+                    {
+                        sel_set[i] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    (ast_sel, sel_set)
+}
+
 fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preamble_len: usize) {
     state.world.set_source(source.to_string());
 
@@ -753,28 +790,11 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
     let pixels_per_point = ui.ctx().pixels_per_point();
 
     for page in doc.pages.iter() {
-        // Cache shapes keyed on page content + render params.
-        // Page derives Hash, so identical pages hit the cache.
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        page.hash(&mut h);
-        text_color.hash(&mut h);
-        pixels_per_point.to_bits().hash(&mut h);
-        let cache_key = h.finish();
-
-        let cache_id = ui.id().with(("typst_shapes_cache", cache_key));
-        let cached: Option<(Vec<egui::Shape>, egui::Vec2, painter::TextLayout)> =
-            ui.ctx().data_mut(|d| d.get_temp(cache_id));
-
-        let (shapes, size, text_layout) = cached.unwrap_or_else(|| {
-            let result = painter::render_frame_to_shapes(
-                &page.frame,
-                text_color,
-                pixels_per_point,
-            );
-            ui.ctx().data_mut(|d| d.insert_temp(cache_id, result.clone()));
-            result
-        });
+        let (shapes, size, text_layout) = painter::render_frame_to_shapes(
+            &page.frame,
+            text_color,
+            pixels_per_point.to_bits(),
+        );
 
         let (rect, response) =
             ui.allocate_exact_size(size, egui::Sense::click_and_drag());
@@ -853,49 +873,32 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
             }
         }
 
-        // ── AST selection ─────────────────────────────────────────
+        // ── AST selection (cached) ─────────────────────────────────
         let glyph_range = sel.range(chars);
 
-        let ast_sel = if let Some(ref range) = glyph_range {
-            ast_select(source, chars, range)
-        } else {
-            AstSelection { units: Vec::new(), single_leaf: false }
-        };
+        // Cache key: selection state. Only recompute when it changes.
+        let sel_cache_id = sel_id.with("sel_cache");
+        let sel_key = (sel.anchor, sel.cursor, sel.glyph_override.clone());
+        let cached_sel: Option<(
+            (Option<egui::Pos2>, Option<egui::Pos2>, Option<std::ops::RangeInclusive<usize>>),
+            AstSelection,
+            Vec<bool>,
+        )> = ui.ctx().data_mut(|d| d.get_temp(sel_cache_id));
 
-        // ── Compute selected glyph set (single source of truth) ────
-        //
-        // Both highlight and copy are derived from this set,
-        // making divergence structurally impossible.
-        //
-        // Transparent units allow partial selection (only glyphs in
-        // the drag range). Opaque units promote: if any glyph is
-        // touched, all glyphs in that unit are selected.
-        let selected: Vec<bool> = if let Some(ref range) = glyph_range {
-            let mut sel_set = vec![false; chars.len()];
-            if ast_sel.single_leaf {
-                for i in range.clone() {
-                    if i < sel_set.len() { sel_set[i] = true; }
-                }
+        let (ast_sel, selected) = if let Some((cached_key, cached_ast, cached_set)) = cached_sel {
+            if cached_key == sel_key {
+                (cached_ast, cached_set)
             } else {
-                for (unit, transparent) in &ast_sel.units {
-                    // Opaque: any glyph touched → select all glyphs in unit.
-                    // Transparent: only glyphs in the drag range (or all if fully covered).
-                    let full = !transparent
-                        || all_glyphs_covered(source, chars, unit, range);
-                    for (i, ch) in chars.iter().enumerate() {
-                        if let Some(r) = source.range(ch.span.0) {
-                            if r.start >= unit.start && r.end <= unit.end
-                                && (full || range.contains(&i))
-                            {
-                                sel_set[i] = true;
-                            }
-                        }
-                    }
-                }
+                let result = compute_selection(source, chars, &glyph_range);
+                ui.ctx().data_mut(|d| d.insert_temp(sel_cache_id, (sel_key, result.0.clone(), result.1.clone())));
+                result
             }
-            sel_set
         } else {
-            Vec::new()
+            let result = compute_selection(source, chars, &glyph_range);
+            if glyph_range.is_some() {
+                ui.ctx().data_mut(|d| d.insert_temp(sel_cache_id, (sel_key, result.0.clone(), result.1.clone())));
+            }
+            result
         };
 
         // ── Paint selection highlights (behind text) ───────────────

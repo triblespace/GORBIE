@@ -49,13 +49,17 @@ pub struct TextLayout {
 
 /// Render a Typst frame into egui shapes plus text layout info for selection.
 ///
-/// Returns shapes, frame size, and positioned characters for hit-testing.
-/// `pixels_per_point` is used to compute anti-aliasing feathering width.
+/// Memoized via comemo — identical frames with the same render params
+/// return cached results without re-walking the frame tree.
+///
+/// `pixels_per_point_bits` is `f32::to_bits()` so it can be hashed.
+#[comemo::memoize]
 pub fn render_frame_to_shapes(
     frame: &Frame,
     text_color: egui::Color32,
-    pixels_per_point: f32,
+    pixels_per_point_bits: u32,
 ) -> (Vec<egui::Shape>, egui::Vec2, TextLayout) {
+    let pixels_per_point = f32::from_bits(pixels_per_point_bits);
     let feathering = 1.0 / pixels_per_point;
     let mut shapes = Vec::new();
     let mut text_layout = TextLayout { chars: Vec::new(), spans: Vec::new(), links: Vec::new() };
