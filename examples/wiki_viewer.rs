@@ -79,7 +79,7 @@ impl WikiData {
                 wiki::created_at: ?ts,
             }])
         )
-        .max_by_key(|(_, ts)| ts.raw)
+        .max_by_key(|(_, ts)| i128::from_le_bytes(ts.raw[0..16].try_into().unwrap()))
         .map(|(vid, _)| vid)
     }
 
@@ -143,7 +143,7 @@ impl WikiData {
 
     /// All unique fragment IDs with their latest version, sorted by title.
     fn fragments_sorted(&self) -> Vec<(Id, Id)> {
-        let mut latest: BTreeMap<Id, (Id, RawValue)> = BTreeMap::new();
+        let mut latest: BTreeMap<Id, (Id, i128)> = BTreeMap::new();
         for (vid, frag, ts) in find!(
             (vid: Id, frag: Id, ts: Value<triblespace::prelude::valueschemas::NsTAIInterval>),
             pattern!(&self.space, [{
@@ -153,12 +153,13 @@ impl WikiData {
                 wiki::created_at: ?ts,
             }])
         ) {
+            let key = i128::from_le_bytes(ts.raw[0..16].try_into().unwrap());
             let replace = match latest.get(&frag) {
                 None => true,
-                Some((_, prev_ts)) => ts.raw > *prev_ts,
+                Some((_, prev_key)) => key > *prev_key,
             };
             if replace {
-                latest.insert(frag, (vid, ts.raw));
+                latest.insert(frag, (vid, key));
             }
         }
         let mut entries: Vec<(Id, Id)> = latest
