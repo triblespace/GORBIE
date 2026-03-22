@@ -293,17 +293,10 @@ fn double_click_range(
                     let parent_opaque = !is_transparent(parent.kind());
                     // Opacity transition — select whichever side is opaque.
                     if opaque != parent_opaque {
-                        let target = if opaque { current.range() } else { parent.range() };
-                        let (mut lo, mut hi) = (usize::MAX, 0usize);
-                        for (i, ch) in chars.iter().enumerate() {
-                            if let Some(r) = source.range(ch.span.0) {
-                                if r.start >= target.start && r.end <= target.end {
-                                    lo = lo.min(i);
-                                    hi = hi.max(i);
-                                }
-                            }
-                        }
-                        if lo <= hi { return (lo, hi); }
+                        let target = if opaque { current } else { parent };
+                        let bounds = node_span_raw_bounds(target);
+                        let (start, end) = glyph_index_range(chars, bounds.0, bounds.1);
+                        if start < end { return (start, end - 1); }
                         break;
                     }
                     current = parent;
@@ -329,26 +322,18 @@ fn double_click_range(
                         SyntaxKind::Parbreak | SyntaxKind::Heading
                             | SyntaxKind::ListItem | SyntaxKind::Equation
                     );
-                    let mut start = child_idx;
-                    while start > 0 && !is_boundary(children[start - 1].kind()) {
-                        start -= 1;
+                    let mut start_child = child_idx;
+                    while start_child > 0 && !is_boundary(children[start_child - 1].kind()) {
+                        start_child -= 1;
                     }
-                    let mut end = child_idx;
-                    while end + 1 < children.len() && !is_boundary(children[end + 1].kind()) {
-                        end += 1;
+                    let mut end_child = child_idx;
+                    while end_child + 1 < children.len() && !is_boundary(children[end_child + 1].kind()) {
+                        end_child += 1;
                     }
-                    let byte_start = children[start].range().start;
-                    let byte_end = children[end].range().end;
-                    let (mut lo, mut hi) = (usize::MAX, 0usize);
-                    for (i, ch) in chars.iter().enumerate() {
-                        if let Some(r) = source.range(ch.span.0) {
-                            if r.start >= byte_start && r.end <= byte_end {
-                                lo = lo.min(i);
-                                hi = hi.max(i);
-                            }
-                        }
-                    }
-                    if lo <= hi { return (lo, hi); }
+                    let span_lo = children[start_child].span().into_raw().get();
+                    let span_hi = rightmost_span_raw(children[end_child].get());
+                    let (start, end) = glyph_index_range(chars, span_lo, span_hi);
+                    if start < end { return (start, end - 1); }
                     break;
                 }
                 Some(parent) => current = parent,
@@ -369,13 +354,47 @@ fn double_click_range(
 /// to the LCA node itself.
 #[derive(Clone)]
 struct AstSelection {
-    /// Source byte ranges of the selected units, with transparency flag.
-    /// `true` = transparent (allows partial selection).
-    /// `false` = opaque (any glyph → full node).
-    units: Vec<(Range<usize>, bool)>,
+    /// Selected units: (byte_range, transparent, span_raw_lo, span_raw_hi).
+    /// `transparent = true` means partial (character-level) selection is allowed.
+    /// `transparent = false` means any glyph → full node.
+    /// `span_raw_lo/hi` are the raw span bounds for fast glyph membership via
+    /// integer comparison (spans are monotonically ordered in document order).
+    units: Vec<AstUnit>,
     /// True when all selected glyphs map to a single leaf node.
     /// In this case, use rendered unicode for character-level precision.
     single_leaf: bool,
+}
+
+#[derive(Clone)]
+struct AstUnit {
+    /// Source byte range (for extracting source text during copy).
+    byte_range: Range<usize>,
+    /// Whether partial selection is allowed.
+    transparent: bool,
+    /// Raw span bounds: all glyphs belonging to this node have
+    /// `span_raw_lo <= glyph.span.0.into_raw().get() <= span_raw_hi`.
+    span_raw_lo: u64,
+    span_raw_hi: u64,
+}
+
+/// Get the (min, max) raw span values for a syntax node's subtree.
+///
+/// The node's own span is the minimum (parent < all descendants).
+/// The maximum is the rightmost leaf's span.
+fn node_span_raw_bounds(node: &typst::syntax::LinkedNode) -> (u64, u64) {
+    let lo = node.span().into_raw().get();
+    let hi = rightmost_span_raw(node.get());
+    // lo might equal hi for leaf nodes; ensure lo <= hi.
+    (lo.min(hi), lo.max(hi))
+}
+
+/// Walk to the rightmost leaf of a SyntaxNode to get its span raw value.
+fn rightmost_span_raw(node: &typst::syntax::SyntaxNode) -> u64 {
+    if let Some(last) = node.children().last() {
+        rightmost_span_raw(last)
+    } else {
+        node.span().into_raw().get()
+    }
 }
 
 /// Collect the ancestor chain from root to the node at `span`.
@@ -413,18 +432,21 @@ fn is_transparent(kind: SyntaxKind) -> bool {
     )
 }
 
-/// Get children byte ranges and kinds of the node at `lca_range`.
+/// Get children (byte_range, kind, span_raw_lo, span_raw_hi) of the node at `lca_range`.
 /// Navigates from `anchor_span` upward to find the LCA node.
 fn lca_children(
     source: &Source,
     anchor_span: Span,
     lca_range: &Range<usize>,
-) -> Vec<(Range<usize>, SyntaxKind)> {
+) -> Vec<(Range<usize>, SyntaxKind, u64, u64)> {
     let Some(node) = source.find(anchor_span) else { return Vec::new() };
     let mut current = &node;
     loop {
         if current.range() == *lca_range {
-            return current.children().map(|c| (c.range(), c.kind())).collect();
+            return current.children().map(|c| {
+                let bounds = node_span_raw_bounds(&c);
+                (c.range(), c.kind(), bounds.0, bounds.1)
+            }).collect();
         }
         match current.parent() {
             Some(p) => current = p,
@@ -433,34 +455,38 @@ fn lca_children(
     }
 }
 
-/// Check whether all glyphs whose source spans fall within `node_range`
-/// are also within the selected `glyph_range`.
+/// Check whether all glyphs belonging to an AST node (identified by span
+/// raw bounds) are also within the selected `glyph_range`.
 ///
-/// Non-visual syntax (brackets, commas, keywords) produces no glyphs
-/// and therefore never blocks collapse.
+/// Uses binary search on the sorted glyph vec to find the node's glyphs,
+/// then checks that all of them fall within the glyph_range.
 fn all_glyphs_covered(
-    source: &Source,
     chars: &[painter::PositionedChar],
-    node_range: &Range<usize>,
+    span_raw_lo: u64,
+    span_raw_hi: u64,
     glyph_range: &std::ops::RangeInclusive<usize>,
 ) -> bool {
-    chars.iter().enumerate().all(|(i, ch)| {
-        if let Some(r) = source.range(ch.span.0) {
-            if r.start >= node_range.start && r.end <= node_range.end {
-                glyph_range.contains(&i)
-            } else {
-                true
-            }
-        } else {
-            true
-        }
-    })
+    let (start, end) = glyph_index_range(chars, span_raw_lo, span_raw_hi);
+    start == end || (start >= *glyph_range.start() && end - 1 <= *glyph_range.end())
+}
+
+/// Find the glyph index range [start, end) for glyphs whose span_raw
+/// falls within [span_raw_lo, span_raw_hi].
+///
+/// Uses binary search since glyphs are in document (span) order.
+fn glyph_index_range(
+    chars: &[painter::PositionedChar],
+    span_raw_lo: u64,
+    span_raw_hi: u64,
+) -> (usize, usize) {
+    let start = chars.partition_point(|ch| ch.span.0.into_raw().get() < span_raw_lo);
+    let end = chars.partition_point(|ch| ch.span.0.into_raw().get() <= span_raw_hi);
+    (start, end)
 }
 
 /// Walk up from `start_range`, collapsing to each ancestor whose
 /// glyphs are all within the selected glyph range.
-/// Returns the largest range that passes the glyph-coverage check,
-/// and the `SyntaxKind` of the final collapsed node.
+/// Returns the largest (byte_range, kind, span_raw_lo, span_raw_hi).
 fn collapse_upward(
     source: &Source,
     chars: &[painter::PositionedChar],
@@ -468,28 +494,32 @@ fn collapse_upward(
     anchor_span: Span,
     start_range: &Range<usize>,
     start_kind: SyntaxKind,
-) -> (Range<usize>, SyntaxKind) {
+    start_span_bounds: (u64, u64),
+) -> (Range<usize>, SyntaxKind, u64, u64) {
     let Some(node) = source.find(anchor_span) else {
-        return (start_range.clone(), start_kind);
+        return (start_range.clone(), start_kind, start_span_bounds.0, start_span_bounds.1);
     };
     let mut current = &node;
     let mut best = start_range.clone();
     let mut best_kind = start_kind;
+    let mut best_bounds = start_span_bounds;
 
     // Walk up to start_range.
     while current.range() != *start_range {
         match current.parent() {
             Some(p) => current = p,
-            None => return (best, best_kind),
+            None => return (best, best_kind, best_bounds.0, best_bounds.1),
         }
     }
 
     // Try ancestors.
     while let Some(parent) = current.parent() {
         current = parent;
-        if all_glyphs_covered(source, chars, &current.range(), glyph_range) {
+        let bounds = node_span_raw_bounds(current);
+        if all_glyphs_covered(chars, bounds.0, bounds.1, glyph_range) {
             best = current.range();
             best_kind = current.kind();
+            best_bounds = bounds;
         } else {
             break;
         }
@@ -501,7 +531,7 @@ fn collapse_upward(
         best.start -= 1;
     }
 
-    (best, best_kind)
+    (best, best_kind, best_bounds.0, best_bounds.1)
 }
 
 /// Determine selection units by walking the syntax tree.
@@ -533,13 +563,20 @@ fn ast_select(
 
     if single_leaf {
         let leaf_range = path_lo.last().unwrap().0.clone();
-        let (collapsed, kind) = collapse_upward(
-            source, chars, range, lo_span, &leaf_range, SyntaxKind::Text,
+        let leaf_node = source.find(lo_span).unwrap();
+        let leaf_bounds = node_span_raw_bounds(&leaf_node);
+        let (collapsed, kind, slo, shi) = collapse_upward(
+            source, chars, range, lo_span, &leaf_range, SyntaxKind::Text, leaf_bounds,
         );
         let still_leaf = collapsed == leaf_range;
         return AstSelection {
             single_leaf: still_leaf,
-            units: vec![(collapsed, still_leaf || is_transparent(kind))],
+            units: vec![AstUnit {
+                byte_range: collapsed,
+                transparent: still_leaf || is_transparent(kind),
+                span_raw_lo: slo,
+                span_raw_hi: shi,
+            }],
         };
     }
 
@@ -555,13 +592,36 @@ fn ast_select(
 
     let lca_range = path_lo[lca_depth].0.clone();
 
+    // Helper to get span bounds for the LCA node.
+    let lca_bounds = || -> (u64, u64) {
+        if let Some(node) = source.find(lo_span) {
+            let mut current = &node;
+            loop {
+                if current.range() == lca_range {
+                    return node_span_raw_bounds(current);
+                }
+                match current.parent() {
+                    Some(p) => current = p,
+                    None => break,
+                }
+            }
+        }
+        (0, u64::MAX)
+    };
+
     // Edge case: one glyph maps directly to the LCA node.
     if lca_depth + 1 >= path_lo.len() || lca_depth + 1 >= path_hi.len() {
-        let (collapsed, kind) = collapse_upward(
-            source, chars, range, lo_span, &lca_range, SyntaxKind::Markup,
+        let bounds = lca_bounds();
+        let (collapsed, kind, slo, shi) = collapse_upward(
+            source, chars, range, lo_span, &lca_range, SyntaxKind::Markup, bounds,
         );
         return AstSelection {
-            units: vec![(collapsed, is_transparent(kind))],
+            units: vec![AstUnit {
+                byte_range: collapsed,
+                transparent: is_transparent(kind),
+                span_raw_lo: slo,
+                span_raw_hi: shi,
+            }],
             single_leaf: false,
         };
     }
@@ -571,28 +631,45 @@ fn ast_select(
 
     let children = lca_children(source, lo_span, &lca_range);
     if children.is_empty() {
-        let (collapsed, kind) = collapse_upward(
-            source, chars, range, lo_span, &lca_range, SyntaxKind::Markup,
+        let bounds = lca_bounds();
+        let (collapsed, kind, slo, shi) = collapse_upward(
+            source, chars, range, lo_span, &lca_range, SyntaxKind::Markup, bounds,
         );
         return AstSelection {
-            units: vec![(collapsed, is_transparent(kind))],
+            units: vec![AstUnit {
+                byte_range: collapsed,
+                transparent: is_transparent(kind),
+                span_raw_lo: slo,
+                span_raw_hi: shi,
+            }],
             single_leaf: false,
         };
     }
 
     // Can we collapse to the LCA (all its glyphs are selected)?
-    if all_glyphs_covered(source, chars, &lca_range, range) {
-        let (collapsed, kind) = collapse_upward(
-            source, chars, range, lo_span, &lca_range, SyntaxKind::Markup,
+    let bounds = lca_bounds();
+    if all_glyphs_covered(chars, bounds.0, bounds.1, range) {
+        let (collapsed, kind, slo, shi) = collapse_upward(
+            source, chars, range, lo_span, &lca_range, SyntaxKind::Markup, bounds,
         );
         AstSelection {
-            units: vec![(collapsed, is_transparent(kind))],
+            units: vec![AstUnit {
+                byte_range: collapsed,
+                transparent: is_transparent(kind),
+                span_raw_lo: slo,
+                span_raw_hi: shi,
+            }],
             single_leaf: false,
         }
     } else {
         let units = children[lo_child..=hi_child]
             .iter()
-            .map(|(r, kind)| (r.clone(), is_transparent(*kind)))
+            .map(|(r, kind, slo, shi)| AstUnit {
+                byte_range: r.clone(),
+                transparent: is_transparent(*kind),
+                span_raw_lo: *slo,
+                span_raw_hi: *shi,
+            })
             .collect();
         AstSelection { units, single_leaf: false }
     }
@@ -757,16 +834,19 @@ fn compute_selection(
             if i < sel_set.len() { sel_set[i] = true; }
         }
     } else {
-        for (unit, transparent) in &ast_sel.units {
-            let full = !transparent
-                || all_glyphs_covered(source, chars, unit, range);
-            for (i, ch) in chars.iter().enumerate() {
-                if let Some(r) = source.range(ch.span.0) {
-                    if r.start >= unit.start && r.end <= unit.end
-                        && (full || range.contains(&i))
-                    {
-                        sel_set[i] = true;
-                    }
+        for unit in &ast_sel.units {
+            let (start, end) = glyph_index_range(
+                chars, unit.span_raw_lo, unit.span_raw_hi,
+            );
+            let full = !unit.transparent
+                || all_glyphs_covered(chars, unit.span_raw_lo, unit.span_raw_hi, range);
+            if full {
+                sel_set[start..end].fill(true);
+            } else {
+                let lo = start.max(*range.start());
+                let hi = end.min(range.end() + 1);
+                if lo < hi {
+                    sel_set[lo..hi].fill(true);
                 }
             }
         }
@@ -958,20 +1038,20 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
                     // Fully covered or opaque units → source text (preserves markup).
                     // Partially covered transparent → rendered text of selected glyphs.
                     let mut result = String::new();
-                    for (unit, transparent) in &ast_sel.units {
+                    for unit in &ast_sel.units {
                         if let Some(ref range) = glyph_range {
-                            let use_source = !transparent
-                                || all_glyphs_covered(source, chars, unit, range);
+                            let use_source = !unit.transparent
+                                || all_glyphs_covered(chars, unit.span_raw_lo, unit.span_raw_hi, range);
                             if use_source {
-                                result.push_str(&source.text()[unit.clone()]);
+                                result.push_str(&source.text()[unit.byte_range.clone()]);
                             } else {
-                                for (i, ch) in chars.iter().enumerate() {
+                                // Only iterate glyphs belonging to this unit.
+                                let (start, end) = glyph_index_range(
+                                    chars, unit.span_raw_lo, unit.span_raw_hi,
+                                );
+                                for i in start..end {
                                     if selected[i] {
-                                        if let Some(r) = source.range(ch.span.0) {
-                                            if r.start >= unit.start && r.end <= unit.end {
-                                                result.push_str(ch.text.as_str());
-                                            }
-                                        }
+                                        result.push_str(chars[i].text.as_str());
                                     }
                                 }
                             }
