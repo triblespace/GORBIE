@@ -173,6 +173,7 @@ fn render_frame_inner(
     }
     text_layout.selection_roots = roots;
 
+
 }
 
 /// Render a frame, building selection tree nodes.

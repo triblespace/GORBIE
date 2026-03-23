@@ -357,108 +357,80 @@ fn expand_detached(
 
 /// Collect source text for the selection.
 ///
-/// Walks the selection tree: for fully-selected nodes that have a Tag span,
-/// uses the structural source range (preserves markup like `*bold*`, `= heading`).
-/// For partially-selected content, falls back to per-glyph source spans.
+/// Uses min..max byte range from per-glyph spans as the contiguous base,
+/// then expands with structural ranges from fully-selected tree nodes
+/// (captures surrounding markup like `*bold*`, `= heading`).
 fn collect_copy_text(
     source: &typst::syntax::Source,
     chars: &[painter::PositionedChar],
     roots: &[painter::SelectionNode],
     selected: &[bool],
 ) -> String {
-    let mut byte_ranges: Vec<Range<usize>> = Vec::new();
-    collect_copy_ranges(source, chars, roots, selected, &mut byte_ranges);
+    let mut min_byte = usize::MAX;
+    let mut max_byte = 0usize;
 
-    // If the tree didn't produce ranges, fall back to per-glyph spans.
-    if byte_ranges.is_empty() {
-        for (i, ch) in chars.iter().enumerate() {
-            if !*selected.get(i).unwrap_or(&false) { continue; }
-            if let Some((span, _)) = ch.span {
-                if let Some(r) = source.range(span) {
-                    byte_ranges.push(r);
-                }
+    // Per-glyph pass: contiguous min..max from all selected source glyphs.
+    for (i, ch) in chars.iter().enumerate() {
+        if !*selected.get(i).unwrap_or(&false) { continue; }
+        if let Some((span, _)) = ch.span {
+            if let Some(r) = source.range(span) {
+                min_byte = min_byte.min(r.start);
+                max_byte = max_byte.max(r.end);
             }
         }
     }
 
-    if byte_ranges.is_empty() {
-        // Last resort: rendered text.
-        return selected.iter().enumerate()
+    // Tree pass: expand min..max when fully-selected nodes have structural
+    // spans that extend beyond the per-glyph ranges (captures markup).
+    expand_structural(source, chars, roots, selected, &mut min_byte, &mut max_byte);
+
+    if min_byte < max_byte {
+        source.text()[min_byte..max_byte].to_string()
+    } else {
+        selected.iter().enumerate()
             .filter(|(_, &s)| s)
             .filter_map(|(i, _)| chars.get(i).map(|c| c.text.as_str()))
-            .collect();
+            .collect()
     }
-
-    // Merge overlapping/adjacent byte ranges and extract source text.
-    byte_ranges.sort_by_key(|r| r.start);
-    let mut merged: Vec<Range<usize>> = Vec::new();
-    for r in byte_ranges {
-        if let Some(last) = merged.last_mut() {
-            if r.start <= last.end {
-                last.end = last.end.max(r.end);
-                continue;
-            }
-        }
-        merged.push(r);
-    }
-
-    let text = source.text();
-    merged.iter()
-        .map(|r| &text[r.clone()])
-        .collect::<Vec<_>>()
-        .join("")
 }
 
-/// Walk the selection tree collecting source byte ranges for copy.
-///
-/// If a node is fully selected and has a Tag span, use the structural
-/// source range (captures markup). Otherwise recurse into children
-/// or fall back to per-glyph spans for the covered portion.
-fn collect_copy_ranges(
+/// Walk the selection tree: fully-selected nodes with spans expand
+/// the min/max to include their structural source range.
+fn expand_structural(
     source: &typst::syntax::Source,
     chars: &[painter::PositionedChar],
     nodes: &[painter::SelectionNode],
     selected: &[bool],
-    out: &mut Vec<Range<usize>>,
+    min_byte: &mut usize,
+    max_byte: &mut usize,
 ) {
     for node in nodes {
         let start = node.glyph_range.start;
         let end = node.glyph_range.end.min(selected.len());
         if start >= end { continue; }
 
-        // Check if any glyph in this node is selected.
-        let any_selected = (start..end).any(|i| selected[i]);
-        if !any_selected { continue; }
+        let mut has_source = false;
+        let mut all_selected = true;
+        for i in start..end {
+            if chars[i].span.is_some() {
+                has_source = true;
+                if !selected[i] {
+                    all_selected = false;
+                    break;
+                }
+            }
+        }
 
-        // Check if all source glyphs in this node are selected.
-        let all_selected = (start..end).all(|i| {
-            selected[i] || chars[i].span.is_none()
-        });
-
-        if all_selected {
-            // Fully selected — use the structural source range if available.
+        if has_source && all_selected {
             if let Some(span) = node.span {
                 if let Some(r) = source.range(span) {
-                    out.push(r);
-                    continue; // Don't recurse — we have the full range.
+                    *min_byte = (*min_byte).min(r.start);
+                    *max_byte = (*max_byte).max(r.end);
                 }
             }
         }
 
-        // Partially selected or no structural span — recurse into children.
-        if !node.children.is_empty() {
-            collect_copy_ranges(source, chars, &node.children, selected, out);
-        } else {
-            // Leaf node: collect per-glyph spans for selected glyphs.
-            for i in start..end {
-                if !selected[i] { continue; }
-                if let Some((span, _)) = chars[i].span {
-                    if let Some(r) = source.range(span) {
-                        out.push(r);
-                    }
-                }
-            }
-        }
+        expand_structural(source, chars, &node.children, selected, min_byte, max_byte);
     }
 }
 
