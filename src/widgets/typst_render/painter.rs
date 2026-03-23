@@ -9,21 +9,17 @@ use typst::visualize::{CurveItem, FillRule, Geometry, Paint};
 
 use super::outline;
 
-/// A positioned glyph for selection and highlighting.
+/// A positioned source glyph for selection and highlighting.
+/// Generated content (detached spans) is excluded — selection operates
+/// on source content only, and copying the source regenerates them.
 #[derive(Clone)]
 pub struct PositionedChar {
     /// Bounding rect in frame-relative coordinates.
     pub rect: egui::Rect,
     /// The unicode text this glyph represents.
     pub text: String,
-    /// Source span — `None` for generated content (detached spans).
-    pub span: Option<(Span, u16)>,
-    /// Byte range within the source text node (from `Glyph::range()`).
-    pub text_range: Range<u16>,
-    /// Span of the innermost non-detached Tag containing this glyph.
-    /// Used to highlight detached glyphs (math operators, bullets) when
-    /// their parent AST element is selected.
-    pub tag_span: Option<Span>,
+    /// Source span (always non-detached).
+    pub span: (Span, u16),
 }
 
 /// A non-text element (shape/line/rect) with a source span.
@@ -149,29 +145,16 @@ fn render_frame_inner(
     text_color: egui::Color32,
     feathering: f32,
 ) {
-    render_frame_with_tags(shapes, text_layout, frame, state, text_color, feathering, &mut Vec::<Option<Span>>::new());
-}
-
-fn render_frame_with_tags(
-    shapes: &mut Vec<egui::Shape>,
-    text_layout: &mut TextLayout,
-    frame: &Frame,
-    state: RenderState,
-    text_color: egui::Color32,
-    feathering: f32,
-    tag_stack: &mut Vec<Option<Span>>,
-) {
     for (pos, item) in frame.items() {
         let local = state.pre_translate(pos.x.to_pt() as f32, pos.y.to_pt() as f32);
 
         match item {
             FrameItem::Group(group) => {
                 let child = local.pre_concat(&group.transform);
-                render_frame_with_tags(shapes, text_layout, &group.frame, child, text_color, feathering, tag_stack);
+                render_frame_inner(shapes, text_layout, &group.frame, child, text_color, feathering);
             }
             FrameItem::Text(text_item) => {
-                let tag_span = tag_stack.iter().rev().find_map(|s| *s);
-                render_text(shapes, text_layout, text_item, local, text_color, feathering, tag_span);
+                render_text(shapes, text_layout, text_item, local, text_color, feathering);
             }
             FrameItem::Shape(shape, span) => {
                 let shape_rect = shape_bounds(shape, local);
@@ -196,21 +179,7 @@ fn render_frame_with_tags(
                     });
                 }
             }
-            FrameItem::Tag(tag) => {
-                use typst::introspection::Tag;
-                match tag {
-                    Tag::Start(content, _) => {
-                        let span = content.span();
-                        // Push a marker: Some(span) for non-detached, None for detached.
-                        // This ensures Tag::End pops the matching entry.
-                        tag_stack.push(if span.is_detached() { None } else { Some(span) });
-                    }
-                    Tag::End(..) => {
-                        tag_stack.pop();
-                    }
-                }
-            }
-            FrameItem::Image(..) => {}
+            FrameItem::Image(..) | FrameItem::Tag(..) => {}
         }
     }
 }
@@ -222,7 +191,6 @@ fn render_text(
     state: RenderState,
     default_color: egui::Color32,
     feathering: f32,
-    tag_span: Option<Span>,
 ) {
     let font = &text.font;
     let size = text.size.to_pt() as f32;
@@ -283,19 +251,18 @@ fn render_text(
             }
         }
 
-        // Collect text layout info for selection.
+        // Collect text layout info for selection (source glyphs only).
         let adv_x = glyph.x_advance.get() as f32 * size;
-        let top_left = state.transform_point(cursor_x, cursor_y - ascender);
-        let bottom_right = state.transform_point(cursor_x + adv_x, cursor_y - descender);
-        let glyph_text = &text.text[glyph.range()];
-        let span = if glyph.span.0.is_detached() { None } else { Some(glyph.span) };
-        text_layout.chars.push(PositionedChar {
-            rect: egui::Rect::from_two_pos(top_left, bottom_right),
-            text: glyph_text.to_string(),
-            span,
-            text_range: glyph.range.clone(),
-            tag_span,
-        });
+        if !glyph.span.0.is_detached() {
+            let top_left = state.transform_point(cursor_x, cursor_y - ascender);
+            let bottom_right = state.transform_point(cursor_x + adv_x, cursor_y - descender);
+            let glyph_text = &text.text[glyph.range()];
+            text_layout.chars.push(PositionedChar {
+                rect: egui::Rect::from_two_pos(top_left, bottom_right),
+                text: glyph_text.to_string(),
+                span: glyph.span,
+            });
+        }
 
         cursor_x += adv_x;
         cursor_y += glyph.y_advance.get() as f32 * size;

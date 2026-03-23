@@ -310,16 +310,15 @@ fn compute_selection(
     let mut min_byte = usize::MAX;
     let mut max_byte = 0usize;
 
-    // Step 1: Geometric selection → source byte range (non-detached only).
+    // Step 1: Geometric selection → source byte range.
     for i in range.clone() {
         if i >= chars.len() { continue; }
-        if let Some((span, offset)) = chars[i].span {
-            if let Some(node_range) = source.range(span) {
-                let glyph_start = node_range.start + offset as usize;
-                let glyph_end = (glyph_start + chars[i].text.len()).min(node_range.end);
-                min_byte = min_byte.min(glyph_start);
-                max_byte = max_byte.max(glyph_end);
-            }
+        let (span, offset) = chars[i].span;
+        if let Some(node_range) = source.range(span) {
+            let glyph_start = node_range.start + offset as usize;
+            let glyph_end = (glyph_start + chars[i].text.len()).min(node_range.end);
+            min_byte = min_byte.min(glyph_start);
+            max_byte = max_byte.max(glyph_end);
         }
     }
 
@@ -327,38 +326,15 @@ fn compute_selection(
     expand_copy_from_ast(source, chars, min_byte, max_byte, &mut min_byte, &mut max_byte);
 
     // Step 3: Highlight glyphs whose source position falls within copy_range.
-    // This ensures highlight = copy — both derive from the same byte range.
     let mut sel_set = vec![false; chars.len()];
     if min_byte < max_byte {
         for (i, ch) in chars.iter().enumerate() {
-            if let Some((span, offset)) = ch.span {
-                if let Some(node_range) = source.range(span) {
-                    let glyph_start = node_range.start + offset as usize;
-                    let glyph_end = (glyph_start + ch.text.len()).min(node_range.end);
-                    // Glyph overlaps with copy range → highlight it.
-                    if glyph_start < max_byte && glyph_end > min_byte {
-                        sel_set[i] = true;
-                    }
-                }
-            }
-        }
-    }
-
-    // Include detached glyphs (math operators, etc.) whose tag_span
-    // source range falls strictly within the copy range. The "strictly
-    // within" check prevents list bullets from highlighting when only
-    // one item is selected (their tag_span covers the whole list).
-    if min_byte < max_byte {
-        for (i, ch) in chars.iter().enumerate() {
-            if ch.span.is_none() {
-                if let Some(tag) = ch.tag_span {
-                    if let Some(tag_range) = source.range(tag) {
-                        // Tag's source range must be strictly within copy range.
-                        // This ensures per-equation Tags match but list-wide Tags don't.
-                        if tag_range.start >= min_byte && tag_range.end <= max_byte {
-                            sel_set[i] = true;
-                        }
-                    }
+            let (span, offset) = ch.span;
+            if let Some(node_range) = source.range(span) {
+                let glyph_start = node_range.start + offset as usize;
+                let glyph_end = (glyph_start + ch.text.len()).min(node_range.end);
+                if glyph_start < max_byte && glyph_end > min_byte {
+                    sel_set[i] = true;
                 }
             }
         }
@@ -392,7 +368,7 @@ fn expand_copy_from_ast(
     let find_span_near = |target: usize| -> Option<Span> {
         chars.iter()
             .filter_map(|ch| {
-                let (span, offset) = ch.span?;
+                let (span, offset) = ch.span;
                 let nr = source.range(span)?;
                 let pos = nr.start + offset as usize;
                 Some((span, pos.abs_diff(target)))
@@ -466,7 +442,7 @@ fn expand_copy_from_ast(
             // within the parent's range already within our min..max?
             let all_covered = chars.iter()
                 .filter_map(|ch| {
-                    let (span, offset) = ch.span?;
+                    let (span, offset) = ch.span;
                     let nr = source.range(span)?;
                     Some(nr.start + offset as usize)
                 })
