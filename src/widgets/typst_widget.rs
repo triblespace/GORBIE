@@ -262,34 +262,23 @@ fn nearest_glyph(chars: &[painter::PositionedChar], pos: egui::Pos2) -> Option<u
     }).map(|(i, _)| i)
 }
 
-/// Find the smallest selection node whose glyph_range contains `range`.
-fn find_lca<'a>(
-    nodes: &'a [painter::SelectionNode],
-    range: &Range<usize>,
-) -> Option<&'a painter::SelectionNode> {
-    for node in nodes {
-        if node.glyph_range.start <= range.start && range.end <= node.glyph_range.end {
-            // This node contains the range. Check if a child is tighter.
-            if let Some(child) = find_lca(&node.children, range) {
-                return Some(child);
-            }
-            return Some(node);
-        }
-    }
-    None
-}
-
-/// Double-click: find the nearest glyph, then find the smallest
-/// selection node that contains it. Select all glyphs in that node.
+/// Double-click: select the word at the clicked position.
+/// Walks outward from the nearest glyph to find word boundaries.
 fn double_click_range(
     chars: &[painter::PositionedChar],
-    roots: &[painter::SelectionNode],
     pos: egui::Pos2,
 ) -> Option<Range<usize>> {
     let idx = nearest_glyph(chars, pos)?;
-    let point_range = idx..idx + 1;
-    let node = find_lca(roots, &point_range)?;
-    Some(node.glyph_range.clone())
+    // Expand to word boundaries (non-space, non-punctuation characters).
+    let is_word = |i: usize| -> bool {
+        let ch = chars[i].text.chars().next().unwrap_or(' ');
+        ch.is_alphanumeric() || ch == '_' || ch == '-'
+    };
+    let mut lo = idx;
+    while lo > 0 && is_word(lo - 1) { lo -= 1; }
+    let mut hi = idx;
+    while hi + 1 < chars.len() && is_word(hi + 1) { hi += 1; }
+    Some(lo..hi + 1)
 }
 
 /// Selection result: highlight and copy from one tree walk.
@@ -312,7 +301,6 @@ struct SelectionResult {
 fn compute_selection(
     source: &typst::syntax::Source,
     chars: &[painter::PositionedChar],
-    roots: &[painter::SelectionNode],
     glyph_range: &Option<Range<usize>>,
 ) -> SelectionResult {
     let Some(ref range) = glyph_range else {
@@ -356,45 +344,20 @@ fn compute_selection(
         }
     }
 
-    // Step 4: Render tree walk — include detached glyphs between
-    // highlighted source glyphs.
-    expand_highlight(chars, roots, &mut sel_set);
+    // Step 4: Include detached glyphs when both neighbors are highlighted.
+    for i in 0..sel_set.len() {
+        if chars[i].span.is_none() {
+            let prev = i > 0 && sel_set[i - 1];
+            let next = i + 1 < sel_set.len() && sel_set[i + 1];
+            if prev || next {
+                sel_set[i] = true;
+            }
+        }
+    }
 
     SelectionResult {
         sel_set,
         copy_range: if min_byte < max_byte { Some(min_byte..max_byte) } else { None },
-    }
-}
-
-/// Walk the render tree: fully-selected nodes expand highlight to include
-/// detached glyphs (bullets, math operators).
-fn expand_highlight(
-    chars: &[painter::PositionedChar],
-    nodes: &[painter::SelectionNode],
-    sel_set: &mut Vec<bool>,
-) {
-    for node in nodes {
-        let start = node.glyph_range.start;
-        let end = node.glyph_range.end.min(sel_set.len());
-        if start >= end { continue; }
-
-        expand_highlight(chars, &node.children, sel_set);
-
-        let mut has_source = false;
-        let mut all_selected = true;
-        for i in start..end {
-            if chars[i].span.is_some() {
-                has_source = true;
-                if !sel_set[i] {
-                    all_selected = false;
-                    break;
-                }
-            }
-        }
-
-        if has_source && all_selected {
-            sel_set[start..end].fill(true);
-        }
     }
 }
 
@@ -664,7 +627,7 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
             if response.double_clicked() {
                 if let Some(pos) = response.interact_pointer_pos() {
                     let frame_pos = pos - offset;
-                    if let Some(range) = double_click_range(chars, &text_layout.selection_roots, frame_pos) {
+                    if let Some(range) = double_click_range(chars, frame_pos) {
                         sel.glyph_override = Some(range);
                     }
                 }
@@ -704,12 +667,12 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
             if cached_key == sel_key {
                 cached_result
             } else {
-                let result = compute_selection(source, chars, &text_layout.selection_roots, &glyph_range);
+                let result = compute_selection(source, chars, &glyph_range);
                 ui.ctx().data_mut(|d| d.insert_temp(sel_cache_id, (sel_key, result.clone())));
                 result
             }
         } else {
-            let result = compute_selection(source, chars, &text_layout.selection_roots, &glyph_range);
+            let result = compute_selection(source, chars, &glyph_range);
             if glyph_range.is_some() {
                 ui.ctx().data_mut(|d| d.insert_temp(sel_cache_id, (sel_key, result.clone())));
             }

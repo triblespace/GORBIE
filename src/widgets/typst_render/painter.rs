@@ -42,30 +42,11 @@ pub struct PositionedLink {
     pub url: String,
 }
 
-/// A node in the selection tree, mirroring the layout tree's Group/Tag hierarchy.
-///
-/// Each node covers a contiguous range of glyphs in `TextLayout.chars`.
-/// Children are nested sub-ranges. The tree enables LCA-based selection:
-/// find the smallest node containing both drag endpoints, then select
-/// all glyphs in that node's range.
-#[derive(Clone, Default)]
-pub struct SelectionNode {
-    /// Glyph index range [start, end) in `TextLayout.chars`.
-    pub glyph_range: Range<usize>,
-    /// Source span from the Tag element that produced this node.
-    /// Resolved to a byte range via `source.range(span)` during copy.
-    pub span: Option<Span>,
-    /// Child nodes (sub-ranges).
-    pub children: Vec<SelectionNode>,
-}
-
 /// Layout info collected during rendering for selection.
 #[derive(Clone, Default)]
 pub struct TextLayout {
     /// All positioned glyphs in layout order (source + generated).
     pub chars: Vec<PositionedChar>,
-    /// Selection tree root nodes (one per top-level Tag scope or Group).
-    pub selection_roots: Vec<SelectionNode>,
     /// Non-text elements with spans (table borders, lines, rects, etc.).
     pub spans: Vec<PositionedSpan>,
     /// Link regions for click/hover handling.
@@ -166,44 +147,13 @@ fn render_frame_inner(
     text_color: egui::Color32,
     feathering: f32,
 ) {
-    // Build selection tree from Tag::Start/End pairs in the frame tree.
-    let mut stack = Vec::new();
-    let mut roots = Vec::new();
-    render_frame_tree(shapes, text_layout, frame, state, text_color, feathering, &mut stack, &mut roots);
-    // Any unclosed tags become roots too.
-    for mut node in stack.drain(..) {
-        node.glyph_range.end = text_layout.chars.len();
-        roots.push(node);
-    }
-    text_layout.selection_roots = roots;
-
-
-}
-
-/// Render a frame, building selection tree nodes.
-///
-/// Uses a stack of in-progress SelectionNodes. Tag::Start pushes a new
-/// node, Tag::End pops it and nests it into the parent (or into
-/// `completed` if there's no parent). Groups recurse with the same stack.
-fn render_frame_tree(
-    shapes: &mut Vec<egui::Shape>,
-    text_layout: &mut TextLayout,
-    frame: &Frame,
-    state: RenderState,
-    text_color: egui::Color32,
-    feathering: f32,
-    // Stack of in-progress nodes (Tag::Start pushes, Tag::End pops).
-    stack: &mut Vec<SelectionNode>,
-    // Completed top-level nodes (no parent Tag).
-    completed: &mut Vec<SelectionNode>,
-) {
     for (pos, item) in frame.items() {
         let local = state.pre_translate(pos.x.to_pt() as f32, pos.y.to_pt() as f32);
 
         match item {
             FrameItem::Group(group) => {
                 let child = local.pre_concat(&group.transform);
-                render_frame_tree(shapes, text_layout, &group.frame, child, text_color, feathering, stack, completed);
+                render_frame_inner(shapes, text_layout, &group.frame, child, text_color, feathering);
             }
             FrameItem::Text(text_item) => {
                 render_text(shapes, text_layout, text_item, local, text_color, feathering);
@@ -231,30 +181,7 @@ fn render_frame_tree(
                     });
                 }
             }
-            FrameItem::Tag(tag) => {
-                use typst::introspection::Tag;
-                match tag {
-                    Tag::Start(content, _) => {
-                        let span = content.span();
-                        stack.push(SelectionNode {
-                            glyph_range: text_layout.chars.len()..text_layout.chars.len(),
-                            span: if span.is_detached() { None } else { Some(span) },
-                            children: Vec::new(),
-                        });
-                    }
-                    Tag::End(..) => {
-                        if let Some(mut node) = stack.pop() {
-                            node.glyph_range.end = text_layout.chars.len();
-                            if let Some(parent) = stack.last_mut() {
-                                parent.children.push(node);
-                            } else {
-                                completed.push(node);
-                            }
-                        }
-                    }
-                }
-            }
-            FrameItem::Image(..) => {}
+            FrameItem::Image(..) | FrameItem::Tag(..) => {}
         }
     }
 }
