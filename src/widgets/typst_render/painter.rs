@@ -18,6 +18,10 @@ pub struct PositionedChar {
     pub text: String,
     /// Source span — `None` for generated content (detached spans).
     pub span: Option<(Span, u16)>,
+    /// Byte range within the source text node (from `Glyph::range()`).
+    /// Used with `source.range(span)` to get precise per-character
+    /// source byte positions for partial selection.
+    pub text_range: Range<u16>,
 }
 
 /// A non-text element (shape/line/rect) with a source span.
@@ -332,6 +336,7 @@ fn render_text(
             rect: egui::Rect::from_two_pos(top_left, bottom_right),
             text: glyph_text.to_string(),
             span,
+            text_range: glyph.range.clone(),
         });
 
         cursor_x += adv_x;

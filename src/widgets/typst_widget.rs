@@ -231,24 +231,25 @@ struct TypstSelection {
 }
 
 impl TypstSelection {
-    /// Compute the glyph index range from the 2D selection rect,
-    /// or return the exact override if set by double-click.
+    /// Compute the glyph index range from anchor and cursor positions.
+    ///
+    /// Uses 2-point selection: finds the nearest glyph to each endpoint,
+    /// then selects all glyphs between them in document order. This gives
+    /// natural text selection across line boundaries (no box artifacts).
     fn range(&self, chars: &[painter::PositionedChar]) -> Option<Range<usize>> {
         if let Some(ref r) = self.glyph_override {
             return Some(r.clone());
         }
 
-        let sel_rect = egui::Rect::from_two_pos(self.anchor?, self.cursor?);
+        let anchor = self.anchor?;
+        let cursor = self.cursor?;
 
-        let mut lo = usize::MAX;
-        let mut hi = 0usize;
-        for (i, ch) in chars.iter().enumerate() {
-            if sel_rect.intersects(ch.rect) {
-                lo = lo.min(i);
-                hi = hi.max(i);
-            }
-        }
-        if lo <= hi { Some(lo..hi + 1) } else { None }
+        let a = nearest_glyph(chars, anchor)?;
+        let b = nearest_glyph(chars, cursor)?;
+
+        let lo = a.min(b);
+        let hi = a.max(b);
+        Some(lo..hi + 1)
     }
 }
 
@@ -291,130 +292,100 @@ fn double_click_range(
     Some(node.glyph_range.clone())
 }
 
-/// Compute selection: start with the geometric drag range, then walk
-/// the selection tree to include detached glyphs (bullets, math operators)
-/// for nodes where all source glyphs are covered.
+/// Selection result: highlight and copy from one tree walk.
+#[derive(Clone)]
+struct SelectionResult {
+    /// Which glyphs to highlight.
+    sel_set: Vec<bool>,
+    /// Source byte range for copy (contiguous min..max).
+    copy_range: Option<Range<usize>>,
+}
+
+/// Compute selection: geometric range + tree walk for both highlight and copy.
+///
+/// One tree walk produces both:
+/// - Highlight: geometric selection + detached glyphs from fully-selected nodes
+/// - Copy range: structural source spans from fully-selected nodes + per-glyph
+///   spans for partial content, merged into a contiguous min..max
+///
+/// Highlight and copy derive from the same walk — they can't diverge.
 fn compute_selection(
+    source: &typst::syntax::Source,
     chars: &[painter::PositionedChar],
     roots: &[painter::SelectionNode],
     glyph_range: &Option<Range<usize>>,
-) -> Vec<bool> {
+) -> SelectionResult {
     let Some(ref range) = glyph_range else {
-        return Vec::new();
+        return SelectionResult { sel_set: Vec::new(), copy_range: None };
     };
 
-    let mut sel_set = vec![false; chars.len()];
+    let mut min_byte = usize::MAX;
+    let mut max_byte = 0usize;
 
-    // Start with geometric selection.
+    // Step 1: Geometric selection → source byte range (non-detached only).
     for i in range.clone() {
-        if i < sel_set.len() { sel_set[i] = true; }
+        if i >= chars.len() { continue; }
+        if let Some((span, offset)) = chars[i].span {
+            if let Some(node_range) = source.range(span) {
+                let glyph_start = node_range.start + offset as usize;
+                let glyph_end = (glyph_start + chars[i].text.len()).min(node_range.end);
+                min_byte = min_byte.min(glyph_start);
+                max_byte = max_byte.max(glyph_end);
+            }
+        }
     }
 
-    // Walk the selection tree: for each node where all source (non-detached)
-    // glyphs are selected, also select the detached glyphs in that node.
-    // This makes bullets/math operators highlight when their parent is
-    // fully selected, but not when only part of the content is selected.
-    expand_detached(chars, roots, &mut sel_set);
+    // Step 2: AST walk — expand to structural boundaries.
+    expand_copy_from_ast(source, chars, min_byte, max_byte, &mut min_byte, &mut max_byte);
 
-    sel_set
+    // Step 3: Highlight glyphs whose source position falls within copy_range.
+    // This ensures highlight = copy — both derive from the same byte range.
+    let mut sel_set = vec![false; chars.len()];
+    if min_byte < max_byte {
+        for (i, ch) in chars.iter().enumerate() {
+            if let Some((span, offset)) = ch.span {
+                if let Some(node_range) = source.range(span) {
+                    let glyph_start = node_range.start + offset as usize;
+                    let glyph_end = (glyph_start + ch.text.len()).min(node_range.end);
+                    // Glyph overlaps with copy range → highlight it.
+                    if glyph_start < max_byte && glyph_end > min_byte {
+                        sel_set[i] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // Step 4: Render tree walk — include detached glyphs between
+    // highlighted source glyphs.
+    expand_highlight(chars, roots, &mut sel_set);
+
+    SelectionResult {
+        sel_set,
+        copy_range: if min_byte < max_byte { Some(min_byte..max_byte) } else { None },
+    }
 }
 
-/// Recursively check selection tree nodes. If all non-detached glyphs in
-/// a node are selected, fill the entire node's range (including detached).
-/// Returns true if all non-detached glyphs in this subtree are selected.
-fn expand_detached(
+/// Walk the render tree: fully-selected nodes expand highlight to include
+/// detached glyphs (bullets, math operators).
+fn expand_highlight(
     chars: &[painter::PositionedChar],
     nodes: &[painter::SelectionNode],
     sel_set: &mut Vec<bool>,
 ) {
     for node in nodes {
-        // First recurse into children.
-        expand_detached(chars, &node.children, sel_set);
-
-        // Check if all non-detached glyphs in this node's range are selected.
         let start = node.glyph_range.start;
         let end = node.glyph_range.end.min(sel_set.len());
         if start >= end { continue; }
 
-        let mut has_source = false;
-        let mut all_source_selected = true;
-        for i in start..end {
-            if chars[i].span.is_some() {
-                has_source = true;
-                if !sel_set[i] {
-                    all_source_selected = false;
-                    break;
-                }
-            }
-        }
-
-        if has_source && all_source_selected {
-            // All source glyphs are selected → include detached too.
-            sel_set[start..end].fill(true);
-        }
-    }
-}
-
-/// Collect source text for the selection.
-///
-/// Uses min..max byte range from per-glyph spans as the contiguous base,
-/// then expands with structural ranges from fully-selected tree nodes
-/// (captures surrounding markup like `*bold*`, `= heading`).
-fn collect_copy_text(
-    source: &typst::syntax::Source,
-    chars: &[painter::PositionedChar],
-    roots: &[painter::SelectionNode],
-    selected: &[bool],
-) -> String {
-    let mut min_byte = usize::MAX;
-    let mut max_byte = 0usize;
-
-    // Per-glyph pass: contiguous min..max from all selected source glyphs.
-    for (i, ch) in chars.iter().enumerate() {
-        if !*selected.get(i).unwrap_or(&false) { continue; }
-        if let Some((span, _)) = ch.span {
-            if let Some(r) = source.range(span) {
-                min_byte = min_byte.min(r.start);
-                max_byte = max_byte.max(r.end);
-            }
-        }
-    }
-
-    // Tree pass: expand min..max when fully-selected nodes have structural
-    // spans that extend beyond the per-glyph ranges (captures markup).
-    expand_structural(source, chars, roots, selected, &mut min_byte, &mut max_byte);
-
-    if min_byte < max_byte {
-        source.text()[min_byte..max_byte].to_string()
-    } else {
-        selected.iter().enumerate()
-            .filter(|(_, &s)| s)
-            .filter_map(|(i, _)| chars.get(i).map(|c| c.text.as_str()))
-            .collect()
-    }
-}
-
-/// Walk the selection tree: fully-selected nodes with spans expand
-/// the min/max to include their structural source range.
-fn expand_structural(
-    source: &typst::syntax::Source,
-    chars: &[painter::PositionedChar],
-    nodes: &[painter::SelectionNode],
-    selected: &[bool],
-    min_byte: &mut usize,
-    max_byte: &mut usize,
-) {
-    for node in nodes {
-        let start = node.glyph_range.start;
-        let end = node.glyph_range.end.min(selected.len());
-        if start >= end { continue; }
+        expand_highlight(chars, &node.children, sel_set);
 
         let mut has_source = false;
         let mut all_selected = true;
         for i in start..end {
             if chars[i].span.is_some() {
                 has_source = true;
-                if !selected[i] {
+                if !sel_set[i] {
                     all_selected = false;
                     break;
                 }
@@ -422,15 +393,79 @@ fn expand_structural(
         }
 
         if has_source && all_selected {
-            if let Some(span) = node.span {
-                if let Some(r) = source.range(span) {
-                    *min_byte = (*min_byte).min(r.start);
-                    *max_byte = (*max_byte).max(r.end);
+            sel_set[start..end].fill(true);
+        }
+    }
+}
+
+/// Walk up the source AST from the selected byte range to expand the copy
+/// range to include structural markup (list markers, bold asterisks, etc.).
+///
+/// For each selected glyph span, walks up parent AST nodes. If a parent's
+/// range tightly wraps the current selection (doesn't extend far beyond
+/// max_byte), expands min/max to include the parent's structural prefix.
+fn expand_copy_from_ast(
+    source: &typst::syntax::Source,
+    chars: &[painter::PositionedChar],
+    in_min: usize,
+    in_max: usize,
+    min_byte: &mut usize,
+    max_byte: &mut usize,
+) {
+    if in_min >= in_max { return; }
+    *min_byte = in_min;
+    *max_byte = in_max;
+
+    // Find a span near min_byte to enter the AST.
+    let entry_span = chars.iter()
+        .filter_map(|ch| {
+            let (span, offset) = ch.span?;
+            let node_range = source.range(span)?;
+            let pos = node_range.start + offset as usize;
+            // Pick a glyph whose source position is within our range.
+            if pos >= in_min && pos < in_max { Some(span) } else { None }
+        })
+        .next();
+
+    let Some(span) = entry_span else { return };
+    let Some(node) = source.find(span) else { return };
+
+    // Walk up from the leaf, expanding when the parent tightly wraps.
+    let mut current = &node;
+    loop {
+        match current.parent() {
+            Some(parent) => {
+                let pr = parent.range();
+                // Parent must contain our entire selection.
+                if pr.start > *min_byte || pr.end < *max_byte {
+                    current = parent;
+                    continue;
+                }
+                // Check if parent tightly wraps: its end doesn't extend
+                // far beyond our max_byte (allow trailing whitespace).
+                let trailing = &source.text()[*max_byte..pr.end];
+                if trailing.chars().all(|c| c.is_whitespace()) {
+                    *min_byte = pr.start;
+                    *max_byte = pr.end;
+                    current = parent;
+                } else {
+                    break;
                 }
             }
+            None => break,
         }
+    }
 
-        expand_structural(source, chars, &node.children, selected, min_byte, max_byte);
+    // Trim trailing whitespace from the expanded range.
+    while *max_byte > *min_byte
+        && source.text().as_bytes()[*max_byte - 1].is_ascii_whitespace()
+    {
+        *max_byte -= 1;
+    }
+
+    // Include preceding `#` — Typst splits `#expr` into sibling nodes.
+    if *min_byte > 0 && source.text().as_bytes()[*min_byte - 1] == b'#' {
+        *min_byte -= 1;
     }
 }
 
@@ -656,29 +691,32 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
 
         // ── Compute selection (cached) ───────────────────────────
         let glyph_range = sel.range(chars);
+        let source = state.world.main_source();
 
         let sel_cache_id = sel_id.with("sel_cache");
         let sel_key = (sel.anchor, sel.cursor, sel.glyph_override.clone());
         let cached: Option<(
             (Option<egui::Pos2>, Option<egui::Pos2>, Option<Range<usize>>),
-            Vec<bool>,
+            SelectionResult,
         )> = ui.ctx().data_mut(|d| d.get_temp(sel_cache_id));
 
-        let selected = if let Some((cached_key, cached_set)) = cached {
+        let sel_result = if let Some((cached_key, cached_result)) = cached {
             if cached_key == sel_key {
-                cached_set
+                cached_result
             } else {
-                let result = compute_selection(chars, &text_layout.selection_roots, &glyph_range);
+                let result = compute_selection(source, chars, &text_layout.selection_roots, &glyph_range);
                 ui.ctx().data_mut(|d| d.insert_temp(sel_cache_id, (sel_key, result.clone())));
                 result
             }
         } else {
-            let result = compute_selection(chars, &text_layout.selection_roots, &glyph_range);
+            let result = compute_selection(source, chars, &text_layout.selection_roots, &glyph_range);
             if glyph_range.is_some() {
                 ui.ctx().data_mut(|d| d.insert_temp(sel_cache_id, (sel_key, result.clone())));
             }
             result
         };
+
+        let selected = &sel_result.sel_set;
 
         // ── Paint selection highlights (behind text) ─────────────
         {
@@ -726,8 +764,15 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
             });
 
             if wants_copy {
-                let source = state.world.main_source();
-                let text = collect_copy_text(source, chars, &text_layout.selection_roots, &selected);
+                let text = if let Some(ref r) = sel_result.copy_range {
+                    source.text()[r.clone()].to_string()
+                } else {
+                    // Fallback: rendered text.
+                    selected.iter().enumerate()
+                        .filter(|(_, &s)| s)
+                        .filter_map(|(i, _)| chars.get(i).map(|c| c.text.as_str()))
+                        .collect()
+                };
                 ui.ctx().copy_text(text);
             }
         }
