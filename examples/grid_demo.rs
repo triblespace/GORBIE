@@ -522,5 +522,20 @@ subtle visual tension that keeps the layout from feeling sterile."
         );
     });
 
+    // Collapsible sections.
+    nb.view(move |ctx| {
+        ctx.section("Parameters", |ctx| {
+            ctx.label("First section content.");
+            ctx.label("Click the header to collapse.");
+        });
+        ctx.section("Results", |ctx| {
+            ctx.label("Second section with different color.");
+            ctx.label("Each title gets a unique RAL color.");
+        });
+        ctx.section("Advanced", |ctx| {
+            ctx.label("Third section — another color.");
+        });
+    });
+
     nb.settled();
 }

@@ -135,6 +135,82 @@ impl<'a> CardCtx<'a> {
         crate::widgets::typst_widget::typst_math_display(self.ui, expr);
     }
 
+    // ── Section ──────────────────────────────────────────────────────
+
+    /// Collapsible section with a bold colored header.
+    ///
+    /// The header color is deterministically assigned from the title via
+    /// [`colorhash::ral_categorical`], like colored divider tabs in stationery.
+    /// Click to expand/collapse.
+    ///
+    /// ```ignore
+    /// ctx.section("Parameters", |ctx| {
+    ///     ctx.text_field(&mut name);
+    ///     ctx.number(&mut value);
+    /// });
+    /// ```
+    pub fn section(
+        &mut self,
+        title: &str,
+        add_contents: impl FnOnce(&mut CardCtx<'_>),
+    ) {
+        use crate::themes::colorhash;
+
+        let id = self.ui.make_persistent_id(title);
+        let mut open = self.ui.ctx().data_mut(|d| {
+            *d.get_persisted_mut_or(id, true)
+        });
+
+        let color = colorhash::ral_categorical(title.as_bytes());
+        let text_color = colorhash::text_color_on(color);
+
+        // Zero spacing so header and folds sit flush.
+        let prev_spacing = self.ui.spacing().item_spacing.y;
+        self.ui.spacing_mut().item_spacing.y = 0.0;
+
+        // Header bar: full width, colored background, clickable.
+        let header_height = GRID_ROW_MODULE * 5.0;
+        let available_width = self.ui.available_width();
+        let (header_rect, header_response) = self.ui.allocate_exact_size(
+            egui::vec2(available_width, header_height),
+            egui::Sense::click(),
+        );
+
+        if header_response.clicked() {
+            open = !open;
+            self.ui.ctx().data_mut(|d| d.insert_persisted(id, open));
+        }
+
+        // Paint the header.
+        let painter = self.ui.painter();
+        painter.rect_filled(header_rect, 0.0, color);
+
+        // Title text — large, centered vertically, left-aligned with padding.
+        let text_pos = egui::pos2(
+            header_rect.left() + GRID_EDGE_PAD,
+            header_rect.bottom() - GRID_ROW_MODULE,
+        );
+        painter.text(
+            text_pos,
+            egui::Align2::LEFT_BOTTOM,
+            title,
+            egui::FontId::proportional(header_height * 0.45),
+            text_color,
+        );
+
+        if header_response.hovered() {
+            self.ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+
+        self.ui.spacing_mut().item_spacing.y = prev_spacing;
+        if open {
+            self.with_padding(
+                egui::Margin::symmetric(0, GRID_ROW_MODULE as i8),
+                add_contents,
+            );
+        }
+    }
+
     // ── Layout wrappers ──────────────────────────────────────────────
 
     /// Apply padding around the contents while preserving `CardCtx`.
