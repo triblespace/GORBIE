@@ -344,13 +344,22 @@ fn compute_selection(
         }
     }
 
-    // Step 4: Include detached glyphs when both neighbors are highlighted.
-    for i in 0..sel_set.len() {
-        if chars[i].span.is_none() {
-            let prev = i > 0 && sel_set[i - 1];
-            let next = i + 1 < sel_set.len() && sel_set[i + 1];
-            if prev || next {
-                sel_set[i] = true;
+    // Include detached glyphs (math operators, etc.) whose tag_span
+    // source range falls strictly within the copy range. The "strictly
+    // within" check prevents list bullets from highlighting when only
+    // one item is selected (their tag_span covers the whole list).
+    if min_byte < max_byte {
+        for (i, ch) in chars.iter().enumerate() {
+            if ch.span.is_none() {
+                if let Some(tag) = ch.tag_span {
+                    if let Some(tag_range) = source.range(tag) {
+                        // Tag's source range must be strictly within copy range.
+                        // This ensures per-equation Tags match but list-wide Tags don't.
+                        if tag_range.start >= min_byte && tag_range.end <= max_byte {
+                            sel_set[i] = true;
+                        }
+                    }
+                }
             }
         }
     }
@@ -361,12 +370,12 @@ fn compute_selection(
     }
 }
 
-/// Walk up the source AST from the selected byte range to expand the copy
-/// range to include structural markup (list markers, bold asterisks, etc.).
+/// Expand the copy range using source AST LCA (lowest common ancestor).
 ///
-/// For each selected glyph span, walks up parent AST nodes. If a parent's
-/// range tightly wraps the current selection (doesn't extend far beyond
-/// max_byte), expands min/max to include the parent's structural prefix.
+/// Finds the AST nodes at the min and max byte positions, walks up to
+/// their LCA, and expands the range to cover the LCA's children between
+/// them. This naturally includes structural markup (list markers, bold
+/// asterisks, heading prefixes) and inter-child whitespace.
 fn expand_copy_from_ast(
     source: &typst::syntax::Source,
     chars: &[painter::PositionedChar],
@@ -379,47 +388,102 @@ fn expand_copy_from_ast(
     *min_byte = in_min;
     *max_byte = in_max;
 
-    // Find a span near min_byte to enter the AST.
-    let entry_span = chars.iter()
-        .filter_map(|ch| {
-            let (span, offset) = ch.span?;
-            let node_range = source.range(span)?;
-            let pos = node_range.start + offset as usize;
-            // Pick a glyph whose source position is within our range.
-            if pos >= in_min && pos < in_max { Some(span) } else { None }
-        })
-        .next();
+    // Find spans near min and max byte positions.
+    let find_span_near = |target: usize| -> Option<Span> {
+        chars.iter()
+            .filter_map(|ch| {
+                let (span, offset) = ch.span?;
+                let nr = source.range(span)?;
+                let pos = nr.start + offset as usize;
+                Some((span, pos.abs_diff(target)))
+            })
+            .filter(|(_, dist)| *dist < 1000) // reasonable proximity
+            .min_by_key(|(_, dist)| *dist)
+            .map(|(span, _)| span)
+    };
 
-    let Some(span) = entry_span else { return };
-    let Some(node) = source.find(span) else { return };
+    let Some(lo_span) = find_span_near(in_min) else { return };
+    let Some(hi_span) = find_span_near(in_max.saturating_sub(1)) else { return };
 
-    // Walk up from the leaf, expanding when the parent tightly wraps.
-    let mut current = &node;
-    loop {
-        match current.parent() {
-            Some(parent) => {
-                let pr = parent.range();
-                // Parent must contain our entire selection.
-                if pr.start > *min_byte || pr.end < *max_byte {
-                    current = parent;
-                    continue;
-                }
-                // Check if parent tightly wraps: its end doesn't extend
-                // far beyond our max_byte (allow trailing whitespace).
-                let trailing = &source.text()[*max_byte..pr.end];
-                if trailing.chars().all(|c| c.is_whitespace()) {
-                    *min_byte = pr.start;
-                    *max_byte = pr.end;
-                    current = parent;
-                } else {
-                    break;
-                }
+    let Some(lo_node) = source.find(lo_span) else { return };
+    let Some(hi_node) = source.find(hi_span) else { return };
+
+    // Build ancestor paths: (byte_range, child_index) from root to leaf.
+    let ancestor_path = |node: &typst::syntax::LinkedNode| -> Vec<(Range<usize>, usize)> {
+        let mut path = Vec::new();
+        let mut current = node;
+        loop {
+            path.push((current.range(), current.index()));
+            match current.parent() {
+                Some(p) => current = p,
+                None => break,
             }
-            None => break,
+        }
+        path.reverse();
+        path
+    };
+
+    let path_lo = ancestor_path(&lo_node);
+    let path_hi = ancestor_path(&hi_node);
+
+    if path_lo.is_empty() || path_hi.is_empty() { return; }
+
+    // Find LCA depth: deepest level where both paths agree.
+    let mut lca_depth = 0;
+    for i in 0..path_lo.len().min(path_hi.len()) {
+        if path_lo[i].0 == path_hi[i].0 {
+            lca_depth = i;
+        } else {
+            break;
         }
     }
 
-    // Trim trailing whitespace from the expanded range.
+    // Expand to LCA's children range (or stay at leaf if same node).
+    if lca_depth + 1 < path_lo.len() && lca_depth + 1 < path_hi.len() {
+        *min_byte = path_lo[lca_depth + 1].0.start;
+        *max_byte = path_hi[lca_depth + 1].0.end;
+    }
+
+    // Collapse upward: walk up from the LCA, expanding whenever all
+    // source glyphs within the parent's byte range are already covered
+    // by our selection. Structural syntax (`*`, `- `, `$ $`, `#table(`)
+    // doesn't produce source glyphs, so it never blocks the check.
+    if let Some(lca_node) = source.find(lo_span) {
+        let lca_range = &path_lo[lca_depth].0;
+        let mut current = &lca_node;
+        while current.range() != *lca_range {
+            match current.parent() {
+                Some(p) => current = p,
+                None => break,
+            }
+        }
+
+        loop {
+            let Some(parent) = current.parent() else { break };
+            let pr = parent.range();
+
+            // Check: are all source glyphs whose byte positions fall
+            // within the parent's range already within our min..max?
+            let all_covered = chars.iter()
+                .filter_map(|ch| {
+                    let (span, offset) = ch.span?;
+                    let nr = source.range(span)?;
+                    Some(nr.start + offset as usize)
+                })
+                .filter(|&pos| pos >= pr.start && pos < pr.end)
+                .all(|pos| pos >= *min_byte && pos < *max_byte);
+
+            if all_covered {
+                *min_byte = pr.start;
+                *max_byte = pr.end;
+                current = parent;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // Trim trailing whitespace.
     while *max_byte > *min_byte
         && source.text().as_bytes()[*max_byte - 1].is_ascii_whitespace()
     {

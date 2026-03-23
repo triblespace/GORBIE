@@ -19,9 +19,11 @@ pub struct PositionedChar {
     /// Source span — `None` for generated content (detached spans).
     pub span: Option<(Span, u16)>,
     /// Byte range within the source text node (from `Glyph::range()`).
-    /// Used with `source.range(span)` to get precise per-character
-    /// source byte positions for partial selection.
     pub text_range: Range<u16>,
+    /// Span of the innermost non-detached Tag containing this glyph.
+    /// Used to highlight detached glyphs (math operators, bullets) when
+    /// their parent AST element is selected.
+    pub tag_span: Option<Span>,
 }
 
 /// A non-text element (shape/line/rect) with a source span.
@@ -147,16 +149,29 @@ fn render_frame_inner(
     text_color: egui::Color32,
     feathering: f32,
 ) {
+    render_frame_with_tags(shapes, text_layout, frame, state, text_color, feathering, &mut Vec::<Option<Span>>::new());
+}
+
+fn render_frame_with_tags(
+    shapes: &mut Vec<egui::Shape>,
+    text_layout: &mut TextLayout,
+    frame: &Frame,
+    state: RenderState,
+    text_color: egui::Color32,
+    feathering: f32,
+    tag_stack: &mut Vec<Option<Span>>,
+) {
     for (pos, item) in frame.items() {
         let local = state.pre_translate(pos.x.to_pt() as f32, pos.y.to_pt() as f32);
 
         match item {
             FrameItem::Group(group) => {
                 let child = local.pre_concat(&group.transform);
-                render_frame_inner(shapes, text_layout, &group.frame, child, text_color, feathering);
+                render_frame_with_tags(shapes, text_layout, &group.frame, child, text_color, feathering, tag_stack);
             }
             FrameItem::Text(text_item) => {
-                render_text(shapes, text_layout, text_item, local, text_color, feathering);
+                let tag_span = tag_stack.iter().rev().find_map(|s| *s);
+                render_text(shapes, text_layout, text_item, local, text_color, feathering, tag_span);
             }
             FrameItem::Shape(shape, span) => {
                 let shape_rect = shape_bounds(shape, local);
@@ -181,7 +196,21 @@ fn render_frame_inner(
                     });
                 }
             }
-            FrameItem::Image(..) | FrameItem::Tag(..) => {}
+            FrameItem::Tag(tag) => {
+                use typst::introspection::Tag;
+                match tag {
+                    Tag::Start(content, _) => {
+                        let span = content.span();
+                        // Push a marker: Some(span) for non-detached, None for detached.
+                        // This ensures Tag::End pops the matching entry.
+                        tag_stack.push(if span.is_detached() { None } else { Some(span) });
+                    }
+                    Tag::End(..) => {
+                        tag_stack.pop();
+                    }
+                }
+            }
+            FrameItem::Image(..) => {}
         }
     }
 }
@@ -193,6 +222,7 @@ fn render_text(
     state: RenderState,
     default_color: egui::Color32,
     feathering: f32,
+    tag_span: Option<Span>,
 ) {
     let font = &text.font;
     let size = text.size.to_pt() as f32;
@@ -264,6 +294,7 @@ fn render_text(
             text: glyph_text.to_string(),
             span,
             text_range: glyph.range.clone(),
+            tag_span,
         });
 
         cursor_x += adv_x;
