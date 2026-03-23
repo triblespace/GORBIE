@@ -381,65 +381,21 @@ fn expand_copy_from_ast(
     let Some(lo_span) = find_span_near(in_min) else { return };
     let Some(hi_span) = find_span_near(in_max.saturating_sub(1)) else { return };
 
-    let Some(lo_node) = source.find(lo_span) else { return };
-    let Some(hi_node) = source.find(hi_span) else { return };
-
-    // Build ancestor paths: (byte_range, child_index) from root to leaf.
-    let ancestor_path = |node: &typst::syntax::LinkedNode| -> Vec<(Range<usize>, usize)> {
-        let mut path = Vec::new();
-        let mut current = node;
-        loop {
-            path.push((current.range(), current.index()));
-            match current.parent() {
-                Some(p) => current = p,
-                None => break,
-            }
-        }
-        path.reverse();
-        path
-    };
-
-    let path_lo = ancestor_path(&lo_node);
-    let path_hi = ancestor_path(&hi_node);
-
-    if path_lo.is_empty() || path_hi.is_empty() { return; }
-
-    // Find LCA depth: deepest level where both paths agree.
-    let mut lca_depth = 0;
-    for i in 0..path_lo.len().min(path_hi.len()) {
-        if path_lo[i].0 == path_hi[i].0 {
-            lca_depth = i;
-        } else {
-            break;
-        }
-    }
-
-    // Expand to LCA's children range (or stay at leaf if same node).
-    if lca_depth + 1 < path_lo.len() && lca_depth + 1 < path_hi.len() {
-        *min_byte = path_lo[lca_depth + 1].0.start;
-        *max_byte = path_hi[lca_depth + 1].0.end;
-    }
-
-    // Collapse upward: walk up from the LCA, expanding whenever all
-    // source glyphs within the parent's byte range are already covered
-    // by our selection. Structural syntax (`*`, `- `, `$ $`, `#table(`)
-    // doesn't produce source glyphs, so it never blocks the check.
-    if let Some(lca_node) = source.find(lo_span) {
-        let lca_range = &path_lo[lca_depth].0;
-        let mut current = &lca_node;
-        while current.range() != *lca_range {
-            match current.parent() {
-                Some(p) => current = p,
-                None => break,
-            }
-        }
-
+    // Collapse upward from EACH endpoint: walk up from the leaf node,
+    // expanding whenever all source glyphs within the parent's range
+    // are already covered. This captures structural markup at each end
+    // independently (`- ` for each list item, `*` for bold, etc.).
+    let collapse_endpoint = |source: &typst::syntax::Source,
+                              chars: &[painter::PositionedChar],
+                              span: Span,
+                              min_byte: &mut usize,
+                              max_byte: &mut usize| {
+        let Some(node) = source.find(span) else { return };
+        let mut current = &node;
         loop {
             let Some(parent) = current.parent() else { break };
             let pr = parent.range();
 
-            // Check: are all source glyphs whose byte positions fall
-            // within the parent's range already within our min..max?
             let all_covered = chars.iter()
                 .filter_map(|ch| {
                     let (span, offset) = ch.span;
@@ -450,14 +406,17 @@ fn expand_copy_from_ast(
                 .all(|pos| pos >= *min_byte && pos < *max_byte);
 
             if all_covered {
-                *min_byte = pr.start;
-                *max_byte = pr.end;
+                *min_byte = (*min_byte).min(pr.start);
+                *max_byte = (*max_byte).max(pr.end);
                 current = parent;
             } else {
                 break;
             }
         }
-    }
+    };
+
+    collapse_endpoint(source, chars, lo_span, min_byte, max_byte);
+    collapse_endpoint(source, chars, hi_span, min_byte, max_byte);
 
     // Trim trailing whitespace.
     while *max_byte > *min_byte
