@@ -111,4 +111,4 @@ required-features = ["triblespace"]
 
 [[example]]
 name = "wiki_viewer"
-required-features = ["triblespace", "markdown", "typst", "cubecl"]
+required-features = ["triblespace", "typst", "cubecl"]

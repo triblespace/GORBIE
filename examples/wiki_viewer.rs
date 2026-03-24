@@ -162,19 +162,8 @@ impl WikiLive {
             .collect()
     }
 
-    fn tag_name(&mut self, tag_id: Id) -> String {
-        find!(h: TextHandle, pattern!(&self.wiki_space, [{ tag_id @ metadata::name: ?h }]))
-            .next()
-            .map(|h| self.text(h))
-            .unwrap_or_default()
-    }
-
     fn is_archived(&self, vid: Id) -> bool {
         self.tags(vid).contains(&TAG_ARCHIVED_ID)
-    }
-
-    fn is_markdown(&mut self, vid: Id) -> bool {
-        self.tags(vid).iter().any(|t| self.tag_name(*t) == "markdown")
     }
 
     fn links(&self, vid: Id) -> Vec<Id> {
@@ -630,14 +619,9 @@ enum LinkClick {
     File(String),
 }
 
-fn render_wiki_content(ctx: &mut CardCtx<'_>, content: &str, markdown: bool) -> Option<LinkClick> {
+fn render_wiki_content(ctx: &mut CardCtx<'_>, content: &str) -> Option<LinkClick> {
     let cmd_count_before = ctx.ctx().output(|o| o.commands.len());
-
-    if markdown {
-        ctx.markdown(content);
-    } else {
-        ctx.typst(content);
-    }
+    ctx.typst(content);
 
     let mut clicked = None;
     ctx.ctx().output_mut(|o| {
@@ -777,7 +761,6 @@ fn main(nb: &mut NotebookCtx) {
             }
             let title = vid.map(|v| live.title(v)).unwrap_or_default();
             let content = vid.map(|v| live.content(v)).unwrap_or_default();
-            let is_md = vid.map(|v| live.is_markdown(v)).unwrap_or(false);
 
             ctx.push_id(frag_key, |ctx| {
                 let resp = ctx.float(|ctx| {
@@ -791,7 +774,7 @@ fn main(nb: &mut NotebookCtx) {
                         );
                         ctx.separator();
 
-                        match render_wiki_content(ctx, &content, is_md) {
+                        match render_wiki_content(ctx, &content) {
                             Some(LinkClick::Wiki(id)) => to_open_from_link.push(id),
                             Some(LinkClick::File(hex)) => {
                                 live.open_file(&hex);
