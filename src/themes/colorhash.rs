@@ -60,17 +60,29 @@ pub fn palette_index(hash: u64, palette_len: usize) -> usize {
 /// Note: Avoids `RAL 2009` (the UI accent) so selection outlines stay legible.
 pub const RAL_CATEGORICAL: &[u16] = &[
     1003, // signal yellow
+    1028, // melon yellow
     2010, // signal orange
+    2004, // pure orange
     3014, // antique pink
     3020, // traffic red
+    3004, // purple red
     4008, // signal violet
+    4005, // blue lilac
     5005, // signal blue
     5015, // sky blue
     5021, // water blue
+    5024, // pastel blue
     6018, // yellow green
     6027, // light green
     6032, // signal green
     6033, // mint turquoise
+    6017, // may green
+    1012, // lemon yellow
+    2012, // salmon orange
+    3015, // light pink
+    4009, // pastel violet
+    5012, // light blue
+    6019, // pastel green
 ];
 
 pub fn ral_categorical_from_hash(hash: u64) -> Color32 {

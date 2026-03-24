@@ -524,15 +524,15 @@ subtle visual tension that keeps the layout from feeling sterile."
 
     // Collapsible sections.
     nb.view(move |ctx| {
-        ctx.section("Parameters", |ctx| {
+        ctx.section("Configuration", |ctx| {
             ctx.label("First section content.");
             ctx.label("Click the header to collapse.");
         });
-        ctx.section("Results", |ctx| {
+        ctx.section("Output", |ctx| {
             ctx.label("Second section with different color.");
             ctx.label("Each title gets a unique RAL color.");
         });
-        ctx.section("Advanced", |ctx| {
+        ctx.section("Diagnostics", |ctx| {
             ctx.label("Third section — another color.");
         });
     });
