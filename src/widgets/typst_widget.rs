@@ -287,6 +287,7 @@ fn double_click_range(
             SyntaxKind::Strong | SyntaxKind::Emph | SyntaxKind::Equation
                 | SyntaxKind::Heading | SyntaxKind::ListItem | SyntaxKind::EnumItem
                 | SyntaxKind::TermItem | SyntaxKind::FuncCall
+                | SyntaxKind::Markup
         );
         if dominated_by(current.kind()) {
             // Found a structural node — select glyphs whose source

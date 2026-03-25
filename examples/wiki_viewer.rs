@@ -704,10 +704,6 @@ fn main(nb: &mut NotebookCtx) {
     });
 
     nb.state("browser", BrowserState::new(pile_path), move |ctx, state| {
-        // Auto-load on first frame.
-        if state.live.is_none() && state.error.is_none() {
-            state.load();
-        }
 
         ctx.grid(|g| {
             g.place(10, |ctx| {
