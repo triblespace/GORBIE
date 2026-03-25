@@ -262,14 +262,53 @@ fn nearest_glyph(chars: &[painter::PositionedChar], pos: egui::Pos2) -> Option<u
     }).map(|(i, _)| i)
 }
 
-/// Double-click: select the word at the clicked position.
-/// Walks outward from the nearest glyph to find word boundaries.
+/// Double-click: AST-aware selection at the clicked position.
+///
+/// Finds the nearest glyph, then walks up the source AST from its span
+/// to find the first "interesting" structural boundary (equation, strong,
+/// heading, list item, table cell). Falls back to word boundaries for
+/// plain text.
 fn double_click_range(
+    source: &typst::syntax::Source,
     chars: &[painter::PositionedChar],
     pos: egui::Pos2,
 ) -> Option<Range<usize>> {
+    use typst::syntax::SyntaxKind;
+
     let idx = nearest_glyph(chars, pos)?;
-    // Expand to word boundaries (non-space, non-punctuation characters).
+    let (span, _) = chars[idx].span;
+    let node = source.find(span)?;
+
+    // Walk up to the first structural node.
+    let mut current = &node;
+    loop {
+        let dominated_by = |k: SyntaxKind| matches!(
+            k,
+            SyntaxKind::Strong | SyntaxKind::Emph | SyntaxKind::Equation
+                | SyntaxKind::Heading | SyntaxKind::ListItem | SyntaxKind::EnumItem
+                | SyntaxKind::TermItem | SyntaxKind::FuncCall
+        );
+        if dominated_by(current.kind()) {
+            // Found a structural node — select glyphs whose source
+            // positions fall within this node's range.
+            let nr = current.range();
+            let lo = chars.iter().position(|ch| {
+                let (s, off) = ch.span;
+                source.range(s).map_or(false, |r| r.start + (off as usize) >= nr.start)
+            })?;
+            let hi = chars.iter().rposition(|ch| {
+                let (s, off) = ch.span;
+                source.range(s).map_or(false, |r| r.start + (off as usize) < nr.end)
+            })?;
+            return Some(lo..hi + 1);
+        }
+        match current.parent() {
+            Some(p) => current = p,
+            None => break,
+        }
+    }
+
+    // Fallback: word boundaries.
     let is_word = |i: usize| -> bool {
         let ch = chars[i].text.chars().next().unwrap_or(' ');
         ch.is_alphanumeric() || ch == '_' || ch == '-'
@@ -626,7 +665,7 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
             if response.double_clicked() {
                 if let Some(pos) = response.interact_pointer_pos() {
                     let frame_pos = pos - offset;
-                    if let Some(range) = double_click_range(chars, frame_pos) {
+                    if let Some(range) = double_click_range(state.world.main_source(), chars, frame_pos) {
                         sel.glyph_override = Some(range);
                     }
                 }

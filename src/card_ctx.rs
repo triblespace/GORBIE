@@ -137,7 +137,7 @@ impl<'a> CardCtx<'a> {
 
     // ── Section ──────────────────────────────────────────────────────
 
-    /// Collapsible section with a bold colored header.
+    /// Collapsible section with a bold colored header (open by default).
     ///
     /// The header color is deterministically assigned from the title via
     /// [`colorhash::ral_categorical`], like colored divider tabs in stationery.
@@ -154,11 +154,41 @@ impl<'a> CardCtx<'a> {
         title: &str,
         add_contents: impl FnOnce(&mut CardCtx<'_>),
     ) {
+        self.section_inner(title, true, add_contents);
+    }
+
+    /// Collapsible section that starts collapsed (closed by default).
+    ///
+    /// Identical to [`section`](Self::section) except the initial state is
+    /// collapsed. Once the user clicks to expand, their preference is
+    /// persisted just like a regular section.
+    ///
+    /// ```ignore
+    /// ctx.section_collapsed("Advanced", |ctx| {
+    ///     ctx.label("Hidden until clicked.");
+    /// });
+    /// ```
+    pub fn section_collapsed(
+        &mut self,
+        title: &str,
+        add_contents: impl FnOnce(&mut CardCtx<'_>),
+    ) {
+        self.section_inner(title, false, add_contents);
+    }
+
+    /// Shared implementation for [`section`](Self::section) and
+    /// [`section_collapsed`](Self::section_collapsed).
+    fn section_inner(
+        &mut self,
+        title: &str,
+        default_open: bool,
+        add_contents: impl FnOnce(&mut CardCtx<'_>),
+    ) {
         use crate::themes::colorhash;
 
         let id = self.ui.make_persistent_id(title);
         let mut open = self.ui.ctx().data_mut(|d| {
-            *d.get_persisted_mut_or(id, true)
+            *d.get_persisted_mut_or(id, default_open)
         });
 
         let color = colorhash::ral_categorical(title.as_bytes());

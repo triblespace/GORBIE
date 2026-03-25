@@ -277,7 +277,7 @@ fn draw_card_chrome(
         ui.set_width(card_width);
 
         let restore_clip = ui.clip_rect();
-        let screen = ui.ctx().screen_rect();
+        let screen = ui.ctx().content_rect();
         let card_clip = egui::Rect::from_min_max(
             egui::pos2(ui.min_rect().left(), restore_clip.min.y.max(screen.min.y)),
             egui::pos2(ui.min_rect().left() + card_width, restore_clip.max.y.min(screen.max.y)),
