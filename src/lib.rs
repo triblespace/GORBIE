@@ -16,16 +16,24 @@
 
 #![allow(non_snake_case)]
 
+/// Card context — the `&mut CardCtx` passed to card closures.
 pub mod card_ctx;
+/// Card trait and built-in card types (stateful, stateless).
 pub mod cards;
+/// Background computation with [`ComputedState`](dataflow::ComputedState).
 pub mod dataflow;
 pub(crate) mod floating;
 mod headless;
+/// Convenient glob import of common types and constants.
 pub mod prelude;
+/// Thread-safe state management via [`StateId`](state::StateId) handles.
 pub mod state;
+/// Telemetry dashboard (requires `telemetry` feature).
 #[cfg(feature = "telemetry")]
 pub mod telemetry;
+/// Visual themes, RAL colors, and widget style structs.
 pub mod themes;
+/// Built-in widgets: buttons, fields, sliders, progress bars, and more.
 pub mod widgets;
 
 pub use gorbie_macros::notebook;

@@ -340,6 +340,7 @@ impl<'a> Slider<'a> {
         self
     }
 
+    /// Deprecated: use [`clamping`](Self::clamping) instead.
     #[inline]
     #[deprecated = "Use `slider.clamping(…) instead"]
     pub fn clamp_to_range(self, clamp_to_range: bool) -> Self {

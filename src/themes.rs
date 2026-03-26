@@ -3,9 +3,12 @@ use egui::{
     Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style, TextStyle, Vec2, Visuals,
 };
 
+/// Widget style extraction trait.
 mod style;
 pub use style::Styled;
+/// Deterministic color hashing for categorical UI coloring.
 pub mod colorhash;
+/// RAL Classic colour table (272 colours).
 pub mod ral;
 use ral::RAL_COLORS;
 

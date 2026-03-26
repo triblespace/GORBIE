@@ -1,5 +1,7 @@
 /// Card types and helpers for building notebook content.
+/// Cards with persistent state across frames.
 pub mod stateful_card;
+/// Cards redrawn from scratch each frame (no state).
 pub mod stateless_card;
 
 pub use stateful_card::*;
