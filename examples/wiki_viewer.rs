@@ -91,11 +91,11 @@ impl WikiLive {
         let wiki_bid = find_branch(&mut repo, WIKI_BRANCH_NAME)
             .ok_or_else(|| "no 'wiki' branch found".to_string())?;
         let mut wiki_ws = repo.pull(wiki_bid).map_err(|e| format!("pull wiki: {e:?}"))?;
-        let wiki_space = wiki_ws.checkout(..).map_err(|e| format!("checkout wiki: {e:?}"))?;
+        let wiki_space = wiki_ws.checkout(..).map_err(|e| format!("checkout wiki: {e:?}"))?.into_facts();
 
         let (files_space, files_ws) = if let Some(files_bid) = find_branch(&mut repo, FILES_BRANCH_NAME) {
             let mut files_ws = repo.pull(files_bid).map_err(|e| format!("pull files: {e:?}"))?;
-            let fs = files_ws.checkout(..).map_err(|e| format!("checkout files: {e:?}"))?;
+            let fs = files_ws.checkout(..).map_err(|e| format!("checkout files: {e:?}"))?.into_facts();
             (fs, Some(files_ws))
         } else {
             eprintln!("[files] no 'files' branch found — file links will not resolve");
