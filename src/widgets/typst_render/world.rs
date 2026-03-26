@@ -8,8 +8,11 @@ use typst::{Library, LibraryExt, World};
 
 /// A resolved Typst diagnostic with byte positions and text.
 pub struct TypstDiag {
+    /// Diagnostic severity (error or warning).
     pub severity: Severity,
+    /// Human-readable diagnostic message.
     pub message: String,
+    /// Additional hint strings.
     pub hints: Vec<String>,
     /// Byte range in the full source (including preamble).
     pub span_range: Option<std::ops::Range<usize>>,
@@ -44,6 +47,7 @@ pub struct GorbieWorld {
 }
 
 impl GorbieWorld {
+    /// Creates a new world with embedded fonts and an empty source.
     pub fn new() -> Self {
         let mut book = FontBook::new();
         let mut fonts = Vec::new();

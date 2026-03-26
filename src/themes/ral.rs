@@ -1,3 +1,5 @@
+//! RAL Classic colour palette data.
+
 use egui::Color32;
 
 /// RAL Classic colours as `(number, name, Color32)`.

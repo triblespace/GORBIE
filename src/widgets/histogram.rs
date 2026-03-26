@@ -6,20 +6,28 @@ use eframe::egui::{
 
 use crate::themes::GorbieHistogramStyle;
 
+/// Determines how the Y axis is scaled and labelled.
 #[derive(Clone, Copy, Debug)]
 pub enum HistogramYAxis {
+    /// Decimal scale with K/M/B suffixes.
     Count,
+    /// Binary scale with B/KiB/MiB/GiB suffixes.
     Bytes,
 }
 
+/// A single bar in a [`Histogram`], with a numeric value, x-axis label, and optional tooltip.
 #[derive(Clone, Debug)]
 pub struct HistogramBucket<'a> {
+    /// The bucket's magnitude (bar height).
     pub value: u64,
+    /// Text shown on the x-axis beneath this bar.
     pub label: Cow<'a, str>,
+    /// Optional hover tooltip for this bar.
     pub tooltip: Option<Cow<'a, str>>,
 }
 
 impl<'a> HistogramBucket<'a> {
+    /// Create a bucket with the given value and x-axis label.
     pub fn new(value: u64, label: impl Into<Cow<'a, str>>) -> Self {
         Self {
             value,
@@ -28,6 +36,7 @@ impl<'a> HistogramBucket<'a> {
         }
     }
 
+    /// Attach a tooltip shown when hovering over this bar.
     pub fn tooltip(mut self, tooltip: impl Into<Cow<'a, str>>) -> Self {
         self.tooltip = Some(tooltip.into());
         self
@@ -153,6 +162,7 @@ fn nice_decimal_step(max_value: u64, segments: u64) -> u64 {
     10u64.saturating_mul(magnitude)
 }
 
+/// A bar chart with hatched bars, gridlines, and auto-scaled Y axis.
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct Histogram<'a> {
     buckets: &'a [HistogramBucket<'a>],
@@ -165,6 +175,7 @@ pub struct Histogram<'a> {
 }
 
 impl<'a> Histogram<'a> {
+    /// Create a histogram from a slice of buckets with the given Y axis scaling.
     pub fn new(buckets: &'a [HistogramBucket<'a>], y_axis: HistogramYAxis) -> Self {
         Self {
             buckets,
@@ -177,21 +188,25 @@ impl<'a> Histogram<'a> {
         }
     }
 
+    /// Set the total widget width. Defaults to the available UI width (min 128px).
     pub fn desired_width(mut self, desired_width: f32) -> Self {
         self.desired_width = Some(desired_width);
         self
     }
 
+    /// Set the height of the bar plot area in pixels. Default is 80.
     pub fn plot_height(mut self, plot_height: f32) -> Self {
         self.plot_height = plot_height.max(16.0);
         self
     }
 
+    /// Set the number of horizontal gridline segments on the Y axis. Default is 4.
     pub fn y_segments(mut self, segments: u64) -> Self {
         self.y_segments = segments.max(1);
         self
     }
 
+    /// Limit the number of labels shown on the X axis. Default is 7.
     pub fn max_x_labels(mut self, max_labels: usize) -> Self {
         self.max_x_labels = max_labels;
         self

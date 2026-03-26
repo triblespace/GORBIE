@@ -57,6 +57,7 @@ impl<'a> CardCtx<'a> {
         Self { ui, store }
     }
 
+    /// Returns a reference to the backing state store.
     pub fn store(&self) -> &state::StateStore {
         self.store
     }
@@ -261,6 +262,7 @@ impl<'a> CardCtx<'a> {
             })
     }
 
+    /// Horizontal layout, passing `CardCtx` instead of raw `Ui`.
     pub fn horizontal<R>(
         &mut self,
         add_contents: impl FnOnce(&mut CardCtx<'_>) -> R,
@@ -272,6 +274,7 @@ impl<'a> CardCtx<'a> {
         })
     }
 
+    /// Horizontal-wrapped layout, passing `CardCtx` instead of raw `Ui`.
     pub fn horizontal_wrapped<R>(
         &mut self,
         add_contents: impl FnOnce(&mut CardCtx<'_>) -> R,
@@ -283,6 +286,7 @@ impl<'a> CardCtx<'a> {
         })
     }
 
+    /// Vertical layout, passing `CardCtx` instead of raw `Ui`.
     pub fn vertical<R>(
         &mut self,
         add_contents: impl FnOnce(&mut CardCtx<'_>) -> R,
@@ -294,6 +298,7 @@ impl<'a> CardCtx<'a> {
         })
     }
 
+    /// Custom `egui::Layout`, passing `CardCtx` instead of raw `Ui`.
     pub fn with_layout<R>(
         &mut self,
         layout: egui::Layout,
@@ -306,6 +311,7 @@ impl<'a> CardCtx<'a> {
         })
     }
 
+    /// Push a unique id salt, passing `CardCtx` instead of raw `Ui`.
     pub fn push_id<R>(
         &mut self,
         id_salt: impl Hash,
@@ -318,6 +324,7 @@ impl<'a> CardCtx<'a> {
         })
     }
 
+    /// Collapsing header, passing `CardCtx` instead of raw `Ui`.
     pub fn collapsing<R>(
         &mut self,
         heading: impl Into<egui::WidgetText>,
@@ -330,6 +337,7 @@ impl<'a> CardCtx<'a> {
         })
     }
 
+    /// New visual scope, passing `CardCtx` instead of raw `Ui`.
     pub fn scope<R>(
         &mut self,
         add_contents: impl FnOnce(&mut CardCtx<'_>) -> R,
@@ -341,6 +349,7 @@ impl<'a> CardCtx<'a> {
         })
     }
 
+    /// Indented region, passing `CardCtx` instead of raw `Ui`.
     pub fn indent<R>(
         &mut self,
         id_salt: impl Hash,
@@ -353,6 +362,7 @@ impl<'a> CardCtx<'a> {
         })
     }
 
+    /// Visual group with frame, passing `CardCtx` instead of raw `Ui`.
     pub fn group<R>(
         &mut self,
         add_contents: impl FnOnce(&mut CardCtx<'_>) -> R,

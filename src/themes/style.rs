@@ -2,6 +2,7 @@
 
 /// Provide a per-widget override API.
 pub trait Styled {
+    /// The widget-specific style type (e.g. `GorbieSliderStyle`).
     type Style;
 
     /// Apply style in-place (mutating). Implementors should update their

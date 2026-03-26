@@ -661,6 +661,11 @@ fn lcd_text_edit(
     LcdTextEditOutput { response, changed }
 }
 
+/// A draggable numeric input with LCD-style text rendering.
+///
+/// Click to enter edit mode; drag horizontally to adjust the value.
+/// Supports prefix/suffix labels, decimal precision control, and
+/// custom formatting/parsing.
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct NumberField<'a, Num: egui::emath::Numeric> {
     value: &'a mut Num,
@@ -677,6 +682,7 @@ pub struct NumberField<'a, Num: egui::emath::Numeric> {
 }
 
 impl<'a, Num: egui::emath::Numeric> NumberField<'a, Num> {
+    /// Create a number field bound to `value`.
     pub fn new(value: &'a mut Num) -> Self {
         Self {
             value,
@@ -702,46 +708,56 @@ impl<'a, Num: egui::emath::Numeric> NumberField<'a, Num> {
         self
     }
 
+    /// Set the drag speed (value change per pixel of horizontal drag). Default is 1.0.
     pub fn speed(mut self, speed: f64) -> Self {
         self.speed = speed;
         self
     }
 
+    /// Display a fixed prefix before the number (e.g. "$").
     pub fn prefix(mut self, prefix: impl Into<String>) -> Self {
         self.prefix = prefix.into();
         self
     }
 
+    /// Display a fixed suffix after the number (e.g. " Hz").
     pub fn suffix(mut self, suffix: impl Into<String>) -> Self {
         self.suffix = suffix.into();
         self
     }
 
+    /// Set the minimum number of decimal places shown.
     pub fn min_decimals(mut self, min_decimals: usize) -> Self {
         self.min_decimals = min_decimals;
         self
     }
 
+    /// Set the maximum number of decimal places shown.
     pub fn max_decimals(mut self, max_decimals: usize) -> Self {
         self.max_decimals = Some(max_decimals);
         self
     }
 
+    /// Optionally set the maximum number of decimal places. `None` uses the automatic default.
     pub fn max_decimals_opt(mut self, max_decimals: Option<usize>) -> Self {
         self.max_decimals = max_decimals;
         self
     }
 
+    /// If `true` (default), commit the parsed value on every keystroke while editing.
+    /// If `false`, only commit when the field loses focus.
     pub fn update_while_editing(mut self, update: bool) -> Self {
         self.update_while_editing = update;
         self
     }
 
+    /// Use a custom function to format the numeric value for display.
     pub fn custom_formatter(mut self, formatter: &'a NumFormatter) -> Self {
         self.custom_formatter = Some(formatter);
         self
     }
 
+    /// Use a custom function to parse user-entered text into a numeric value.
     pub fn custom_parser(mut self, parser: &'a NumParser<'a>) -> Self {
         self.custom_parser = Some(parser);
         self
@@ -1003,6 +1019,9 @@ impl<Num: egui::emath::Numeric> crate::themes::Styled for NumberField<'_, Num> {
     }
 }
 
+/// A text input field with LCD-style rendering and block cursor.
+///
+/// Supports single-line and multi-line modes, with optional progress bar scanline.
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct TextField<'a> {
     text: &'a mut dyn egui::TextBuffer,
@@ -1014,6 +1033,7 @@ pub struct TextField<'a> {
 }
 
 impl<'a> TextField<'a> {
+    /// Create a single-line text field.
     pub fn singleline(text: &'a mut dyn egui::TextBuffer) -> Self {
         Self {
             text,
@@ -1025,6 +1045,7 @@ impl<'a> TextField<'a> {
         }
     }
 
+    /// Create a multi-line text field.
     pub fn multiline(text: &'a mut dyn egui::TextBuffer) -> Self {
         Self {
             text,
@@ -1043,11 +1064,13 @@ impl<'a> TextField<'a> {
         self
     }
 
+    /// Set the minimum number of visible text rows (multi-line only).
     pub fn rows(mut self, rows: usize) -> Self {
         self.rows = Some(rows.max(1));
         self
     }
 
+    /// Clamp the field height to at most this many rows.
     pub fn max_rows(mut self, rows: usize) -> Self {
         self.max_rows = Some(rows.max(1));
         self

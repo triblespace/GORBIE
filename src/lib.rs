@@ -92,6 +92,10 @@ enum CardIdentityKey {
     Custom,
 }
 
+/// Command template for opening source files in an external editor.
+///
+/// Argument strings may contain `{file}`, `{line}`, and `{column}` placeholders
+/// that are expanded when a card's source location is opened.
 #[derive(Clone, Debug)]
 pub struct EditorCommand {
     program: String,
@@ -99,6 +103,7 @@ pub struct EditorCommand {
 }
 
 impl EditorCommand {
+    /// Creates a new editor command with the given program name.
     pub fn new(program: impl Into<String>) -> Self {
         Self {
             program: program.into(),
@@ -106,6 +111,8 @@ impl EditorCommand {
         }
     }
 
+    /// Appends an argument to the command. Supports `{file}`, `{line}`, and
+    /// `{column}` placeholders.
     pub fn arg(mut self, arg: impl Into<String>) -> Self {
         self.args.push(arg.into());
         self
@@ -228,6 +235,10 @@ impl Default for NotebookConfig {
 }
 
 impl NotebookConfig {
+    /// Creates a new configuration with the given application title.
+    ///
+    /// The editor command is auto-detected from the `GORBIE_EDITOR` environment
+    /// variable; use [`with_editor`](Self::with_editor) to override.
     pub fn new(name: impl Into<String>) -> Self {
         let title = name.into();
         Self {
@@ -238,11 +249,13 @@ impl NotebookConfig {
         }
     }
 
+    /// Overrides the editor command used for "open in editor" buttons.
     pub fn with_editor(mut self, editor: EditorCommand) -> Self {
         self.editor = Some(editor);
         self
     }
 
+    /// Enables headless capture mode, rendering each card to a PNG in `output_dir`.
     pub fn with_headless_capture(mut self, output_dir: impl Into<PathBuf>) -> Self {
         let settle_timeout = self
             .headless_settle_timeout
@@ -256,6 +269,8 @@ impl NotebookConfig {
         self
     }
 
+    /// Like [`with_headless_capture`](Self::with_headless_capture), but with a
+    /// custom `pixels_per_point` scaling factor for the rendered output.
     pub fn with_headless_capture_scaled(
         mut self,
         output_dir: impl Into<PathBuf>,
@@ -278,6 +293,8 @@ impl NotebookConfig {
         self
     }
 
+    /// Sets the settle timeout for headless capture. The renderer waits up to
+    /// this duration for the UI to stabilize before capturing.
     pub fn with_headless_settle_timeout(mut self, timeout: Duration) -> Self {
         self.headless_settle_timeout = Some(timeout);
         if let Some(headless) = &mut self.headless_capture {
@@ -290,6 +307,11 @@ impl NotebookConfig {
         egui::Id::new(("gorbie_notebook_state", self.title.as_str()))
     }
 
+    /// Launches the notebook application.
+    ///
+    /// The `body` closure is called once per frame to populate cards. In headless
+    /// mode the cards are rendered to PNGs and the process exits; otherwise an
+    /// interactive window is opened.
     pub fn run(self, body: impl FnMut(&mut NotebookCtx) + 'static) -> eframe::Result {
         let config = self;
         if let Some(headless) = config.headless_capture.clone() {
@@ -412,6 +434,7 @@ impl NotebookCtx {
         self.settled.store(true, Ordering::Relaxed);
     }
 
+    /// Adds a stateless card whose content is drawn by `function` each frame.
     #[track_caller]
     pub fn view<F>(&mut self, function: F)
     where
@@ -426,6 +449,11 @@ impl NotebookCtx {
         self.push_with_source(Box::new(card), Some(source), identity);
     }
 
+    /// Adds a stateful card backed by a value of type `T` in the shared state store.
+    ///
+    /// The state is initialized with `init` on first use and persists across frames.
+    /// Returns a [`StateId`](state::StateId) handle for reading/writing the state
+    /// from other cards.
     #[track_caller]
     pub fn state<K, T, F>(&mut self, key: &K, init: T, function: F) -> state::StateId<T>
     where
@@ -448,6 +476,7 @@ impl NotebookCtx {
         handle
     }
 
+    /// Adds a pre-built [`Card`](cards::Card) trait object to the notebook.
     pub fn push(&mut self, card: Box<dyn cards::Card>) {
         let identity = self.card_identity(CardIdentityKey::Custom);
         self.push_with_source(card, None, identity);

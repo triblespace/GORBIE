@@ -13,10 +13,12 @@ impl Fnv1a64 {
     const OFFSET_BASIS: u64 = 1469598103934665603;
     const PRIME: u64 = 1099511628211;
 
+    /// Create a hasher initialized with the FNV-1a offset basis.
     pub fn new() -> Self {
         Self(Self::OFFSET_BASIS)
     }
 
+    /// Feed a byte slice into the running hash.
     pub fn update(&mut self, bytes: &[u8]) {
         let mut hash = self.0;
         for b in bytes {
@@ -26,10 +28,12 @@ impl Fnv1a64 {
         self.0 = hash;
     }
 
+    /// Feed a `u64` (little-endian) into the running hash.
     pub fn update_u64(&mut self, value: u64) {
         self.update(&value.to_le_bytes());
     }
 
+    /// Consume the hasher and return the final 64-bit digest.
     pub fn finish(self) -> u64 {
         self.0
     }
@@ -41,12 +45,14 @@ impl Default for Fnv1a64 {
     }
 }
 
+/// One-shot FNV-1a hash of a byte slice, returning a 64-bit digest.
 pub fn hash64(bytes: &[u8]) -> u64 {
     let mut h = Fnv1a64::new();
     h.update(bytes);
     h.finish()
 }
 
+/// Map a hash value to an index in a palette of the given length.
 pub fn palette_index(hash: u64, palette_len: usize) -> usize {
     if palette_len == 0 {
         0
@@ -85,10 +91,12 @@ pub const RAL_CATEGORICAL: &[u16] = &[
     6019, // pastel green
 ];
 
+/// Pick a color from [`RAL_CATEGORICAL`] using a pre-computed hash.
 pub fn ral_categorical_from_hash(hash: u64) -> Color32 {
     ral_from_hash_in_palette(hash, RAL_CATEGORICAL)
 }
 
+/// Pick a RAL color from an arbitrary palette slice using a pre-computed hash.
 pub fn ral_from_hash_in_palette(hash: u64, palette: &[u16]) -> Color32 {
     if palette.is_empty() {
         return themes::ral(9011);
@@ -97,10 +105,12 @@ pub fn ral_from_hash_in_palette(hash: u64, palette: &[u16]) -> Color32 {
     themes::ral(palette[idx])
 }
 
+/// Hash a byte slice and return a categorical RAL color.
 pub fn ral_categorical(bytes: &[u8]) -> Color32 {
     ral_categorical_from_hash(hash64(bytes))
 }
 
+/// Hash a two-part string key (null-separated) and return a categorical RAL color.
 pub fn ral_categorical_key(a: &str, b: &str) -> Color32 {
     let mut h = Fnv1a64::new();
     h.update(a.as_bytes());
@@ -109,6 +119,7 @@ pub fn ral_categorical_key(a: &str, b: &str) -> Color32 {
     ral_categorical_from_hash(h.finish())
 }
 
+/// Approximate perceptual luminance of a color in sRGB space (0.0 = black, 1.0 = white).
 pub fn luma(color: Color32) -> f32 {
     // Cheap, perceptual-ish luma in sRGB space.
     let r = color.r() as f32 / 255.0;
@@ -117,6 +128,7 @@ pub fn luma(color: Color32) -> f32 {
     0.299 * r + 0.587 * g + 0.114 * b
 }
 
+/// Return black or white text depending on the background's luminance.
 pub fn text_color_on(background: Color32) -> Color32 {
     if luma(background) > 0.55 {
         Color32::BLACK

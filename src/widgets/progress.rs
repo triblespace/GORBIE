@@ -24,6 +24,7 @@ impl MeterZone {
     }
 }
 
+/// Segmented progress/meter bar with optional scale labels and color zones.
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct ProgressBar {
     progress: f32,

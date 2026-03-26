@@ -2,6 +2,7 @@ use crate::cards::Card;
 use crate::CardCtx;
 use crate::NotebookCtx;
 
+/// A card with no persistent state; redrawn from scratch each frame.
 pub struct StatelessCard {
     function: Box<dyn for<'a, 'b> FnMut(&'a mut CardCtx<'b>)>,
 }
@@ -20,6 +21,7 @@ impl Card for StatelessCard {
     }
 }
 
+/// Creates a stateless card that runs `function` each frame with no retained state.
 #[track_caller]
 pub fn stateless_card(
     nb: &mut NotebookCtx,

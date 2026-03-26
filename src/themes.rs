@@ -12,105 +12,165 @@ use ral::RAL_COLORS;
 /// Gorbie-specific semantic style for the custom slider widget.
 #[derive(Clone, Debug)]
 pub struct GorbieSliderStyle {
+    /// Background color of the slider rail.
     pub rail_bg: Color32,
+    /// Fill color of the slider rail (trailing fill).
     pub rail_fill: Color32,
+    /// Color of the slider knob.
     pub knob: Color32,
+    /// Drop shadow color.
     pub shadow: Color32,
+    /// Drop shadow offset in pixels.
     pub shadow_offset: Vec2,
+    /// Extra radius added to the knob beyond its default size.
     pub knob_extra_radius: f32,
 }
 
 /// Gorbie-specific semantic style for the `Button` widget.
 #[derive(Clone, Debug)]
 pub struct GorbieButtonStyle {
+    /// Button face fill color.
     pub fill: Color32,
+    /// Border/outline color.
     pub outline: Color32,
+    /// Accent color for focus/hover highlights.
     pub accent: Color32,
+    /// Drop shadow color.
     pub shadow: Color32,
+    /// Drop shadow offset in pixels.
     pub shadow_offset: Vec2,
+    /// Corner rounding radius.
     pub rounding: f32,
 }
 
 /// Gorbie-specific semantic style for the `ToggleButton` widget.
 #[derive(Clone, Debug)]
 pub struct GorbieToggleButtonStyle {
+    /// Button face fill color.
     pub fill: Color32,
+    /// Border/outline color.
     pub outline: Color32,
+    /// Accent color for focus/hover highlights.
     pub accent: Color32,
+    /// Drop shadow color.
     pub shadow: Color32,
+    /// Drop shadow offset in pixels.
     pub shadow_offset: Vec2,
+    /// Corner rounding radius.
     pub rounding: f32,
+    /// Background color of the LED rail.
     pub rail_bg: Color32,
+    /// LED color when the toggle is on.
     pub led_on: Color32,
+    /// Blend factor toward fill when the LED is off (0.0 = rail_bg, 1.0 = fill).
     pub led_off_towards_fill: f32,
 }
 
 /// Gorbie-specific semantic style for the `ChoiceToggle` widget.
 #[derive(Clone, Debug)]
 pub struct GorbieChoiceToggleStyle {
+    /// Button face fill color.
     pub fill: Color32,
+    /// Border/outline color.
     pub outline: Color32,
+    /// Accent color for focus/hover highlights.
     pub accent: Color32,
+    /// Drop shadow color.
     pub shadow: Color32,
+    /// Drop shadow offset in pixels.
     pub shadow_offset: Vec2,
+    /// Corner rounding of the outer slot.
     pub slot_rounding: f32,
+    /// Corner rounding of individual segments.
     pub segment_rounding: u8,
+    /// Background color of the rail behind segments.
     pub rail_bg: Color32,
+    /// Gap between adjacent segments in pixels.
     pub segment_gap: f32,
+    /// LED color when the segment is selected.
     pub led_on: Color32,
+    /// Blend factor toward fill when the LED is off.
     pub led_off_towards_fill: f32,
 }
 
 /// Gorbie-specific semantic style for the `RadioButton` widget.
 #[derive(Clone, Debug)]
 pub struct GorbieRadioStyle {
+    /// Button face fill color.
     pub fill: Color32,
+    /// Border/outline color.
     pub outline: Color32,
+    /// Accent color for focus/hover highlights.
     pub accent: Color32,
+    /// Drop shadow color.
     pub shadow: Color32,
+    /// Drop shadow offset in pixels.
     pub shadow_offset: Vec2,
+    /// Corner rounding radius.
     pub rounding: f32,
+    /// Background color of the radio indicator rail.
     pub rail_bg: Color32,
+    /// Indicator color when selected.
     pub indicator_on: Color32,
+    /// Blend factor toward fill when the indicator is off.
     pub indicator_off_towards_fill: f32,
 }
 
 /// Gorbie-specific semantic style for the `ProgressBar` widget.
 #[derive(Clone, Debug)]
 pub struct GorbieProgressBarStyle {
+    /// Background color of the progress rail.
     pub rail_bg: Color32,
+    /// Border/outline color.
     pub outline: Color32,
+    /// Accent color for focus/hover highlights.
     pub accent: Color32,
+    /// Blend factor toward outline for unlit segments.
     pub off_towards_outline: f32,
+    /// Inset in pixels between the slot border and the fill area.
     pub fill_inset: f32,
 }
 
 /// Gorbie-specific semantic style for the `Histogram` widget.
 #[derive(Clone, Debug)]
 pub struct GorbieHistogramStyle {
+    /// Border/outline color.
     pub outline: Color32,
+    /// Foreground ink color for bars and labels.
     pub ink: Color32,
+    /// Grid line color.
     pub grid: Color32,
+    /// Accent color for highlighted bars.
     pub accent: Color32,
 }
 
 /// Gorbie-specific semantic style for the `TextField` widget.
 #[derive(Clone, Debug)]
 pub struct GorbieTextFieldStyle {
+    /// Background fill color of the text field.
     pub fill: Color32,
+    /// Border/outline color.
     pub outline: Color32,
+    /// Accent color for the cursor and selection.
     pub accent: Color32,
+    /// Corner rounding radius.
     pub rounding: f32,
+    /// Height of the LCD scanline overlay effect.
     pub scanline_height: f32,
 }
 
 /// Gorbie-specific semantic style for the `NumberField` widget.
 #[derive(Clone, Debug)]
 pub struct GorbieNumberFieldStyle {
+    /// Background fill color of the number field.
     pub fill: Color32,
+    /// Border/outline color.
     pub outline: Color32,
+    /// Accent color for the cursor and selection.
     pub accent: Color32,
+    /// Corner rounding radius.
     pub rounding: f32,
+    /// Height of the LCD scanline overlay effect.
     pub scanline_height: f32,
 }
 
@@ -128,6 +188,7 @@ pub fn slider_style(_dark_mode: bool) -> GorbieSliderStyle {
     }
 }
 
+/// The "on" indicator color for button LEDs (RAL 2005, luminous orange).
 pub fn button_light_on() -> Color32 {
     ral(2005)
 }
@@ -257,7 +318,9 @@ impl From<&Style> for GorbieNumberFieldStyle {
     }
 }
 
-// Color utilities: simple sRGB linear interpolation for quick palette derivation
+/// Linearly interpolate between two colors in sRGB space.
+///
+/// `t = 0.0` returns `a`, `t = 1.0` returns `b`.
 pub fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
     let r = (a.r() as f32 * (1.0 - t) + b.r() as f32 * t).round() as u8;
     let g = (a.g() as f32 * (1.0 - t) + b.g() as f32 * t).round() as u8;
@@ -265,6 +328,7 @@ pub fn blend(a: Color32, b: Color32, t: f32) -> Color32 {
     Color32::from_rgb(r, g, bch)
 }
 
+/// Look up a RAL Classic color by its number, returning black if not found.
 pub fn ral(num: u16) -> Color32 {
     RAL_COLORS
         .iter()
@@ -369,6 +433,7 @@ pub fn industrial(
     base_visuals
 }
 
+/// Complete light-mode egui `Style` using the industrial RAL palette.
 pub fn industrial_light() -> Style {
     let mut style = Style {
         text_styles: industrial_text_styles().into_iter().collect(),
@@ -394,6 +459,7 @@ pub fn industrial_light() -> Style {
     style
 }
 
+/// Complete dark-mode egui `Style` using the industrial RAL palette.
 pub fn industrial_dark() -> Style {
     let mut style = Style {
         text_styles: industrial_text_styles().into_iter().collect(),
@@ -419,6 +485,7 @@ pub fn industrial_dark() -> Style {
     style
 }
 
+/// Font definitions for the industrial theme (IosevkaGorbie + LCD).
 pub fn industrial_fonts() -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
 

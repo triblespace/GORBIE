@@ -3,6 +3,10 @@ use crate::themes::GorbieToggleButtonStyle;
 use crate::widgets::Button;
 use eframe::egui;
 
+/// Show a toggle button that spawns `action` in the background on click.
+///
+/// While the task is running the LED pulses; the returned reference gives
+/// access to the current (or most recently completed) value.
 pub fn load_button<'a, T: Send + 'static>(
     ui: &mut egui::Ui,
     value: &'a mut ComputedState<T>,
@@ -35,6 +39,10 @@ pub fn load_button<'a, T: Send + 'static>(
     value.value_mut()
 }
 
+/// Automatically spawn `action` when `should_spawn` returns `true` for the current value.
+///
+/// Unlike [`load_button`], this has no UI element -- it just manages background computation
+/// and returns a mutable reference to the current value.
 pub fn load_auto<'a, T: Send + 'static>(
     ui: &mut egui::Ui,
     value: &'a mut ComputedState<T>,

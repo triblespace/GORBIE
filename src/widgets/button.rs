@@ -26,6 +26,7 @@ pub struct Button<'a> {
 }
 
 impl<'a> Button<'a> {
+    /// Create a new momentary button with the given label text.
     pub fn new(text: impl Into<WidgetText>) -> Self {
         Self {
             text: text.into(),
@@ -45,21 +46,25 @@ impl<'a> Button<'a> {
         self
     }
 
+    /// Mark the button as visually selected (accent-colored outline).
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
         self
     }
 
+    /// Override the button's background fill color.
     pub fn fill(mut self, fill: Color32) -> Self {
         self.fill = Some(fill);
         self
     }
 
+    /// Set the LED indicator color. When set, a thin LED strip is drawn at the top of the button.
     pub fn light(mut self, color: Color32) -> Self {
         self.light = Some(color);
         self
     }
 
+    /// Hold the button visually pressed (e.g. while an action is in progress).
     pub fn latched(mut self, latched: bool) -> Self {
         self.latched = latched;
         self
@@ -222,6 +227,10 @@ impl crate::themes::Styled for Button<'_> {
 }
 
 
+/// A radio button that selects one value from a group.
+///
+/// Click sets `value` to the given `option`. The selected state is shown with
+/// an accent outline and a lit indicator dot.
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct RadioButton<'a, T> {
     value: &'a mut T,
@@ -234,6 +243,7 @@ pub struct RadioButton<'a, T> {
 }
 
 impl<'a, T> RadioButton<'a, T> {
+    /// Create a radio button that sets `value` to `option` when clicked.
     pub fn new(value: &'a mut T, option: T, text: impl Into<WidgetText>) -> Self {
         Self {
             value,
@@ -252,11 +262,13 @@ impl<'a, T> RadioButton<'a, T> {
         self
     }
 
+    /// Override the indicator's background fill color.
     pub fn fill(mut self, fill: Color32) -> Self {
         self.fill = Some(fill);
         self
     }
 
+    /// Override the indicator dot color when selected.
     pub fn light(mut self, color: Color32) -> Self {
         self.light = Some(color);
         self
@@ -425,6 +437,10 @@ struct ChoiceToggleOption<T> {
     text: WidgetText,
 }
 
+/// A segmented selector where each option is a labelled button in a shared rail.
+///
+/// Only one option is active at a time. The active segment is shown pressed with
+/// a lit LED strip; inactive segments sit raised.
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct ChoiceToggle<'a, T> {
     value: &'a mut T,
@@ -436,6 +452,7 @@ pub struct ChoiceToggle<'a, T> {
 }
 
 impl<'a, T> ChoiceToggle<'a, T> {
+    /// Create an empty choice toggle bound to `value`. Add options with [`Self::choice`].
     pub fn new(value: &'a mut T) -> Self {
         Self {
             value,
@@ -447,6 +464,7 @@ impl<'a, T> ChoiceToggle<'a, T> {
         }
     }
 
+    /// Append a selectable option with the given value and label.
     pub fn choice(mut self, value: T, text: impl Into<WidgetText>) -> Self {
         self.options.push(ChoiceToggleOption {
             value,
@@ -461,11 +479,13 @@ impl<'a, T> ChoiceToggle<'a, T> {
         self
     }
 
+    /// Override the segment background fill color.
     pub fn fill(mut self, fill: Color32) -> Self {
         self.fill = Some(fill);
         self
     }
 
+    /// Override the LED indicator color for the active segment.
     pub fn light(mut self, color: Color32) -> Self {
         self.light = Some(color);
         self

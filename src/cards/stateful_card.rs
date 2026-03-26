@@ -7,6 +7,7 @@ use crate::NotebookCtx;
 
 type StatefulCardFn<T> = dyn for<'a, 'b> FnMut(&'a mut CardCtx<'b>, &mut T);
 
+/// A card that owns persistent state of type `T` across frames.
 pub struct StatefulCard<T> {
     state: StateId<T>,
     function: Box<StatefulCardFn<T>>,
@@ -31,6 +32,9 @@ impl<T: Send + Sync + 'static> Card for StatefulCard<T> {
     }
 }
 
+/// Creates a card with persistent state keyed by `key`, initialized with `init`.
+///
+/// Returns a [`StateId`] handle that can be used to read the state from other cards.
 #[track_caller]
 pub fn stateful_card<K, T>(
     nb: &mut NotebookCtx,

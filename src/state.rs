@@ -8,9 +8,15 @@ use parking_lot::RawRwLock;
 use parking_lot::RwLock;
 
 
+/// Shared read guard returned by [`StateStore::read`] and [`StateId::read`].
 pub type ArcReadGuard<T> = parking_lot::lock_api::ArcRwLockReadGuard<RawRwLock, T>;
+/// Shared write guard returned by [`StateStore::read_mut`] and [`StateId::read_mut`].
 pub type ArcWriteGuard<T> = parking_lot::lock_api::ArcRwLockWriteGuard<RawRwLock, T>;
 
+/// Type-erased, thread-safe store that holds all notebook state values.
+///
+/// Values are keyed by [`StateId`] and stored behind `Arc<RwLock<T>>` so they
+/// can be shared across cards and frames without cloning the inner data.
 #[derive(Debug, Default)]
 pub struct StateStore {
     states: RwLock<HashMap<egui::Id, Arc<dyn Any + Send + Sync>>>,
@@ -91,6 +97,10 @@ impl StateStore {
     }
 }
 
+/// Typed handle for a value stored in a [`StateStore`].
+///
+/// Cheap to copy and safe to pass between cards. The type parameter `T`
+/// prevents accidental access to the wrong type at compile time.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct StateId<T> {
     id: egui::Id,
@@ -124,22 +134,27 @@ impl<T> StateId<T> {
 /// [`NotebookCtx`](crate::NotebookCtx) (in the notebook body) implement
 /// this, so [`StateId::read`] and friends work uniformly with either.
 pub trait StateAccess {
+    /// Returns a reference to the backing [`StateStore`].
     fn store(&self) -> &StateStore;
 }
 
 impl<T: Send + Sync + 'static> StateId<T> {
+    /// Acquires a read guard on the state value. Panics if the state is missing.
     pub fn read(self, ctx: &impl StateAccess) -> ArcReadGuard<T> {
         ctx.store().read(self)
     }
 
+    /// Acquires a read guard if the state exists and is not write-locked.
     pub fn try_read(self, ctx: &impl StateAccess) -> Option<ArcReadGuard<T>> {
         ctx.store().try_read(self)
     }
 
+    /// Acquires a write guard on the state value. Panics if the state is missing.
     pub fn read_mut(self, ctx: &impl StateAccess) -> ArcWriteGuard<T> {
         ctx.store().read_mut(self)
     }
 
+    /// Acquires a write guard if the state exists and is not locked.
     pub fn try_read_mut(self, ctx: &impl StateAccess) -> Option<ArcWriteGuard<T>> {
         ctx.store().try_read_mut(self)
     }

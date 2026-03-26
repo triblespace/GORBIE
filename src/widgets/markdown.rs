@@ -36,6 +36,10 @@ fn ensure_ral_syntax_themes(cache: &mut CommonMarkCache) {
     });
 }
 
+/// Render a markdown string into the UI with RAL-themed syntax highlighting.
+///
+/// Uses a thread-local [`CommonMarkCache`] so repeated calls within the same
+/// frame are cheap.
 pub fn markdown(ui: &mut egui::Ui, text: &str) {
     // Use a thread-local cache (no locking) and render the formatted markdown.
     GORBIE_MD_CACHE.with(|c| {
@@ -48,6 +52,12 @@ pub fn markdown(ui: &mut egui::Ui, text: &str) {
     });
 }
 
+/// Render a formatted markdown string as a full-width grid cell.
+///
+/// Accepts `format!`-style arguments:
+/// ```ignore
+/// md!(ctx, "**Count:** {}", count);
+/// ```
 #[macro_export]
 macro_rules! md {
     ($ctx:expr, $fmt:expr $(, $args:expr)*) => {

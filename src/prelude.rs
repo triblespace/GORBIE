@@ -1,4 +1,4 @@
-// Preludes: re-export commonly used items for convenience
+//! Re-exports commonly used types, constants, and helpers for convenient glob imports.
 pub use crate::widgets;
 
 // Re-export macros and helpers

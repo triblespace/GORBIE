@@ -88,7 +88,9 @@ struct SliderSpec {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub enum SliderOrientation {
+    /// Slider runs left to right.
     Horizontal,
+    /// Slider runs bottom to top.
     Vertical,
 }
 
@@ -183,6 +185,7 @@ impl<'a> Slider<'a> {
         }
     }
 
+    /// Creates a slider from a get/set closure operating on `f64` values.
     pub fn from_get_set(
         range: RangeInclusive<f64>,
         get_set_value: impl 'a + FnMut(Option<f64>) -> f64,
@@ -245,6 +248,7 @@ impl<'a> Slider<'a> {
         self
     }
 
+    /// Set the color of the slider text label.
     #[inline]
     pub fn text_color(mut self, text_color: Color32) -> Self {
         self.text = self.text.color(text_color);
@@ -403,6 +407,7 @@ impl<'a> Slider<'a> {
         self
     }
 
+    /// Like [`Self::max_decimals`], but accepts an `Option` (pass `None` for automatic).
     #[inline]
     pub fn max_decimals_opt(mut self, max_decimals: Option<usize>) -> Self {
         self.max_decimals = max_decimals;
