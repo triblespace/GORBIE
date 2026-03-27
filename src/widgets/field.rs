@@ -42,8 +42,17 @@ fn paint_scanline(painter: &egui::Painter, rect: Rect, color: Color32, height: f
 }
 
 /// Paint a progress bar in the scanline area.
-/// `fraction` is 0.0..=1.0 — the filled portion.
-fn paint_progress_scanline(painter: &egui::Painter, rect: Rect, color: Color32, height: f32, fraction: f32) {
+///
+/// `range` is a `start..end` pair in 0.0..=1.0 — the filled portion
+/// of the bar. For example, `0.0..0.5` fills the left half;
+/// `0.3..0.7` fills a centered segment (useful for bounce animations).
+fn paint_progress_scanline(
+    painter: &egui::Painter,
+    rect: Rect,
+    color: Color32,
+    height: f32,
+    range: std::ops::Range<f32>,
+) {
     let inset = 2.0;
     let available_h = (rect.height() - inset * 2.0).max(0.0);
     let height = height.min(available_h);
@@ -68,9 +77,12 @@ fn paint_progress_scanline(painter: &egui::Painter, rect: Rect, color: Color32, 
     }
 
     // Filled portion.
-    let fill_w = total_w * fraction.clamp(0.0, 1.0);
-    if fill_w > 0.0 {
-        let fill_rect = Rect::from_min_max(pos2(left, y0), pos2(left + fill_w, y1));
+    let start = range.start.clamp(0.0, 1.0);
+    let end = range.end.clamp(0.0, 1.0);
+    let x0 = left + total_w * start.min(end);
+    let x1 = left + total_w * start.max(end);
+    if x1 > x0 {
+        let fill_rect = Rect::from_min_max(pos2(x0, y0), pos2(x1, y1));
         painter.rect_filled(fill_rect, 0.0, color);
     }
 }
@@ -269,7 +281,7 @@ fn lcd_text_edit(
     max_rows: Option<usize>,
     align: Align2,
     style: &LcdStyle,
-    progress: Option<f32>,
+    progress: Option<std::ops::Range<f32>>,
 ) -> LcdTextEditOutput {
     let interactive = ui.is_enabled() && text.is_mutable();
     let event_filter = default_event_filter();
@@ -640,15 +652,15 @@ fn lcd_text_edit(
             }
         }
 
-        if let Some(fraction) = progress {
-            paint_progress_scanline(ui.painter(), outer_rect, ink, scanline_height, fraction);
+        if let Some(range) = &progress {
+            paint_progress_scanline(ui.painter(), outer_rect, ink, scanline_height, range.clone());
         } else {
             paint_scanline(ui.painter(), outer_rect, ink, scanline_height);
         }
     } else {
         text_painter.galley(galley_pos, galley.clone(), text_color);
-        if let Some(fraction) = progress {
-            paint_progress_scanline(ui.painter(), outer_rect, ink, scanline_height, fraction);
+        if let Some(range) = &progress {
+            paint_progress_scanline(ui.painter(), outer_rect, ink, scanline_height, range.clone());
         }
     }
 
@@ -1029,7 +1041,7 @@ pub struct TextField<'a> {
     gorbie_style: Option<GorbieTextFieldStyle>,
     rows: Option<usize>,
     max_rows: Option<usize>,
-    progress: Option<f32>,
+    progress: Option<std::ops::Range<f32>>,
 }
 
 impl<'a> TextField<'a> {
@@ -1057,9 +1069,15 @@ impl<'a> TextField<'a> {
         }
     }
 
-    /// Show a progress bar in the scanline area (0.0..=1.0).
-    /// `None` = no progress bar, `Some(fraction)` = filled to that fraction.
-    pub fn progress(mut self, progress: Option<f32>) -> Self {
+    /// Show a progress bar in the scanline area.
+    ///
+    /// The range `start..end` specifies which portion of the bar is filled,
+    /// with values in 0.0..=1.0. Examples:
+    /// - `Some(0.0..0.5)` — left half filled (classic progress)
+    /// - `Some(0.3..0.7)` — centered segment (bounce animation)
+    /// - `Some(0.0..1.0)` — fully filled
+    /// - `None` — no progress bar
+    pub fn progress(mut self, progress: Option<std::ops::Range<f32>>) -> Self {
         self.progress = progress;
         self
     }
