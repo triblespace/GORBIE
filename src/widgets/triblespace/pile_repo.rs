@@ -97,6 +97,7 @@ impl PileRepoState {
     pub fn close(&mut self) {
         self.open_path = None;
         self.last_error = None;
+        self.opener = ComputedState::new(None);
         if let Some(repo) = self.repo.take() {
             let _ = repo.close();
         }
