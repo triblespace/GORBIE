@@ -721,6 +721,9 @@ impl eframe::App for Notebook {
 
                                 ui.add_space(12.0);
 
+                                let default_item_spacing = ui.style().spacing.item_spacing;
+                                ui.style_mut().spacing.item_spacing.y = 0.0;
+
                                 // Separator between header and first card.
                                 {
                                     let (gap_rect, _) = ui.allocate_exact_size(
@@ -733,9 +736,6 @@ impl eframe::App for Notebook {
 
                                 runtime.sync_len(notebook.cards.len());
                                 let store = notebook.state_store.clone();
-
-                                let default_item_spacing = ui.style().spacing.item_spacing;
-                                ui.style_mut().spacing.item_spacing.y = 0.0;
                                 let cards_len = notebook.cards.len();
                                 for (i, entry) in notebook.cards.iter_mut().enumerate() {
                                     let card_identity = entry.identity;

@@ -235,10 +235,7 @@ impl<'a> CardCtx<'a> {
 
         self.ui.spacing_mut().item_spacing.y = prev_spacing;
         if open {
-            self.with_padding(
-                egui::Margin::symmetric(0, GRID_ROW_MODULE as i8),
-                add_contents,
-            );
+            add_contents(self);
         }
     }
 
@@ -402,7 +399,6 @@ impl<'a> CardCtx<'a> {
             ui: self.ui,
             store,
             left,
-            grid_top: top,
             cursor: 0,
             row_top: top,
             row_max_bottom: top,
@@ -511,8 +507,6 @@ pub struct Grid<'ui, 'store> {
     store: &'store state::StateStore,
     /// Left edge of the grid (pixel x).
     left: f32,
-    /// Top of the entire grid (pixel y), used as origin for vertical snapping.
-    grid_top: f32,
     /// Current column within the row (0..GRID_COLUMNS).
     cursor: u32,
     /// Top of the current row (pixel y).
@@ -637,12 +631,9 @@ impl<'ui, 'store> Grid<'ui, 'store> {
         pending_complete || overflow
     }
 
-    /// Start a new row, snapping the y position to the next vertical module.
+    /// Start a new row with one module (12px) of vertical gutter.
     fn new_row(&mut self) {
-        let raw = self.row_max_bottom;
-        // Snap to the vertical grid so rows are field-aligned.
-        let rel = raw - self.grid_top;
-        self.row_top = self.grid_top + (rel / GRID_ROW_MODULE).ceil() * GRID_ROW_MODULE;
+        self.row_top = self.row_max_bottom + GRID_ROW_MODULE;
         self.row_max_bottom = self.row_top;
         self.cursor = 0;
     }
