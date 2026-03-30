@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "GORBIE"
-version = "0.9.8"
+version = "0.9.9"
 dependencies = [
  "comemo",
  "ctrlc",
@@ -7801,9 +7801,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace"
-version = "0.29.0"
+version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19ba0076abcc9ca46c9abe1a338b59416d912e528005d6285e317835cacb0647"
+checksum = "ff368a98b136565963e2d76cd415e372d2db3cd56ca02095ea94ae88a3f20f74"
 dependencies = [
  "ed25519-dalek",
  "log",
@@ -7817,9 +7817,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core"
-version = "0.29.0"
+version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c483e0d3b19c57826ef6bdbab641ec8d7d85fe6ed4096319b2c3ae65ce47b297"
+checksum = "87e5c7a29ae8c1d4bc2338c186ae1c3cd8b37ce32d3a0c352cbd4280103e11ce"
 dependencies = [
  "anybytes",
  "arbitrary",
@@ -7881,9 +7881,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros"
-version = "0.29.0"
+version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67e3472b94171d7fb451cd1f5266da223b85fa3f73d2caff072631cce7d1366c"
+checksum = "04b182786aad71fd57cccd022992a38d3a23877bf9193ad46ab3d19b1b19c564"
 dependencies = [
  "ed25519-dalek",
  "hex",
