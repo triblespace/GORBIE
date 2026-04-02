@@ -4,7 +4,7 @@
 //! GORBIE = { path = "..", features = ["triblespace", "markdown"] }
 //! egui = "0.33"
 //! eframe = "0.33"
-//! triblespace = { path = "../../triblespace-rs" }
+//! triblespace = "0.33"
 //! ed25519-dalek = "2"
 //! parking_lot = "0.12"
 //! ```
@@ -42,7 +42,6 @@ mod wiki {
     attributes! {
         "EBFC56D50B748E38A14F5FC768F1B9C1" as fragment: valueschemas::GenId;
         "6DBBE746B7DD7A4793CA098AB882F553" as content: valueschemas::Handle<valueschemas::Blake3, blobschemas::LongString>;
-        "476F6E26FCA65A0B49E38CC44CF31467" as created_at: valueschemas::NsTAIInterval;
         "78BABEF1792531A2E51A372D96FE5F3E" as title: valueschemas::Handle<valueschemas::Blake3, blobschemas::LongString>;
         "DEAFB7E307DF72389AD95A850F24BAA5" as links_to: valueschemas::GenId;
     }
@@ -135,7 +134,7 @@ impl WikiLive {
                 ?vid @
                 metadata::tag: &KIND_VERSION_ID,
                 wiki::fragment: &fragment_id,
-                wiki::created_at: ?ts,
+                metadata::created_at: ?ts,
             }])
         )
         .max_by_key(|(_, ts)| ts.0)
@@ -178,7 +177,7 @@ impl WikiLive {
                 ?vid @
                 metadata::tag: &KIND_VERSION_ID,
                 wiki::fragment: ?frag,
-                wiki::created_at: ?ts,
+                metadata::created_at: ?ts,
             }])
         ) {
             let replace = match latest.get(&frag) {
