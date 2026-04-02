@@ -543,7 +543,7 @@ impl WikiGraph {
         if response.hovered() {
             // Pinch-to-zoom (trackpad) and scroll-to-zoom (mouse wheel).
             let pinch = ui.input(|i| i.zoom_delta());
-            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+            let scroll = ui.input(|i| i.smooth_scroll_delta.x);
             let zoom_factor = if pinch != 1.0 {
                 pinch
             } else if scroll != 0.0 {
