@@ -541,10 +541,19 @@ impl WikiGraph {
         });
 
         if response.hovered() {
+            // Pinch-to-zoom (trackpad) and scroll-to-zoom (mouse wheel).
             let pinch = ui.input(|i| i.zoom_delta());
-            if pinch != 1.0 {
+            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+            let zoom_factor = if pinch != 1.0 {
+                pinch
+            } else if scroll != 0.0 {
+                (1.0 + scroll * 0.002).clamp(0.9, 1.1)
+            } else {
+                1.0
+            };
+            if zoom_factor != 1.0 {
                 let old_zoom = zoom;
-                zoom = (zoom * pinch).clamp(0.05, 10.0);
+                zoom = (zoom * zoom_factor).clamp(0.05, 10.0);
                 if let Some(hp) = response.hover_pos() {
                     let cursor_offset = hp - center - pan;
                     pan -= cursor_offset * (zoom / old_zoom - 1.0);
@@ -553,6 +562,8 @@ impl WikiGraph {
                     m.data.insert_temp(zoom_id, zoom);
                     m.data.insert_temp(pan_id, pan);
                 });
+                // Consume scroll so the notebook doesn't scroll too.
+                ui.ctx().input_mut(|i| i.smooth_scroll_delta = egui::Vec2::ZERO);
             }
         }
 
