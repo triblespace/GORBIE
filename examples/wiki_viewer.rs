@@ -562,8 +562,8 @@ impl WikiGraph {
                     m.data.insert_temp(zoom_id, zoom);
                     m.data.insert_temp(pan_id, pan);
                 });
-                // Consume scroll so the notebook doesn't scroll too.
-                ui.ctx().input_mut(|i| i.smooth_scroll_delta = egui::Vec2::ZERO);
+                // Consume only horizontal scroll — vertical passes through to notebook.
+                ui.ctx().input_mut(|i| i.smooth_scroll_delta.x = 0.0);
             }
         }
 
