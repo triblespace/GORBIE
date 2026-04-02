@@ -562,7 +562,7 @@ impl WikiGraph {
                     m.data.insert_temp(zoom_id, zoom);
                     m.data.insert_temp(pan_id, pan);
                 });
-                // Consume only horizontal scroll — vertical passes through to notebook.
+                // Consume only horizontal scroll so vertical passes through to notebook.
                 ui.ctx().input_mut(|i| i.smooth_scroll_delta.x = 0.0);
             }
         }
