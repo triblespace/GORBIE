@@ -127,6 +127,23 @@ impl WikiLive {
         find!(frag: Id, pattern!(&self.wiki_space, [{ id @ wiki::fragment: ?frag }])).next()
     }
 
+    /// All versions of a fragment, sorted newest-first.
+    fn version_history(&self, fragment_id: Id) -> Vec<Id> {
+        let mut versions: Vec<(Id, i128)> = find!(
+            (vid: Id, ts: (i128, i128)),
+            pattern!(&self.wiki_space, [{
+                ?vid @
+                metadata::tag: &KIND_VERSION_ID,
+                wiki::fragment: &fragment_id,
+                metadata::created_at: ?ts,
+            }])
+        )
+        .map(|(vid, ts)| (vid, ts.0))
+        .collect();
+        versions.sort_by(|a, b| b.1.cmp(&a.1)); // newest first
+        versions.into_iter().map(|(vid, _)| vid).collect()
+    }
+
     fn latest_version(&self, fragment_id: Id) -> Option<Id> {
         find!(
             (vid: Id, ts: (i128, i128)),
@@ -663,11 +680,18 @@ fn render_wiki_content(ctx: &mut CardCtx<'_>, content: &str) -> Option<LinkClick
 
 // ── notebook state ───────────────────────────────────────────────────
 
+/// An open wiki page — tracks which version is being viewed.
+struct OpenPage {
+    frag_id: Id,
+    /// None = show latest version.
+    pinned_version: Option<Id>,
+}
+
 struct BrowserState {
     pile_path: String,
     live: Option<parking_lot::Mutex<WikiLive>>,
     graph: Option<WikiGraph>,
-    open_pages: Vec<Id>,
+    open_pages: Vec<OpenPage>,
     error: Option<String>,
 }
 
@@ -744,29 +768,38 @@ fn main(nb: &mut NotebookCtx) {
         if let Some(graph) = &mut state.graph {
             graph.step();
             if let Some(frag_id) = graph.show(ctx) {
-                if !state.open_pages.contains(&frag_id) {
-                    state.open_pages.push(frag_id);
+                if !state.open_pages.iter().any(|p| p.frag_id == frag_id) {
+                    state.open_pages.push(OpenPage { frag_id, pinned_version: None });
                 }
             }
             ctx.ctx().request_repaint();
         }
 
         // ── floating wiki page cards ─────────────────────────────────
-        let open_snapshot: Vec<Id> = state.open_pages.clone();
+        let open_snapshot: Vec<OpenPage> = state.open_pages.iter()
+            .map(|p| OpenPage { frag_id: p.frag_id, pinned_version: p.pinned_version })
+            .collect();
         let mut to_close = Vec::new();
         let mut to_open_from_link = Vec::new();
+        let mut version_nav: Option<(Id, Option<Id>)> = None; // (frag_id, new_pinned)
 
-        for &frag_id in &open_snapshot {
+        for page_idx in 0..open_snapshot.len() {
+            let frag_id = open_snapshot[page_idx].frag_id;
+            let pinned = open_snapshot[page_idx].pinned_version;
             let frag_bytes: &[u8] = frag_id.as_ref();
             let mut frag_key = [0u8; 16];
             frag_key.copy_from_slice(frag_bytes);
 
-            let vid = live.latest_version(frag_id);
+            let history = live.version_history(frag_id);
+            let vid = pinned
+                .or_else(|| live.latest_version(frag_id));
             if vid.is_none() {
                 eprintln!("[wiki] resolve {frag_id:x}: no versions found for fragment");
             }
             let title = vid.map(|v| live.title(v)).unwrap_or_default();
             let content = vid.map(|v| live.content(v)).unwrap_or_default();
+            let current_idx = vid.and_then(|v| history.iter().position(|&h| h == v));
+            let n_versions = history.len();
 
             ctx.push_id(frag_key, |ctx| {
                 let resp = ctx.float(|ctx| {
@@ -775,9 +808,37 @@ fn main(nb: &mut NotebookCtx) {
                             egui::Label::new(egui::RichText::new(&title).heading())
                                 .wrap(),
                         );
-                        ctx.label(
-                            egui::RichText::new(fmt_id(frag_id)).monospace().weak(),
-                        );
+
+                        // Version navigation bar.
+                        if n_versions > 1 {
+                            ctx.horizontal(|ctx| {
+                                let vi = current_idx.unwrap_or(0);
+                                let ver_label = if pinned.is_some() {
+                                    format!("v{}/{}", n_versions - vi, n_versions)
+                                } else {
+                                    format!("latest (v{})", n_versions)
+                                };
+                                ctx.label(egui::RichText::new(ver_label).weak().monospace());
+
+                                if ctx.button("◀").clicked() && vi + 1 < n_versions {
+                                    // Older version.
+                                    version_nav = Some((frag_id, Some(history[vi + 1])));
+                                }
+                                if ctx.button("▶").clicked() {
+                                    if vi > 0 {
+                                        // Newer version.
+                                        version_nav = Some((frag_id, Some(history[vi - 1])));
+                                    } else {
+                                        // Back to latest.
+                                        version_nav = Some((frag_id, None));
+                                    }
+                                }
+                                if pinned.is_some() && ctx.button("↻ latest").clicked() {
+                                    version_nav = Some((frag_id, None));
+                                }
+                            });
+                        }
+
                         ctx.separator();
 
                         match render_wiki_content(ctx, &content) {
@@ -796,17 +857,21 @@ fn main(nb: &mut NotebookCtx) {
         }
 
         for id in to_close {
-            state.open_pages.retain(|&p| p != id);
+            state.open_pages.retain(|p| p.frag_id != id);
+        }
+        if let Some((frag_id, new_pinned)) = version_nav {
+            if let Some(page) = state.open_pages.iter_mut().find(|p| p.frag_id == frag_id) {
+                page.pinned_version = new_pinned;
+            }
         }
         for id in to_open_from_link {
             let frag = live.to_fragment(id).unwrap_or_else(|| {
                 eprintln!("[wiki] link target {id:x}: could not resolve to fragment");
                 id
             });
-            if state.open_pages.contains(&frag) {
-                state.open_pages.retain(|&p| p != frag);
-            }
-            state.open_pages.push(frag);
+            // Move to top if already open, otherwise open new.
+            state.open_pages.retain(|p| p.frag_id != frag);
+            state.open_pages.push(OpenPage { frag_id: frag, pinned_version: None });
         }
     });
 }
