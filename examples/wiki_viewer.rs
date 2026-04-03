@@ -811,30 +811,36 @@ fn main(nb: &mut NotebookCtx) {
 
                         // Version navigation bar.
                         if n_versions > 1 {
-                            ctx.horizontal(|ctx| {
-                                let vi = current_idx.unwrap_or(0);
-                                let ver_label = if pinned.is_some() {
-                                    format!("v{}/{}", n_versions - vi, n_versions)
-                                } else {
-                                    format!("latest (v{})", n_versions)
-                                };
-                                ctx.label(egui::RichText::new(ver_label).weak().monospace());
-
-                                if ctx.button("◀").clicked() && vi + 1 < n_versions {
-                                    // Older version.
-                                    version_nav = Some((frag_id, Some(history[vi + 1])));
-                                }
-                                if ctx.button("▶").clicked() {
-                                    if vi > 0 {
-                                        // Newer version.
-                                        version_nav = Some((frag_id, Some(history[vi - 1])));
-                                    } else {
-                                        // Back to latest.
-                                        version_nav = Some((frag_id, None));
+                            let vi = current_idx.unwrap_or(0);
+                            let ver_label = if pinned.is_some() {
+                                format!("v{}/{}", n_versions - vi, n_versions)
+                            } else {
+                                format!("latest (v{})", n_versions)
+                            };
+                            ctx.grid(|g| {
+                                g.place(8, |ctx| {
+                                    ctx.label(egui::RichText::new(ver_label).weak().monospace());
+                                });
+                                g.place(1, |ctx| {
+                                    if ctx.button("◀").clicked() && vi + 1 < n_versions {
+                                        version_nav = Some((frag_id, Some(history[vi + 1])));
                                     }
-                                }
-                                if pinned.is_some() && ctx.button("↻ latest").clicked() {
-                                    version_nav = Some((frag_id, None));
+                                });
+                                g.place(1, |ctx| {
+                                    if ctx.button("▶").clicked() {
+                                        if vi > 0 {
+                                            version_nav = Some((frag_id, Some(history[vi - 1])));
+                                        } else {
+                                            version_nav = Some((frag_id, None));
+                                        }
+                                    }
+                                });
+                                if pinned.is_some() {
+                                    g.place(2, |ctx| {
+                                        if ctx.button("↻ latest").clicked() {
+                                            version_nav = Some((frag_id, None));
+                                        }
+                                    });
                                 }
                             });
                         }
