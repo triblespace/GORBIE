@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+## 0.9.13 - 2026-04-05
+- Switch `telemetry` to the shared `triblespace::telemetry` implementation and
+  use `TELEMETRY_*` environment variables.
+- Upgrade optional `triblespace` dependency to `0.34.1`.
+- Update telemetry viewer to rely on generic shared telemetry fields (no
+  `card_index` dependency).
+- Refresh the TribleSpace examples for current `Checkout` and `NsTAIInterval`
+  APIs, and drop the removed `Blake2b` schema from `schema_inspector`.
+- Rename telemetry viewer binary to `telemetry-viewer`.
+
 ## 0.8.2 - 2026-03-16
 - **Collapsed detached placeholders**: detached cards leave a slim 12px
   (GRID_ROW_MODULE) hatched strip instead of reserving full card height.
@@ -32,14 +44,6 @@ All notable changes to this project will be documented in this file.
   `two_thirds`, `three_quarters`) and skip/furniture helpers.
 - Grid-aligned markdown heading sizes for IosevkaGorbie.
 - Widget showcase and visual grid reference in `grid_demo` example.
-
-## Unreleased
-- Switch `telemetry` to the shared `triblespace::telemetry` implementation and
-  use `TELEMETRY_*` environment variables.
-- Bump optional `triblespace` dependency to `0.34.1`.
-- Update telemetry viewer to rely on generic shared telemetry fields (no
-  `card_index` dependency).
-- Rename telemetry viewer binary to `telemetry-viewer`.
 
 ## 0.5.1 - 2026-01-22
 - Fix detached card dragging across the margin by deferring anchor layer switches.
