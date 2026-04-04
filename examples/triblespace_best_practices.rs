@@ -22,8 +22,8 @@ use triblespace::core::trible::TribleSet;
 use triblespace::core::value::schemas::hash::{Blake3, Handle};
 use triblespace::core::value::Value;
 use triblespace::macros::{find, pattern};
-use triblespace::prelude::View;
 use triblespace::prelude::blobschemas::LongString;
+use triblespace::prelude::View;
 
 use GORBIE::notebook;
 use GORBIE::widgets;
@@ -173,10 +173,12 @@ fn refresh_selected_branch(
         (Some(prev), Some(new)) if prev == new => TribleSet::new(),
         (Some(prev), Some(_)) => ws
             .checkout(prev..)
-            .map_err(|err| format!("checkout delta: {err}"))?,
+            .map_err(|err| format!("checkout delta: {err}"))?
+            .into_facts(),
         (None, Some(_)) => ws
             .checkout(..)
-            .map_err(|err| format!("checkout branch: {err}"))?,
+            .map_err(|err| format!("checkout branch: {err}"))?
+            .into_facts(),
         (_, None) => TribleSet::new(),
     };
 
@@ -239,7 +241,11 @@ fn main(nb: &mut NotebookCtx) {
             ctx.add_space(10.0);
 
             if !state.last_repo_open {
-                ctx.label(egui::RichText::new("Open a pile to start.").italics().small());
+                ctx.label(
+                    egui::RichText::new("Open a pile to start.")
+                        .italics()
+                        .small(),
+                );
                 return;
             }
 
@@ -256,7 +262,11 @@ fn main(nb: &mut NotebookCtx) {
 
             ctx.horizontal_wrapped(|ctx| {
                 ctx.label("Mode:");
-                ctx.add(widgets::ChoiceToggle::binary(&mut state.live, "PAUSED", "LIVE"));
+                ctx.add(widgets::ChoiceToggle::binary(
+                    &mut state.live,
+                    "PAUSED",
+                    "LIVE",
+                ));
 
                 if ctx.add(widgets::Button::new("Scan branches")).clicked() {
                     if let Some(repo) = repo_state_guard.repo_mut() {
@@ -299,11 +309,7 @@ fn main(nb: &mut NotebookCtx) {
             if let Some(err) = state.last_error.as_deref() {
                 ctx.add_space(8.0);
                 let color = ctx.visuals().error_fg_color;
-                ctx.label(
-                    egui::RichText::new(err)
-                        .color(color)
-                        .monospace(),
-                );
+                ctx.label(egui::RichText::new(err).color(color).monospace());
             }
 
             ctx.add_space(10.0);
@@ -334,7 +340,10 @@ fn main(nb: &mut NotebookCtx) {
             ctx.label(format!("Head: {head_label}"));
             ctx.label(format!("Delta tribles: {}", state.last_delta_tribles));
             if let Some(ts) = state.last_head_ts_ms {
-                ctx.label(format!("Last commit age: {} ms", now_ms().saturating_sub(ts)));
+                ctx.label(format!(
+                    "Last commit age: {} ms",
+                    now_ms().saturating_sub(ts)
+                ));
             }
         });
     });

@@ -356,8 +356,8 @@ fn checkout_space(
         return (pile, Err(format!("rng failed: {err}")));
     }
     let signing_key = SigningKey::from_bytes(&secret);
-    let mut repo = Repository::new(pile, signing_key, TribleSet::new())
-        .expect("create repository from pile");
+    let mut repo =
+        Repository::new(pile, signing_key, TribleSet::new()).expect("create repository from pile");
     let space_result = repo
         .pull(branch_id)
         .map_err(|err| format!("{err:?}"))
@@ -388,7 +388,7 @@ fn commit_summary(short_message: Option<&str>, long_message: Option<&str>) -> St
 }
 
 fn commit_timestamp_ms(interval: Value<NsTAIInterval>) -> Option<u64> {
-    let (_, upper): (Epoch, Epoch) = interval.from_value();
+    let (_, upper): (Epoch, Epoch) = interval.try_from_value().ok()?;
     let ms = upper.to_unix_milliseconds();
     if ms.is_finite() {
         Some(ms.max(0.0).round() as u64)

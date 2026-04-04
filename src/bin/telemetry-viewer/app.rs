@@ -14,17 +14,17 @@ use triblespace::core::metadata;
 use triblespace::core::repo::pile::Pile;
 use triblespace::core::repo::{BlobStore, BlobStoreGet, BlobStoreMeta, BranchStore, Repository};
 use triblespace::core::trible::TribleSet;
-use triblespace::core::value::Value;
 use triblespace::core::value::schemas::hash::{Blake3, Handle};
 use triblespace::core::value::schemas::iu256::U256BE;
+use triblespace::core::value::Value;
 use triblespace::macros::{find, pattern};
 use triblespace::prelude::View;
 
-use GORBIE::NotebookCtx;
 use GORBIE::dataflow::ComputedState;
 use GORBIE::themes;
 use GORBIE::widgets;
 use GORBIE::widgets::triblespace::{PileRepoState, PileRepoWidget};
+use GORBIE::NotebookCtx;
 
 use GORBIE::telemetry::schema as t;
 
@@ -757,10 +757,12 @@ fn load_session(
         (Some(prev_head), Some(new_head)) if prev_head == new_head => TribleSet::new(),
         (Some(prev_head), Some(_)) => ws
             .checkout(prev_head..)
-            .map_err(|err| format!("checkout delta: {err}"))?,
+            .map_err(|err| format!("checkout delta: {err}"))?
+            .into_facts(),
         (None, Some(_)) => ws
             .checkout(..)
-            .map_err(|err| format!("checkout branch: {err}"))?,
+            .map_err(|err| format!("checkout branch: {err}"))?
+            .into_facts(),
         (_, None) => TribleSet::new(),
     };
     index.head = head;
@@ -795,8 +797,7 @@ fn load_session(
             .next()
             .map(|(h,)| h);
             if let Some(h) = session_title {
-                index.session_title =
-                    Some(load_longstring(&mut ws, h, &mut index.long_cache)?);
+                index.session_title = Some(load_longstring(&mut ws, h, &mut index.long_cache)?);
             }
         }
 
@@ -1102,8 +1103,9 @@ pub fn notebook(nb: &mut NotebookCtx) {
 
             ctx.horizontal(|ui| {
                 widgets::row_label(ui, "Branch prefix:");
+                let available_width = ui.available_width();
                 ui.add_sized(
-                    [ui.available_width(), 0.0],
+                    [available_width, 0.0],
                     widgets::TextField::singleline(&mut state.branch_prefix),
                 );
             });
@@ -1219,8 +1221,9 @@ pub fn notebook(nb: &mut NotebookCtx) {
             ctx.add_space(6.0);
             ctx.horizontal(|ui| {
                 widgets::row_label(ui, "Filter:");
+                let available_width = ui.available_width();
                 ui.add_sized(
-                    [ui.available_width(), 0.0],
+                    [available_width, 0.0],
                     widgets::TextField::singleline(&mut state.filter_text),
                 )
                 .on_hover_text("Case-insensitive substring filter (matches name/source/category).");
@@ -1327,11 +1330,7 @@ pub fn notebook(nb: &mut NotebookCtx) {
                 }
                 Some(Err(err)) => {
                     let error_color = ctx.visuals().error_fg_color;
-                    ctx.label(
-                        egui::RichText::new(err)
-                            .color(error_color)
-                            .monospace(),
-                    );
+                    ctx.label(egui::RichText::new(err).color(error_color).monospace());
                 }
                 Some(Ok(index)) => {
                     let head = index.head;
@@ -1419,8 +1418,7 @@ fn show_snapshot(
         ui.add(
             widgets::ChoiceToggle::new(flame_mode)
                 .choice(FlameMode::Timeline, "Timeline")
-                .choice(FlameMode::Collapsed, "Collapsed")
-                .small(),
+                .choice(FlameMode::Collapsed, "Collapsed"),
         );
     });
     ui.add_space(4.0);

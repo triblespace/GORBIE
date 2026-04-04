@@ -3,7 +3,7 @@
 //! [dependencies]
 //! GORBIE = { path = "..", features = ["triblespace"] }
 //! egui = "0.33"
-//! triblespace = "0.11.0"
+//! triblespace = "0.34.1"
 //! ```
 
 use triblespace::core::blob::schemas::longstring::LongString;
@@ -25,7 +25,7 @@ use triblespace::core::value::schemas::ed25519::{
 use triblespace::core::value::schemas::f256::{F256BE, F256LE};
 use triblespace::core::value::schemas::f64::F64;
 use triblespace::core::value::schemas::genid::GenId;
-use triblespace::core::value::schemas::hash::{Blake2b, Blake3, Handle};
+use triblespace::core::value::schemas::hash::{Blake3, Handle};
 use triblespace::core::value::schemas::iu256::{I256BE, I256LE, U256BE, U256LE};
 use triblespace::core::value::schemas::linelocation::LineLocation;
 use triblespace::core::value::schemas::r256::{R256BE, R256LE};
@@ -60,7 +60,6 @@ fn build_schema_metadata(blobs: &mut MemoryBlobStore<Blake3>) -> TribleSet {
     metadata_set += ED25519RComponent::describe(blobs).expect("ed25519_r metadata");
     metadata_set += ED25519SComponent::describe(blobs).expect("ed25519_s metadata");
     metadata_set += ED25519PublicKey::describe(blobs).expect("ed25519_pubkey metadata");
-    metadata_set += Blake2b::describe(blobs).expect("blake2 metadata");
     metadata_set += Blake3::describe(blobs).expect("blake3 metadata");
     metadata_set += Handle::<Blake3, LongString>::describe(blobs).expect("handle longstring");
     metadata_set += Handle::<Blake3, SimpleArchive>::describe(blobs).expect("handle simplearchive");
