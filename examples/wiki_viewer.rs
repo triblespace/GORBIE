@@ -723,6 +723,7 @@ struct OpenPage {
 
 struct BrowserState {
     pile_path: String,
+    search_query: String,
     live: Option<parking_lot::Mutex<WikiLive>>,
     graph: Option<WikiGraph>,
     open_pages: Vec<OpenPage>,
@@ -733,6 +734,7 @@ impl BrowserState {
     fn new(pile_path: String) -> Self {
         Self {
             pile_path,
+            search_query: String::new(),
             live: None,
             graph: None,
             open_pages: Vec::new(),
@@ -796,6 +798,45 @@ fn main(nb: &mut NotebookCtx) {
                 return;
             };
             let live = live_mutex.get_mut();
+
+            // Search bar: open a fragment/version by hex ID or title substring.
+            ctx.grid(|g| {
+                g.place(10, |ctx| {
+                    ctx.text_field(&mut state.search_query);
+                });
+                g.place(2, |ctx| {
+                    if ctx.button("Go").clicked() && !state.search_query.trim().is_empty() {
+                        let q = state.search_query.trim().to_string();
+                        // Try as hex ID first.
+                        if let Some(id) = Id::from_hex(&q) {
+                            let frag_id = live.to_fragment(id).unwrap_or(id);
+                            if !state.open_pages.iter().any(|p| p.frag_id == frag_id) {
+                                state.open_pages.push(OpenPage {
+                                    frag_id,
+                                    pinned_version: if frag_id != id { Some(id) } else { None },
+                                });
+                            }
+                        } else {
+                            // Title substring search.
+                            let q_lower = q.to_lowercase();
+                            let frags = live.fragments_sorted();
+                            for (frag_id, vid) in &frags {
+                                let title = live.title(*vid).to_lowercase();
+                                if title.contains(&q_lower) {
+                                    if !state.open_pages.iter().any(|p| p.frag_id == *frag_id) {
+                                        state.open_pages.push(OpenPage {
+                                            frag_id: *frag_id,
+                                            pinned_version: None,
+                                        });
+                                    }
+                                    break; // open first match
+                                }
+                            }
+                        }
+                        state.search_query.clear();
+                    }
+                });
+            });
 
             // Graph.
             if state.graph.is_none() {
