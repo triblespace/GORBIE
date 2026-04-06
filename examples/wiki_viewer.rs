@@ -142,6 +142,28 @@ impl WikiLive {
 
     // ── queries (all on-demand via find!) ─────────────────────────────
 
+    /// Resolve a hex prefix to a fragment ID. Matches both version and fragment IDs.
+    /// Returns None if no match or ambiguous.
+    fn resolve_prefix(&self, prefix: &str) -> Option<Id> {
+        let needle = prefix.trim().to_lowercase();
+        let mut matches = Vec::new();
+        let mut seen_frags = std::collections::HashSet::new();
+        for (vid, frag) in find!(
+            (vid: Id, frag: Id),
+            pattern!(&self.wiki_space, [{ ?vid @ metadata::tag: &KIND_VERSION_ID, wiki::fragment: ?frag }])
+        ) {
+            if format!("{vid:x}").starts_with(&needle) {
+                matches.push(frag); // resolve version to its fragment
+            }
+            if seen_frags.insert(frag) && format!("{frag:x}").starts_with(&needle) {
+                matches.push(frag);
+            }
+        }
+        matches.sort();
+        matches.dedup();
+        if matches.len() == 1 { Some(matches[0]) } else { None }
+    }
+
     fn to_fragment(&self, id: Id) -> Option<Id> {
         if self.latest_version(id).is_some() {
             return Some(id);
@@ -807,30 +829,26 @@ fn main(nb: &mut NotebookCtx) {
                 g.place(2, |ctx| {
                     if ctx.button("Go").clicked() && !state.search_query.trim().is_empty() {
                         let q = state.search_query.trim().to_string();
-                        // Try as hex ID first.
-                        if let Some(id) = Id::from_hex(&q) {
-                            let frag_id = live.to_fragment(id).unwrap_or(id);
+                        let is_hex = q.chars().all(|c| c.is_ascii_hexdigit());
+
+                        let found = if is_hex {
+                            // Hex prefix → resolve to fragment.
+                            live.resolve_prefix(&q)
+                        } else {
+                            // Title substring search → first match.
+                            let q_lower = q.to_lowercase();
+                            let frags = live.fragments_sorted();
+                            frags.iter()
+                                .find(|(_, vid)| live.title(*vid).to_lowercase().contains(&q_lower))
+                                .map(|(frag_id, _)| *frag_id)
+                        };
+
+                        if let Some(frag_id) = found {
                             if !state.open_pages.iter().any(|p| p.frag_id == frag_id) {
                                 state.open_pages.push(OpenPage {
                                     frag_id,
-                                    pinned_version: if frag_id != id { Some(id) } else { None },
+                                    pinned_version: None,
                                 });
-                            }
-                        } else {
-                            // Title substring search.
-                            let q_lower = q.to_lowercase();
-                            let frags = live.fragments_sorted();
-                            for (frag_id, vid) in &frags {
-                                let title = live.title(*vid).to_lowercase();
-                                if title.contains(&q_lower) {
-                                    if !state.open_pages.iter().any(|p| p.frag_id == *frag_id) {
-                                        state.open_pages.push(OpenPage {
-                                            frag_id: *frag_id,
-                                            pinned_version: None,
-                                        });
-                                    }
-                                    break; // open first match
-                                }
                             }
                         }
                         state.search_query.clear();
