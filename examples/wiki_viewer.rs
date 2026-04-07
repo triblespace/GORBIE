@@ -375,7 +375,7 @@ fn force_step_kernel(
 ) {
     let i = ABSOLUTE_POS as u32;
     if i < node_count {
-        let repulsion = 80000.0f32;
+        let repulsion = 200000.0f32;
         let attraction = 0.01f32;
         let damping = 0.85f32;
         let max_force = 50.0f32;
@@ -402,27 +402,18 @@ fn force_step_kernel(
             }
         }
 
-        // Count degree for this node to normalize attraction.
-        let mut degree = 1.0f32; // start at 1 to avoid division by zero
-        for e in 0..edge_count {
-            let ea = edges[(e * 2) as usize];
-            let eb = edges[(e * 2 + 1) as usize];
-            if ea == i || eb == i { degree += 1.0f32; }
-        }
-        let norm_attraction = attraction / degree;
-
         for e in 0..edge_count {
             let ea = edges[(e * 2) as usize];
             let eb = edges[(e * 2 + 1) as usize];
             if ea == i {
                 let bx = (eb * 2) as usize;
-                fx += (pos[bx] - px) * norm_attraction;
-                fy += (pos[bx + 1] - py) * norm_attraction;
+                fx += (pos[bx] - px) * attraction;
+                fy += (pos[bx + 1] - py) * attraction;
             }
             if eb == i {
                 let ax = (ea * 2) as usize;
-                fx += (pos[ax] - px) * norm_attraction;
-                fy += (pos[ax + 1] - py) * norm_attraction;
+                fx += (pos[ax] - px) * attraction;
+                fy += (pos[ax + 1] - py) * attraction;
             }
         }
 
