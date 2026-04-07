@@ -375,10 +375,10 @@ fn force_step_kernel(
 ) {
     let i = ABSOLUTE_POS as u32;
     if i < node_count {
-        let repulsion = 500000.0f32;
-        let attraction = 1.0f32;
-        let damping = 0.85f32;
-        let max_force = 50.0f32;
+        let repulsion = 200000.0f32;
+        let attraction = 0.3f32;
+        let damping = 0.92f32;
+        let max_force = 30.0f32;
         let gravity = 0.001f32;
 
         let ix = (i * 2) as usize;
