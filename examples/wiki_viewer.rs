@@ -907,6 +907,10 @@ fn main(nb: &mut NotebookCtx) {
                     let resp = ctx.float(|ctx| {
                         ctx.with_padding(padding, |ctx| {
                             ctx.add(egui::Label::new(egui::RichText::new(&title).heading()).wrap());
+                            let vid_hex = vid.map(|v| format!("{v:x}")).unwrap_or_default();
+                            ctx.label(egui::RichText::new(
+                                format!("fragment: {frag_id:x}\nversion:  {vid_hex}")
+                            ).monospace().weak().small());
 
                             // Version navigation bar.
                             if n_versions > 1 {
