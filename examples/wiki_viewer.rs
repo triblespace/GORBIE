@@ -377,7 +377,7 @@ fn force_step_kernel(
     if i < node_count {
         let repulsion = 200000.0f32;
         let attraction = 0.3f32;
-        let damping = 0.92f32;
+        let damping = 0.75f32;
         let max_force = 30.0f32;
         let gravity = 0.001f32;
 
