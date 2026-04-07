@@ -595,8 +595,42 @@ impl WikiGraph {
 
         let bytes = gpu.client.read_one(gpu.pos_handle.clone());
         let positions: &[f32] = f32::from_bytes(&bytes);
+
+        // Compute center of mass and average angular velocity,
+        // then subtract to kill collective rotation.
+        let mut cx = 0.0f32;
+        let mut cy = 0.0f32;
+        for i in 0..n {
+            cx += positions[i * 2];
+            cy += positions[i * 2 + 1];
+        }
+        cx /= n as f32;
+        cy /= n as f32;
+
+        // Compute average angular momentum around center of mass.
+        let mut angular = 0.0f32;
+        let mut inertia = 0.0f32;
+        for (i, node) in self.nodes.iter().enumerate() {
+            let px = positions[i * 2];
+            let py = positions[i * 2 + 1];
+            let dx = px - cx;
+            let dy = py - cy;
+            let vx = px - node.pos.x;
+            let vy = py - node.pos.y;
+            let r_sq = dx * dx + dy * dy;
+            angular += dx * vy - dy * vx; // cross product = angular contribution
+            inertia += r_sq;
+        }
+        let omega = if inertia > 1.0 { angular / inertia } else { 0.0 };
+
         for (i, node) in self.nodes.iter_mut().enumerate() {
-            node.pos = egui::vec2(positions[i * 2], positions[i * 2 + 1]);
+            let px = positions[i * 2] - cx;
+            let py = positions[i * 2 + 1] - cy;
+            // Subtract rigid rotation: v_rot = omega × r = (-omega*y, omega*x)
+            node.pos = egui::vec2(
+                positions[i * 2] + omega * py,
+                positions[i * 2 + 1] - omega * px,
+            );
         }
     }
 
