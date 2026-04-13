@@ -446,12 +446,117 @@ fn force_step_kernel(
     }
 }
 
+// ── FDEB (force-directed edge bundling) kernel ────────────────────────
+
+#[cube(launch)]
+fn fdeb_step_kernel(
+    points: &Array<f32>,
+    points_out: &mut Array<f32>,
+    edge_count: u32,
+    k: u32,
+    step_size: f32,
+    spring_k: f32,
+    eps: f32,
+) {
+    let tid = ABSOLUTE_POS as u32;
+    let total = edge_count * k;
+    if tid < total {
+        let e = tid / k;
+        let p = tid % k;
+        let ix = (tid * 2) as usize;
+        let px = points[ix];
+        let py = points[ix + 1];
+
+        if p == 0u32 || p == k - 1u32 {
+            points_out[ix] = px;
+            points_out[ix + 1] = py;
+        } else {
+            // Endpoints of this edge.
+            let my0 = (e * k * 2) as usize;
+            let my1 = ((e * k + k - 1u32) * 2) as usize;
+            let my_p0x = points[my0];
+            let my_p0y = points[my0 + 1];
+            let my_p1x = points[my1];
+            let my_p1y = points[my1 + 1];
+            let my_dx = my_p1x - my_p0x;
+            let my_dy = my_p1y - my_p0y;
+            let my_len = (my_dx * my_dx + my_dy * my_dy).sqrt().max(1.0f32);
+            let my_mx = (my_p0x + my_p1x) * 0.5f32;
+            let my_my = (my_p0y + my_p1y) * 0.5f32;
+
+            // Spring force from neighbors on same edge. Normalized by
+            // edge length (Holten) so longer edges aren't stiffer.
+            let prev_ix = ((e * k + p - 1u32) * 2) as usize;
+            let next_ix = ((e * k + p + 1u32) * 2) as usize;
+            let k_scaled = spring_k / my_len;
+            let mut fx = ((points[prev_ix] - px) + (points[next_ix] - px)) * k_scaled;
+            let mut fy = ((points[prev_ix + 1] - py) + (points[next_ix + 1] - py)) * k_scaled;
+
+            // Electrostatic attraction from compatible edges' corresponding points.
+            for other in 0u32..edge_count {
+                if other != e {
+                    let o0 = (other * k * 2) as usize;
+                    let o1 = ((other * k + k - 1u32) * 2) as usize;
+                    let o_p0x = points[o0];
+                    let o_p0y = points[o0 + 1];
+                    let o_p1x = points[o1];
+                    let o_p1y = points[o1 + 1];
+                    let o_dx = o_p1x - o_p0x;
+                    let o_dy = o_p1y - o_p0y;
+                    let o_len = (o_dx * o_dx + o_dy * o_dy).sqrt().max(1.0f32);
+                    let o_mx = (o_p0x + o_p1x) * 0.5f32;
+                    let o_my = (o_p0y + o_p1y) * 0.5f32;
+
+                    // Angle compatibility: |cos(angle between edges)|.
+                    let dot = my_dx * o_dx + my_dy * o_dy;
+                    let c_angle = (dot / (my_len * o_len)).abs();
+
+                    // Scale compatibility.
+                    let lavg = (my_len + o_len) * 0.5f32;
+                    let lmin = my_len.min(o_len);
+                    let lmax = my_len.max(o_len);
+                    let c_scale = 2.0f32 / (lavg / lmin + lmax / lavg);
+
+                    // Position compatibility (midpoint proximity).
+                    let mdx = my_mx - o_mx;
+                    let mdy = my_my - o_my;
+                    let mdist = (mdx * mdx + mdy * mdy).sqrt();
+                    let c_pos = lavg / (lavg + mdist);
+
+                    let compat = c_angle * c_scale * c_pos;
+
+                    if compat > 0.05f32 {
+                        // Direction-aware correspondence: if edges oppose, flip mapping.
+                        let corr_p = if dot >= 0.0f32 { p } else { k - 1u32 - p };
+                        let other_ix = ((other * k + corr_p) * 2) as usize;
+                        let ox = points[other_ix];
+                        let oy = points[other_ix + 1];
+                        let ddx = ox - px;
+                        let ddy = oy - py;
+                        let d2 = ddx * ddx + ddy * ddy;
+                        let d = d2.sqrt().max(eps);
+                        // 1/d falloff (Holten); direction (ddx,ddy)/d × compat/d.
+                        let inv_d2 = compat / (d * d);
+                        fx += ddx * inv_d2;
+                        fy += ddy * inv_d2;
+                    }
+                }
+            }
+
+            points_out[ix] = px + fx * step_size;
+            points_out[ix + 1] = py + fy * step_size;
+        }
+    }
+}
+
 // ── force-directed graph ──────────────────────────────────────────────
 
 struct WikiGraph {
     nodes: Vec<GraphNode>,
     edges: Vec<(usize, usize)>,
     gpu: Option<GpuForceState>,
+    /// Bundled polylines per edge (world coords). `None` = draw straight.
+    polylines: Option<Vec<Vec<egui::Vec2>>>,
 }
 
 struct GpuForceState {
@@ -526,7 +631,7 @@ impl WikiGraph {
         }
 
         let gpu = Self::init_gpu(&nodes, &edges);
-        WikiGraph { nodes, edges, gpu }
+        WikiGraph { nodes, edges, gpu, polylines: None }
     }
 
     fn init_gpu(nodes: &[GraphNode], edges: &[(usize, usize)]) -> Option<GpuForceState> {
@@ -634,6 +739,100 @@ impl WikiGraph {
         }
     }
 
+    fn is_bundled(&self) -> bool {
+        self.polylines.is_some()
+    }
+
+    fn clear_bundling(&mut self) {
+        self.polylines = None;
+    }
+
+    /// Force-Directed Edge Bundling (Holten & Van Wijk 2009) on GPU.
+    /// Edges subdivide into K control points; each non-endpoint point
+    /// is pulled by spring forces from its polyline neighbors and by
+    /// electrostatic attraction from *compatible* edges (matching
+    /// angle, scale, and midpoint proximity). Compatibility prevents
+    /// edges from detouring through unrelated bundles.
+    fn bundle_edges(&mut self) {
+        const K: u32 = 17;
+        const CYCLES: usize = 5;
+        const ITERATIONS_START: usize = 50;
+        const SPRING_K: f32 = 0.5;
+
+        if self.edges.is_empty() {
+            self.polylines = Some(Vec::new());
+            return;
+        }
+
+        let e = self.edges.len() as u32;
+        let total = e * K;
+        let total_floats = (total * 2) as usize;
+
+        let mut flat: Vec<f32> = Vec::with_capacity(total_floats);
+        for &(a, b) in &self.edges {
+            let p0 = self.nodes[a].pos;
+            let p1 = self.nodes[b].pos;
+            for i in 0..K {
+                let t = i as f32 / (K - 1) as f32;
+                let p = p0 + (p1 - p0) * t;
+                flat.push(p.x);
+                flat.push(p.y);
+            }
+        }
+
+        // Average edge length — sets step scale so forces move control
+        // points a sensible fraction of a typical edge per iteration.
+        let mut len_sum = 0.0f32;
+        for &(a, b) in &self.edges {
+            len_sum += (self.nodes[a].pos - self.nodes[b].pos).length();
+        }
+        let avg_len = (len_sum / e as f32).max(1.0);
+        let mut step_size = avg_len * 0.04;
+        let eps = (avg_len * 0.01).max(0.5);
+
+        let device = WgpuDevice::default();
+        let client = WgpuRuntime::client(&device);
+        let mut pts_handle = client.create_from_slice(f32::as_bytes(&flat));
+        let mut pts_out_handle = client.empty(total_floats * std::mem::size_of::<f32>());
+
+        let mut iterations = ITERATIONS_START;
+        for _cycle in 0..CYCLES {
+            for _ in 0..iterations {
+                unsafe {
+                    let _ = fdeb_step_kernel::launch::<WgpuRuntime>(
+                        &client,
+                        CubeCount::new_1d(total),
+                        CubeDim::new_1d(1),
+                        ArrayArg::from_raw_parts::<f32>(&pts_handle, total_floats, 1),
+                        ArrayArg::from_raw_parts::<f32>(&pts_out_handle, total_floats, 1),
+                        ScalarArg::new(e),
+                        ScalarArg::new(K),
+                        ScalarArg::new(step_size),
+                        ScalarArg::new(SPRING_K),
+                        ScalarArg::new(eps),
+                    );
+                }
+                std::mem::swap(&mut pts_handle, &mut pts_out_handle);
+            }
+            step_size *= 0.5;
+            iterations = (iterations * 2 / 3).max(10);
+        }
+
+        let bytes = client.read_one(pts_handle);
+        let result: &[f32] = f32::from_bytes(&bytes);
+
+        let mut polylines = Vec::with_capacity(self.edges.len());
+        for ei in 0..self.edges.len() {
+            let mut poly = Vec::with_capacity(K as usize);
+            for pi in 0..K as usize {
+                let ix = (ei * K as usize + pi) * 2;
+                poly.push(egui::vec2(result[ix], result[ix + 1]));
+            }
+            polylines.push(poly);
+        }
+        self.polylines = Some(polylines);
+    }
+
     fn show(&self, ui: &mut egui::Ui) -> Option<Id> {
         let available = ui.available_size();
         let (response, painter) = ui.allocate_painter(
@@ -697,11 +896,22 @@ impl WikiGraph {
         let label_color = ui.visuals().text_color();
         let font_id = egui::TextStyle::Small.resolve(ui.style());
 
-        for &(a, b) in &self.edges {
+        let edge_stroke = egui::Stroke::new(0.5, edge_color);
+        for (e_idx, &(a, b)) in self.edges.iter().enumerate() {
             let p1 = to_screen(self.nodes[a].pos);
             let p2 = to_screen(self.nodes[b].pos);
-            if rect.expand(50.0).contains(p1) || rect.expand(50.0).contains(p2) {
-                painter.line_segment([p1, p2], egui::Stroke::new(0.5, edge_color));
+            if !(rect.expand(50.0).contains(p1) || rect.expand(50.0).contains(p2)) {
+                continue;
+            }
+            match &self.polylines {
+                Some(polys) => {
+                    let pts: Vec<egui::Pos2> =
+                        polys[e_idx].iter().map(|&p| to_screen(p)).collect();
+                    painter.add(egui::Shape::line(pts, edge_stroke));
+                }
+                None => {
+                    painter.line_segment([p1, p2], edge_stroke);
+                }
             }
         }
 
@@ -905,7 +1115,22 @@ fn main(nb: &mut NotebookCtx) {
                 state.graph = Some(WikiGraph::from_wiki(live));
             }
             if let Some(graph) = &mut state.graph {
-                graph.step();
+                ctx.grid(|g| {
+                    let bundled = graph.is_bundled();
+                    g.place(2, |ctx| {
+                        if ctx.button(if bundled { "Re-bundle" } else { "Bundle" }).clicked() {
+                            graph.bundle_edges();
+                        }
+                    });
+                    g.place(2, |ctx| {
+                        if ctx.button("Straight").clicked() {
+                            graph.clear_bundling();
+                        }
+                    });
+                });
+                if !graph.is_bundled() {
+                    graph.step();
+                }
                 if let Some(frag_id) = graph.show(ctx) {
                     if !state.open_pages.iter().any(|p| p.frag_id == frag_id) {
                         state.open_pages.push(OpenPage {
@@ -950,6 +1175,20 @@ fn main(nb: &mut NotebookCtx) {
                 ctx.push_id(frag_key, |ctx| {
                     let resp = ctx.float(|ctx| {
                         ctx.with_padding(padding, |ctx| {
+                            if vid.is_none() {
+                                ctx.add(egui::Label::new(
+                                    egui::RichText::new("Link target not found").heading(),
+                                ).wrap());
+                                ctx.label(egui::RichText::new(
+                                    format!("wiki:{frag_id:x}")
+                                ).monospace().weak().small());
+                                ctx.separator();
+                                ctx.label(
+                                    "This link points to an ID that doesn't exist in the wiki. \
+                                     The target may have been deleted, or the link may contain a typo."
+                                );
+                                return;
+                            }
                             ctx.add(egui::Label::new(egui::RichText::new(&title).heading()).wrap());
                             let vid_hex = vid.map(|v| format!("{v:x}")).unwrap_or_default();
                             ctx.label(egui::RichText::new(
