@@ -582,8 +582,9 @@ impl Notebook {
 }
 
 impl eframe::App for Notebook {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.update_app_icon(ctx);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        self.update_app_icon(&ctx);
         ctx.style_mut(|style| {
             style.visuals.clip_rect_margin = 0.0;
         });
@@ -604,10 +605,9 @@ impl eframe::App for Notebook {
             std::mem::take(slot)
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical()
-                .auto_shrink([false; 2])
-                .show_viewport(ui, |ui, viewport| {
+        egui::ScrollArea::vertical()
+            .auto_shrink([false; 2])
+            .show_viewport(ui, |ui, viewport| {
                     let rect = ui.max_rect();
                     let clip_rect = ui.clip_rect();
                         let scroll_y = viewport.min.y;
@@ -1051,7 +1051,6 @@ impl eframe::App for Notebook {
                         }
                     });
                 });
-        });
 
         ctx.data_mut(|data| {
             data.insert_temp(state_id, runtime);

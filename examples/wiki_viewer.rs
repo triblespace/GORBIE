@@ -456,7 +456,6 @@ fn fdeb_step_kernel(
     k: u32,
     step_size: f32,
     spring_k: f32,
-    eps: f32,
 ) {
     let tid = ABSOLUTE_POS as u32;
     let total = edge_count * k;
@@ -471,7 +470,6 @@ fn fdeb_step_kernel(
             points_out[ix] = px;
             points_out[ix + 1] = py;
         } else {
-            // Endpoints of this edge.
             let my0 = (e * k * 2) as usize;
             let my1 = ((e * k + k - 1u32) * 2) as usize;
             let my_p0x = points[my0];
@@ -484,15 +482,27 @@ fn fdeb_step_kernel(
             let my_mx = (my_p0x + my_p1x) * 0.5f32;
             let my_my = (my_p0y + my_p1y) * 0.5f32;
 
-            // Spring force from neighbors on same edge. Normalized by
-            // edge length (Holten) so longer edges aren't stiffer.
+            // Smoothing spring: penalizes curvature (local).
             let prev_ix = ((e * k + p - 1u32) * 2) as usize;
             let next_ix = ((e * k + p + 1u32) * 2) as usize;
-            let k_scaled = spring_k / my_len;
-            let mut fx = ((points[prev_ix] - px) + (points[next_ix] - px)) * k_scaled;
-            let mut fy = ((points[prev_ix + 1] - py) + (points[next_ix + 1] - py)) * k_scaled;
+            let fx_smooth = ((points[prev_ix] - px) + (points[next_ix] - px)) * spring_k;
+            let fy_smooth = ((points[prev_ix + 1] - py) + (points[next_ix + 1] - py)) * spring_k;
 
-            // Electrostatic attraction from compatible edges' corresponding points.
+            // Straight-line restoring: pulls back toward the unbent
+            // position on the original edge (global shape anchor).
+            let t = p as f32 / (k - 1u32) as f32;
+            let sx = my_p0x + (my_p1x - my_p0x) * t;
+            let sy = my_p0y + (my_p1y - my_p0y) * t;
+            let straighten = 0.03f32;
+            let fx_straight = (sx - px) * straighten;
+            let fy_straight = (sy - py) * straighten;
+
+            // Electrostatic: unit-vector pull toward corresponding
+            // point on each compatible edge, averaged over compatible
+            // count so total magnitude is bounded ≤ 1.
+            let mut fx_elec = 0.0f32;
+            let mut fy_elec = 0.0f32;
+
             for other in 0u32..edge_count {
                 if other != e {
                     let o0 = (other * k * 2) as usize;
@@ -507,17 +517,15 @@ fn fdeb_step_kernel(
                     let o_mx = (o_p0x + o_p1x) * 0.5f32;
                     let o_my = (o_p0y + o_p1y) * 0.5f32;
 
-                    // Angle compatibility: |cos(angle between edges)|.
                     let dot = my_dx * o_dx + my_dy * o_dy;
-                    let c_angle = (dot / (my_len * o_len)).abs();
+                    let cos_a = dot / (my_len * o_len);
+                    let c_angle = cos_a * cos_a;
 
-                    // Scale compatibility.
                     let lavg = (my_len + o_len) * 0.5f32;
                     let lmin = my_len.min(o_len);
                     let lmax = my_len.max(o_len);
                     let c_scale = 2.0f32 / (lavg / lmin + lmax / lavg);
 
-                    // Position compatibility (midpoint proximity).
                     let mdx = my_mx - o_mx;
                     let mdy = my_my - o_my;
                     let mdist = (mdx * mdx + mdy * mdy).sqrt();
@@ -525,24 +533,32 @@ fn fdeb_step_kernel(
 
                     let compat = c_angle * c_scale * c_pos;
 
-                    if compat > 0.05f32 {
-                        // Direction-aware correspondence: if edges oppose, flip mapping.
+                    if compat > 0.2f32 {
                         let corr_p = if dot >= 0.0f32 { p } else { k - 1u32 - p };
                         let other_ix = ((other * k + corr_p) * 2) as usize;
                         let ox = points[other_ix];
                         let oy = points[other_ix + 1];
                         let ddx = ox - px;
                         let ddy = oy - py;
-                        let d2 = ddx * ddx + ddy * ddy;
-                        let d = d2.sqrt().max(eps);
-                        // 1/d falloff (Holten); direction (ddx,ddy)/d × compat/d.
-                        let inv_d2 = compat / (d * d);
-                        fx += ddx * inv_d2;
-                        fy += ddy * inv_d2;
+                        let d = (ddx * ddx + ddy * ddy).sqrt().max(0.1f32);
+                        fx_elec += (ddx / d) * compat;
+                        fy_elec += (ddy / d) * compat;
                     }
                 }
             }
 
+            // Cap electrostatic magnitude so it can't overwhelm
+            // the straight-line restoring force.
+            let elec_mag = (fx_elec * fx_elec + fy_elec * fy_elec).sqrt();
+            let max_elec = 3.0f32;
+            if elec_mag > max_elec {
+                let s = max_elec / elec_mag;
+                fx_elec *= s;
+                fy_elec *= s;
+            }
+
+            let fx = fx_smooth + fx_straight + fx_elec;
+            let fy = fy_smooth + fy_straight + fy_elec;
             points_out[ix] = px + fx * step_size;
             points_out[ix + 1] = py + fy * step_size;
         }
@@ -681,8 +697,8 @@ impl WikiGraph {
         unsafe {
             let _ = force_step_kernel::launch::<WgpuRuntime>(
                 &gpu.client,
-                CubeCount::new_1d(n as u32),
-                CubeDim::new_1d(1),
+                CubeCount::new_1d(((n as u32) + 255) / 256),
+                CubeDim::new_1d(256),
                 ArrayArg::from_raw_parts::<f32>(&gpu.pos_handle, n * 2, 1),
                 ArrayArg::from_raw_parts::<f32>(&gpu.vel_handle, n * 2, 1),
                 ArrayArg::from_raw_parts::<u32>(
@@ -757,7 +773,7 @@ impl WikiGraph {
         const K: u32 = 17;
         const CYCLES: usize = 5;
         const ITERATIONS_START: usize = 50;
-        const SPRING_K: f32 = 0.5;
+        const SPRING_K: f32 = 0.1;
 
         if self.edges.is_empty() {
             self.polylines = Some(Vec::new());
@@ -787,8 +803,12 @@ impl WikiGraph {
             len_sum += (self.nodes[a].pos - self.nodes[b].pos).length();
         }
         let avg_len = (len_sum / e as f32).max(1.0);
-        let mut step_size = avg_len * 0.04;
-        let eps = (avg_len * 0.01).max(0.5);
+        // Step in world units. Electrostatic force is a unit vector
+        // (bounded ≤ 1 after averaging), so step_size controls the
+        // max displacement per iteration. Segment length ≈ avg_len/16;
+        // move at most ~1/3 of a segment per step for stability.
+        let segment_len = avg_len / (K - 1) as f32;
+        let mut step_size = segment_len * 0.15;
 
         let device = WgpuDevice::default();
         let client = WgpuRuntime::client(&device);
@@ -801,15 +821,14 @@ impl WikiGraph {
                 unsafe {
                     let _ = fdeb_step_kernel::launch::<WgpuRuntime>(
                         &client,
-                        CubeCount::new_1d(total),
-                        CubeDim::new_1d(1),
+                        CubeCount::new_1d((total + 255) / 256),
+                        CubeDim::new_1d(256),
                         ArrayArg::from_raw_parts::<f32>(&pts_handle, total_floats, 1),
                         ArrayArg::from_raw_parts::<f32>(&pts_out_handle, total_floats, 1),
                         ScalarArg::new(e),
                         ScalarArg::new(K),
                         ScalarArg::new(step_size),
                         ScalarArg::new(SPRING_K),
-                        ScalarArg::new(eps),
                     );
                 }
                 std::mem::swap(&mut pts_handle, &mut pts_out_handle);
@@ -820,6 +839,18 @@ impl WikiGraph {
 
         let bytes = client.read_one(pts_handle);
         let result: &[f32] = f32::from_bytes(&bytes);
+
+        if result.len() >= 4 {
+            let has_nan = result.iter().take(K as usize * 2).any(|v| v.is_nan());
+            let has_inf = result.iter().take(K as usize * 2).any(|v| v.is_infinite());
+            eprintln!(
+                "[fdeb] first edge: p0=({:.1},{:.1}) mid=({:.1},{:.1}) p_end=({:.1},{:.1}) | nan={} inf={} total_floats={}",
+                result[0], result[1],
+                result[K as usize], result[K as usize + 1],
+                result[(K as usize - 1) * 2], result[(K as usize - 1) * 2 + 1],
+                has_nan, has_inf, result.len(),
+            );
+        }
 
         let mut polylines = Vec::with_capacity(self.edges.len());
         for ei in 0..self.edges.len() {

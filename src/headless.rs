@@ -230,6 +230,7 @@ impl HeadlessWgpuRunner {
                     },
                 })],
                 depth_stencil_attachment: None,
+                multiview_mask: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
