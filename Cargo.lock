@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "GORBIE"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "comemo",
  "ctrlc",
@@ -769,7 +769,6 @@ dependencies = [
  "cfg-if",
  "constant_time_eq",
  "cpufeatures 0.3.0",
- "digest 0.11.2",
 ]
 
 [[package]]
@@ -785,15 +784,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array",
-]
-
-[[package]]
-name = "block-buffer"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdd35008169921d80bc60d3d0ab416eecb028c4cd653352907921d95084790be"
-dependencies = [
- "hybrid-array",
 ]
 
 [[package]]
@@ -1064,12 +1054,6 @@ checksum = "bde03770d3df201d4fb868f2c9c59e66a3e4e2bd06692a0fe701e7103c7e84d4"
 dependencies = [
  "error-code",
 ]
-
-[[package]]
-name = "cmov"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de0758edba32d61d1fd9f4d69491b47604b91ee2f7e6b33de7e54ca4ebe55dc3"
 
 [[package]]
 name = "cobs"
@@ -1407,15 +1391,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crypto-common"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77727bb15fa921304124b128af125e7e3b968275d1b108b379190264f4423710"
-dependencies = [
- "hybrid-array",
-]
-
-[[package]]
 name = "csv"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1445,15 +1420,6 @@ dependencies = [
  "dispatch2",
  "nix",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "ctutils"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1005a6d4446f5120ef475ad3d2af2b30c49c2c9c6904258e3bb30219bebed5e4"
-dependencies = [
- "cmov",
 ]
 
 [[package]]
@@ -1717,7 +1683,7 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
  "curve25519-dalek-derive",
- "digest 0.10.7",
+ "digest",
  "fiat-crypto",
  "rustc_version",
  "subtle",
@@ -1866,19 +1832,8 @@ version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
- "block-buffer 0.10.4",
- "crypto-common 0.1.7",
-]
-
-[[package]]
-name = "digest"
-version = "0.11.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4850db49bf08e663084f7fb5c87d202ef91a3907271aff24a94eb97ff039153c"
-dependencies = [
- "block-buffer 0.12.0",
- "crypto-common 0.2.1",
- "ctutils",
+ "block-buffer",
+ "crypto-common",
 ]
 
 [[package]]
@@ -3481,15 +3436,6 @@ name = "humantime"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
-
-[[package]]
-name = "hybrid-array"
-version = "0.4.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a79f2aff40c18ab8615ddc5caa9eb5b96314aef18fe5823090f204ad988e813"
-dependencies = [
- "typenum",
-]
 
 [[package]]
 name = "hyper"
@@ -6969,7 +6915,7 @@ checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
- "digest 0.10.7",
+ "digest",
 ]
 
 [[package]]
@@ -7853,9 +7799,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace"
-version = "0.34.1"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87ab4b6c266dc64a886c57c02a4f1d4bc53c385620f731881e129ec950caa830"
+checksum = "4f5aba5668a7dcdfdf040c39e45f56d374f87183b557ee189491e235104a3efd"
 dependencies = [
  "ed25519-dalek",
  "log",
@@ -7869,9 +7815,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core"
-version = "0.34.1"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e471f64bde8c86b1915c3f2671cfd91ef52709845d0d654a6b24223ccbd93467"
+checksum = "75c55035df90cc481ef44bce7c6e941562f2c03e59f2f9f10ab3266dd9b0f758"
 dependencies = [
  "anybytes",
  "arbitrary",
@@ -7881,7 +7827,6 @@ dependencies = [
  "bytes",
  "const_blake3",
  "crossbeam-channel",
- "digest 0.11.2",
  "ed25519",
  "ed25519-dalek",
  "ethnum",
@@ -7920,9 +7865,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core-macros"
-version = "0.34.1"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b27fc12e7d15a2d80268686ed3741473bc2a4d52184072edaf4a9bc54d15dd6"
+checksum = "59325056dee286271e451f33619b6f27a05884e4dabb4e2f67322a4b279776c5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7932,9 +7877,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros"
-version = "0.34.1"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5be38596321a310f5f49c25732aa39bf6ad4d66a8b99da413fbef4cbc803910"
+checksum = "4e84048f3aa52f41eb59a0d98b11a816e782e2f74215ae5c190e2379ceda2bad"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -7948,9 +7893,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros-common"
-version = "0.34.1"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e3bf07da550a7076a903c8c5f1db3a45a10353c18b3144da1c879456c9e798d"
+checksum = "b5bc2e0779a5275b55de2093251eaf3e5e7a8d5e7aa9d40121a850857257e574"
 dependencies = [
  "proc-macro2",
  "quote",
