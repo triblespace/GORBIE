@@ -612,6 +612,17 @@ impl eframe::App for Notebook {
         egui::Frame::central_panel(&ctx.global_style()).show(ui, |ui| {
         egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
+            // Disable drag-to-scroll on the main notebook scroller. egui's
+            // hit-test panics (`hit_test.rs:365`) when a big drag-sensing
+            // ScrollArea coexists with nearby click-sensing widgets —
+            // which is every interactive card in a notebook. Users still
+            // scroll via scroll bars + mouse wheel; touch-style drag-pan
+            // is lost.
+            .scroll_source(egui::scroll_area::ScrollSource {
+                scroll_bar: true,
+                drag: false,
+                mouse_wheel: true,
+            })
             .show_viewport(ui, |ui, viewport| {
                     let rect = ui.max_rect();
                     let clip_rect = ui.clip_rect();
