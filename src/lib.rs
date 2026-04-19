@@ -605,6 +605,11 @@ impl eframe::App for Notebook {
             std::mem::take(slot)
         });
 
+        // eframe 0.34's `fn ui` receives a bare `&mut Ui` with no margin
+        // or background color (see the trait doc). Wrap in a central-panel
+        // Frame so the notebook draws on the theme's panel fill instead
+        // of transparent/black.
+        egui::Frame::central_panel(&ctx.global_style()).show(ui, |ui| {
         egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
             .show_viewport(ui, |ui, viewport| {
@@ -1051,6 +1056,7 @@ impl eframe::App for Notebook {
                         }
                     });
                 });
+        });
 
         ctx.data_mut(|data| {
             data.insert_temp(state_id, runtime);
