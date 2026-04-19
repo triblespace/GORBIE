@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.12.0 - 2026-04-19
+- **Central panel background** restored after the egui 0.34 migration —
+  `fn ui` now receives a bare `&mut Ui` with no default frame/fill, so
+  the notebook wraps its body in `Frame::central_panel(&ctx.global_style())`.
+- **Drag-to-scroll disabled** on the main notebook ScrollArea. egui's
+  hit-test panics (`hit_test.rs:365`) when a big drag-sensing ScrollArea
+  coexists with nearby click-sensing widgets — which is every interactive
+  card in a notebook. Users still scroll via scroll bars + mouse wheel.
+- **Floating card drag handle** uses `Sense::click()` with manual drag
+  detection via `pointer.primary_down` + `pointer.hover_pos`, same
+  sidestep around the egui hit-test bug.
+
 ## 0.9.13 - 2026-04-05
 - Switch `telemetry` to the shared `triblespace::telemetry` implementation and
   use `TELEMETRY_*` environment variables.
