@@ -304,15 +304,43 @@ fn draw_card_chrome(
         egui::vec2(content_rect.width(), handle_height),
     );
     let handle_id = ui.id().with("floating_handle");
-    let handle_resp = ui.interact(handle_rect, handle_id, egui::Sense::click_and_drag());
+    // Click-only sense; drag implemented manually below. Using
+    // `Sense::click_and_drag` panics egui's hit-test
+    // (`hit_test.rs:365`) when the drag-sensing handle coexists with
+    // nearby click-sensing widgets (notebook cards, inline content).
+    let handle_resp = ui.interact(handle_rect, handle_id, egui::Sense::click());
 
-    if handle_resp.dragged() {
+    // Manual drag detection via pointer state. Tracks last pointer
+    // position in egui memory while the primary button is held and
+    // the cursor is over the handle.
+    let drag_mem_id = handle_id.with("drag_last");
+    let (primary_down, pointer_pos) =
+        ui.input(|i| (i.pointer.primary_down(), i.pointer.hover_pos()));
+    let in_handle = pointer_pos
+        .map(|p| handle_rect.contains(p))
+        .unwrap_or(false);
+    let mut manual_drag_delta = egui::Vec2::ZERO;
+    let mut is_dragging = false;
+    if primary_down && (in_handle || ui.ctx().memory(|m| m.data.get_temp::<egui::Pos2>(drag_mem_id)).is_some()) {
+        is_dragging = true;
+        if let Some(p) = pointer_pos {
+            let last = ui.ctx().memory(|m| m.data.get_temp::<egui::Pos2>(drag_mem_id));
+            if let Some(last_p) = last {
+                manual_drag_delta = p - last_p;
+            }
+            ui.ctx().memory_mut(|m| m.data.insert_temp(drag_mem_id, p));
+        }
+    } else {
+        ui.ctx().memory_mut(|m| m.data.remove_temp::<egui::Pos2>(drag_mem_id));
+    }
+
+    if is_dragging {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     } else if handle_resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
     }
 
-    let show_stripes = handle_resp.hovered() || handle_resp.dragged();
+    let show_stripes = handle_resp.hovered() || is_dragging;
     if show_stripes {
         let stripe_color = themes::ral(9004);
         let stripe_stroke = egui::Stroke::new(1.0, stripe_color);
@@ -333,8 +361,8 @@ fn draw_card_chrome(
     CardChromeResponse {
         card_rect,
         handle_clicked: handle_resp.clicked(),
-        drag_delta: handle_resp.drag_delta(),
-        dragged: handle_resp.dragged(),
+        drag_delta: manual_drag_delta,
+        dragged: is_dragging,
         layer_id: handle_resp.layer_id,
     }
 }
