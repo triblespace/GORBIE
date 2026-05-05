@@ -676,7 +676,14 @@ impl eframe::App for Notebook {
                         );
                         ui.set_clip_rect(column_clip_rect);
 
-                        ui.set_min_size(column_rect.size());
+                        // Min-size in y is bounded by the viewport, not by
+                        // `max_rect` — `ui.max_rect()` inside ScrollArea
+                        // reflects the previous frame's content size, so
+                        // forcing the column to that height plus float
+                        // overflow grows the scroll content by `float_overflow`
+                        // every frame (linear "infinite scroll" once any
+                        // content-anchored float exists).
+                        ui.set_min_size(egui::vec2(column_rect.width(), clip_rect.height()));
                         ui.set_max_width(column_rect.width());
 
                         let fill = ui.visuals().window_fill;
@@ -1059,7 +1066,12 @@ impl eframe::App for Notebook {
                         ui.painter()
                             .rect_stroke(frame_rect, 0.0, stroke, egui::StrokeKind::Inside);
 
-                        // Extend scroll content to include content-anchored floating cards.
+                        // Extend scroll content to include content-anchored
+                        // floating cards. Floats render at their natural
+                        // content height (no cap in floating.rs); the
+                        // notebook's set_min_size above is bounded by
+                        // viewport, breaking the scroll-growth feedback
+                        // loop independently of float-reported height.
                         let inline_bottom = frame_rect.bottom();
                         let float_bottom = floating::max_float_content_bottom(ui.ctx());
                         if float_bottom > inline_bottom {

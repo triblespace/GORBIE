@@ -262,11 +262,14 @@ fn draw_card_chrome(
 
     let background_idx = ui.painter().add(egui::Shape::Noop);
 
-    let min_y = ui.min_rect().min.y;
-    let max_y = ui.max_rect().max.y.max(min_y + min_height);
+    // Float draw area is unbounded in y — bodies render to their
+    // natural content height. Width is fixed; height is whatever the
+    // body measures. The notebook's `set_min_size(... clip_rect.height())`
+    // (lib.rs) breaks the infinite-scroll feedback loop, so no cap
+    // is needed here.
     let max_rect = egui::Rect::from_min_max(
         ui.min_rect().min,
-        egui::pos2(ui.min_rect().min.x + card_width, max_y),
+        egui::pos2(ui.min_rect().min.x + card_width, f32::INFINITY),
     );
 
     let inner = ui.scope_builder(egui::UiBuilder::new().max_rect(max_rect), |ui| {
