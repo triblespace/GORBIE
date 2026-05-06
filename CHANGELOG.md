@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.13.0 - 2026-05-07
+
+- **Bump optional `triblespace` dep to 0.37.** Telemetry +
+  pile-inspector examples track the new release. The bump is
+  the headline reason this is a minor (rather than patch)
+  release — pre-1.0, but breaking for downstreams that pin to
+  `triblespace 0.36`.
+- **Bump egui family to 0.34.x latest** (`egui_plot` 0.34 →
+  0.35). Picks up the upstream `hit_test.rs:365` fix that
+  prevented `Sense::click_and_drag` on widgets adjacent to
+  click-sensors — see float / drag-sense changes below.
+- **Bump `rustls-webpki` 0.103.9 → 0.103.13** (RUSTSEC
+  advisories).
 - **Stacked floats no longer drag in lockstep.** Float handles
   use `Sense::click_and_drag` and read `dragged()` /
   `drag_delta()` directly — egui's drag sense is z-aware, so a
