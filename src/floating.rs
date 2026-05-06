@@ -262,14 +262,28 @@ fn draw_card_chrome(
 
     let background_idx = ui.painter().add(egui::Shape::Noop);
 
-    // Float draw area is unbounded in y — bodies render to their
-    // natural content height. Width is fixed; height is whatever the
-    // body measures. The notebook's `set_min_size(... clip_rect.height())`
-    // (lib.rs) breaks the infinite-scroll feedback loop, so no cap
-    // is needed here.
+    // Size the float to its natural content height — no fixed cap.
+    //
+    // The trick: in egui, `max_rect` is the contract for *available*
+    // space, but widgets can grow `min_rect` past it via
+    // `allocate_space(...)`. So setting `max_rect.max.y = min_y +
+    // min_height` means `available_height` starts at `min_height` and
+    // never goes infinite (fill-available bodies cap at the floor),
+    // while natural-content bodies (typst, text, images) keep
+    // allocating space and `min_rect` keeps growing — so
+    // `inner.response.rect.height()` ends up as the actual natural
+    // content height, regardless of how tall the body is.
+    //
+    // This keeps the Area's `constrain_to(EVERYTHING)` trick safe:
+    // bodies don't see f32::INFINITY in `available_height()`, so the
+    // value can't propagate into `record_float_extent` and blow up
+    // the notebook's scroll allocation.
     let max_rect = egui::Rect::from_min_max(
         ui.min_rect().min,
-        egui::pos2(ui.min_rect().min.x + card_width, f32::INFINITY),
+        egui::pos2(
+            ui.min_rect().min.x + card_width,
+            ui.min_rect().min.y + min_height.max(0.0),
+        ),
     );
 
     let inner = ui.scope_builder(egui::UiBuilder::new().max_rect(max_rect), |ui| {

@@ -1067,15 +1067,21 @@ impl eframe::App for Notebook {
                             .rect_stroke(frame_rect, 0.0, stroke, egui::StrokeKind::Inside);
 
                         // Extend scroll content to include content-anchored
-                        // floating cards. Floats render at their natural
-                        // content height (no cap in floating.rs); the
-                        // notebook's set_min_size above is bounded by
-                        // viewport, breaking the scroll-growth feedback
-                        // loop independently of float-reported height.
-                        let inline_bottom = frame_rect.bottom();
+                        // floating cards. The comparison is in *heights*,
+                        // not absolute positions — `frame_rect.bottom()`
+                        // is in screen coords (drifts with scroll), while
+                        // `float_bottom` (= fstate.pos.y + card_h) is in
+                        // content coords (fixed). Subtracting the two
+                        // mixes coord systems and grows linearly with
+                        // scroll position → runaway scroll content.
+                        // Compare heights instead: the column's inline
+                        // content occupies content_y = [0, frame_h]; the
+                        // float ends at content_y = float_bottom; we
+                        // extend by the gap.
+                        let inline_height = frame_rect.height();
                         let float_bottom = floating::max_float_content_bottom(ui.ctx());
-                        if float_bottom > inline_bottom {
-                            ui.allocate_space(egui::vec2(0.0, float_bottom - inline_bottom));
+                        if float_bottom > inline_height {
+                            ui.allocate_space(egui::vec2(0.0, float_bottom - inline_height));
                         }
                     });
                 });

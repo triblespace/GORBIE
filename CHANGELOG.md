@@ -4,21 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-- **Floating cards render at natural content height.** The
-  `viewport_height` cap on a float's `max_rect.max.y` in
-  `floating.rs` was too tight: tall wiki floats got clipped at
-  one viewport-height instead of expanding to fit. Cap removed
-  (`f32::INFINITY`), letting bodies measure to their actual
-  content height.
-- **Scroll-area extension uncapped.** The notebook's
-  `max_extension = clip_rect.height()` cap on float overflow in
-  `lib.rs` shrunk allocated scroll space to one viewport past
-  inline content; tall floats couldn't be scrolled to the end.
-  Now the scroll content extends to whatever the float reports.
-- **Infinite-scroll feedback loop stays broken** by the existing
-  `set_min_size(... clip_rect.height())` (viewport-bounded, not
-  max_rect-bounded), so removing the two caps doesn't reopen the
-  runaway-growth bug they were originally added for.
+- **Floating cards render at natural content height.** Tall
+  floats (multi-page wiki fragments, long compass goal lists)
+  no longer clip at a fixed viewport-height cap. `max_rect.max.y`
+  is set to `min_y + min_height` so `available_height()` is a
+  finite floor, but `min_rect` grows freely past it via
+  `allocate_space(...)` — so `inner.response.rect.height()` ends
+  up as the actual natural content height, regardless of how
+  tall the body is, while still preventing fill-available
+  widgets (transitive ScrollArea, vertical layouts) from seeing
+  `f32::INFINITY` and reporting runaway heights.
+- **Fix infinite-scroll feedback when a content-anchored float
+  is open.** The notebook's scroll-content extension was
+  comparing `frame_rect.bottom()` (screen coords, drifts with
+  scroll position) against `float_bottom` (content coords,
+  fixed) — subtracting the two mixed coordinate systems and
+  grew linearly with scroll position, so each frame the user
+  scrolled, the allocated scroll content expanded, which let
+  them scroll further next frame. Compare *heights* instead
+  (`frame_rect.height()` vs `float_bottom`); both are
+  coord-system-independent extents. Wiki and compass floats
+  triggered this; activity timeline (no content-anchored
+  floats) was unaffected.
 
 ## 0.12.0 - 2026-04-19
 - **Central panel background** restored after the egui 0.34 migration —
