@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.13.1 - 2026-05-07
+
+- **RUSTSEC patch-bump four transitive deps in Cargo.lock**:
+  - `thin-vec 0.2.14 → 0.2.16` (GHSA-xphw-cqx3-667j, high) —
+    Use-After-Free + Double Free in `IntoIter::drop` when an
+    element's `Drop` panics. Pulled in via `typst-utils`.
+  - `quinn-proto 0.11.13 → 0.11.14` (GHSA-6xvm-j4wr-6v98, high) —
+    Unauthenticated remote DoS via panic in QUIC transport
+    parameter parsing. Stale lockfile entry — not in the active
+    dep graph but tracked in `Cargo.lock`.
+  - `rand 0.8.5 → 0.8.6` (GHSA-cq8v-f236-94qc, low) — Unsoundness
+    with custom logger using `rand::rng()`. Pulled in via
+    `ashpd` (dark-light) and `lipsum` (typst-library).
+  - `rand 0.9.2 → 0.9.3` — Same advisory, 0.9 line. Pulled in
+    via `cubecl-common`.
+  All four are pure patch bumps within existing semver ranges;
+  no Cargo.toml changes needed.
+
 ## 0.13.0 - 2026-05-07
 
 - **Bump optional `triblespace` dep to 0.37.** Telemetry +
