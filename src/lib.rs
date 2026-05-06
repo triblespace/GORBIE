@@ -545,7 +545,7 @@ impl NotebookCore {
 
         let store = notebook.state_store.clone();
         let mut measured_height: Option<f32> = None;
-        let panel_fill = ctx.style().visuals.window_fill;
+        let panel_fill = ctx.global_style().visuals.window_fill;
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(panel_fill))
             .show(ctx, |ui| {
@@ -585,7 +585,7 @@ impl eframe::App for Notebook {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.update_app_icon(&ctx);
-        ctx.style_mut(|style| {
+        ctx.global_style_mut(|style| {
             style.visuals.clip_rect_margin = 0.0;
         });
 

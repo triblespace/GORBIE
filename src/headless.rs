@@ -170,7 +170,7 @@ impl HeadlessWgpuRunner {
 
         let mut notebook = core.build_notebook();
         let mut measured_height: Option<f32> = None;
-        let output = self.ctx.run(raw_input, |ctx| {
+        let output = self.ctx.run_ui(raw_input, |ctx| {
             measured_height = core.draw_card(ctx, &mut notebook, index, self.card_width);
         });
         Ok((output, measured_height))
@@ -215,7 +215,7 @@ impl HeadlessWgpuRunner {
             &screen_descriptor,
         );
 
-        let clear = color32_to_wgpu(self.ctx.style().visuals.window_fill);
+        let clear = color32_to_wgpu(self.ctx.global_style().visuals.window_fill);
         let target = self.target.as_ref().expect("target ensured");
         {
             let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
