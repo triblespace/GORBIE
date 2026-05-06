@@ -321,35 +321,15 @@ fn draw_card_chrome(
         egui::vec2(content_rect.width(), handle_height),
     );
     let handle_id = ui.id().with("floating_handle");
-    // Click-only sense; drag implemented manually below. Using
-    // `Sense::click_and_drag` panics egui's hit-test
-    // (`hit_test.rs:365`) when the drag-sensing handle coexists with
-    // nearby click-sensing widgets (notebook cards, inline content).
-    let handle_resp = ui.interact(handle_rect, handle_id, egui::Sense::click());
-
-    // Manual drag detection via pointer state. Tracks last pointer
-    // position in egui memory while the primary button is held and
-    // the cursor is over the handle.
-    let drag_mem_id = handle_id.with("drag_last");
-    let (primary_down, pointer_pos) =
-        ui.input(|i| (i.pointer.primary_down(), i.pointer.hover_pos()));
-    let in_handle = pointer_pos
-        .map(|p| handle_rect.contains(p))
-        .unwrap_or(false);
-    let mut manual_drag_delta = egui::Vec2::ZERO;
-    let mut is_dragging = false;
-    if primary_down && (in_handle || ui.ctx().memory(|m| m.data.get_temp::<egui::Pos2>(drag_mem_id)).is_some()) {
-        is_dragging = true;
-        if let Some(p) = pointer_pos {
-            let last = ui.ctx().memory(|m| m.data.get_temp::<egui::Pos2>(drag_mem_id));
-            if let Some(last_p) = last {
-                manual_drag_delta = p - last_p;
-            }
-            ui.ctx().memory_mut(|m| m.data.insert_temp(drag_mem_id, p));
-        }
-    } else {
-        ui.ctx().memory_mut(|m| m.data.remove_temp::<egui::Pos2>(drag_mem_id));
-    }
+    // egui's drag sense is z-aware (only the topmost overlapping
+    // handle reports `dragged()`), so stacked floats no longer drag
+    // in lockstep. The original 0.34 migration used a click-only
+    // sense + manual pointer tracking to dodge a `hit_test.rs:365`
+    // panic; the 0.34.x bumps in this release picked up the
+    // upstream fix.
+    let handle_resp = ui.interact(handle_rect, handle_id, egui::Sense::click_and_drag());
+    let drag_delta = handle_resp.drag_delta();
+    let is_dragging = handle_resp.dragged();
 
     if is_dragging {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -378,7 +358,7 @@ fn draw_card_chrome(
     CardChromeResponse {
         card_rect,
         handle_clicked: handle_resp.clicked(),
-        drag_delta: manual_drag_delta,
+        drag_delta,
         dragged: is_dragging,
         layer_id: handle_resp.layer_id,
     }

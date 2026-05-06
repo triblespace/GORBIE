@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Stacked floats no longer drag in lockstep.** Float handles
+  use `Sense::click_and_drag` and read `dragged()` /
+  `drag_delta()` directly — egui's drag sense is z-aware, so a
+  drag-start event is consumed by exactly the topmost handle
+  under the pointer. The 0.34 migration's `hit_test.rs:365`
+  panic that prompted manual pointer tracking has been fixed
+  upstream in 0.34.x; ~25 lines of memory-id bookkeeping gone.
 - **Floating cards render at natural content height.** Tall
   floats (multi-page wiki fragments, long compass goal lists)
   no longer clip at a fixed viewport-height cap. `max_rect.max.y`
