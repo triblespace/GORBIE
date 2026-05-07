@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.13.2 - 2026-05-07
+
+- **Bump optional `triblespace` dep 0.37 → 0.38.** Tracks the
+  team-rooted-gossip release. Source identical otherwise; this
+  is a dep-version-tracking patch so downstream crates pinning
+  `GORBIE = "0.13"` can pull the new triblespace through the
+  optional `triblespace` feature without resolving against
+  conflicting versions.
+
 ## 0.13.1 - 2026-05-07
 
 - **RUSTSEC patch-bump four transitive deps in Cargo.lock**:
