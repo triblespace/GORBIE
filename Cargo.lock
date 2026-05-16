@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "GORBIE"
-version = "0.14.2"
+version = "0.14.3"
 dependencies = [
  "comemo",
  "ctrlc",
@@ -8023,9 +8023,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace"
-version = "0.40.2"
+version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eadd8262c03d43515abfaee9165a3c9ed1e9207f0796c1456200f78e3bfd6791"
+checksum = "b574cbd5741345465b221005bba1bea215df1a2461e53adb9933badbf821b994"
 dependencies = [
  "ed25519-dalek",
  "log",
@@ -8039,9 +8039,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core"
-version = "0.40.2"
+version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5158e37a1173c7552685e013459930a0c2681932a019d97819431da0d91d3e78"
+checksum = "6e97033c3d7d4093b5d730fc2da27d3f0d4aef539745656a9a4144b3c4b69c51"
 dependencies = [
  "anybytes",
  "arbitrary",
@@ -8090,9 +8090,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core-macros"
-version = "0.40.2"
+version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9129e2c964246ac30f659c623ef7ff19dbf1ce5a66c452a9e32873f42f330e12"
+checksum = "86ad9676d42a048423f02ca6c511dd2d8e50bc53c8b54bdda123ef115aaa5d31"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8102,9 +8102,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros"
-version = "0.40.2"
+version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ed1c925ef46c862ce536cfa6aa435685da4e9bb0c97f7258bbf1d9543425d26"
+checksum = "76c09c88ed512cbb7df468cfca0213c696acbf78e6517ce3abfb22a46e331be3"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -8118,9 +8118,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros-common"
-version = "0.40.2"
+version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ffa1332ee84c5d355d289d000eac2756daac7fa1232c43552e84f307b8292be"
+checksum = "ae6a59b19ce911e962dfe312c210315fdac840bd88298c60c40a3e8aff7f8fa0"
 dependencies = [
  "proc-macro2",
  "quote",

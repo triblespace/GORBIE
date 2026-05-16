@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.14.3 - 2026-05-16
+
+- **Bump optional `triblespace` dep 0.40 → 0.41.** Tracks the
+  iroh-0.98 upgrade in `triblespace-net`, which fixes the
+  ed25519-dalek 3.0.0-pre.1 vs ed25519 3.0.0 compile failure
+  upstream (by re-pinning to pre.6). Replaces the 0.14.2
+  Cargo.lock workaround with a proper resolution path.
+  Source identical to 0.14.2.
+
 ## 0.14.2 - 2026-05-16
 
 - **Pick up `triblespace 0.40.2`** so downstream consumers
