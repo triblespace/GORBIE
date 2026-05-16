@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "GORBIE"
-version = "0.14.1"
+version = "0.14.2"
 dependencies = [
  "comemo",
  "ctrlc",
@@ -1878,7 +1878,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2475,7 +2475,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3632,7 +3632,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.58.0",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -4604,7 +4604,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6802,7 +6802,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7589,7 +7589,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8023,9 +8023,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace"
-version = "0.40.1"
+version = "0.40.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a9c6f35362ca6e19665fcc703c08e32106d771309bd0088eaf5ecce03907124"
+checksum = "eadd8262c03d43515abfaee9165a3c9ed1e9207f0796c1456200f78e3bfd6791"
 dependencies = [
  "ed25519-dalek",
  "log",
@@ -8039,9 +8039,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core"
-version = "0.40.1"
+version = "0.40.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96de728dd2a497fe00f289424d4a49e072189dda24a5e3c063e7c83f7bb9d66a"
+checksum = "5158e37a1173c7552685e013459930a0c2681932a019d97819431da0d91d3e78"
 dependencies = [
  "anybytes",
  "arbitrary",
@@ -8090,9 +8090,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core-macros"
-version = "0.40.1"
+version = "0.40.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf27f1ed0d3ae4adb07b360d57542fb5cffe69679321174e885b212570d2b118"
+checksum = "9129e2c964246ac30f659c623ef7ff19dbf1ce5a66c452a9e32873f42f330e12"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8102,9 +8102,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros"
-version = "0.40.1"
+version = "0.40.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee697f3c71be9cb0f5d1212a1ae64ea9185f01041cff594c01f05ba8521a19f7"
+checksum = "1ed1c925ef46c862ce536cfa6aa435685da4e9bb0c97f7258bbf1d9543425d26"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -8118,9 +8118,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros-common"
-version = "0.40.1"
+version = "0.40.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0e2729420b8db476d00fdc63eb49e1607a97524936c0e6203dab0903de13119"
+checksum = "7ffa1332ee84c5d355d289d000eac2756daac7fa1232c43552e84f307b8292be"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8456,7 +8456,7 @@ checksum = "51b70b87d15e91f553711b40df3048faf27a7a04e01e0ddc0cf9309f0af7c2ca"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9583,7 +9583,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

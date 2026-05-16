@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.14.2 - 2026-05-16
+
+- **Pick up `triblespace 0.40.2`** so downstream consumers
+  (notably `faculties`) get the TLS-roots-from-OS-store fix
+  through `GORBIE = "0.14"` without manual lockfile work.
+  Cargo.lock pins bumped via `cargo update -p triblespace`;
+  source identical to 0.14.1.
+
 ## 0.13.2 - 2026-05-07
 
 - **Bump optional `triblespace` dep 0.37 → 0.38.** Tracks the
