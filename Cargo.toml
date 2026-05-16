@@ -42,7 +42,7 @@ png = "0.18"
 pollster = "0.4"
 egui_commonmark = { package = "gorbie-commonmark", version = "0.24.0", path = "../gorbie_commonmark/egui_commonmark", features = ["better_syntax_highlighting", "svg", "fetch"], optional = true }
 egui_plot = { version = "0.35", optional = true }
-triblespace = { version = "0.38", optional = true }
+triblespace = { version = "0.39", path = "../triblespace-rs", optional = true }
 polars = { version = "0.52.0", optional = true, features = ["lazy", "sql", "polars-ops"] }
 rapier2d = { version = "0.32", optional = true }
 hifitime = { version = "4.2.3", optional = true }
@@ -112,3 +112,4 @@ required-features = ["triblespace"]
 [[example]]
 name = "wiki_viewer"
 required-features = ["triblespace", "typst", "cubecl"]
+

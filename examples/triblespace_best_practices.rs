@@ -13,16 +13,16 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use egui::{self};
-use triblespace::core::blob::schemas::simplearchive::SimpleArchive;
+use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
 use triblespace::core::id::Id;
 use triblespace::core::metadata;
 use triblespace::core::repo::pile::Pile;
 use triblespace::core::repo::{BlobStore, BlobStoreGet, BlobStoreMeta, BranchStore, Repository};
 use triblespace::core::trible::TribleSet;
-use triblespace::core::value::schemas::hash::{Blake3, Handle};
-use triblespace::core::value::Value;
+use triblespace::core::inline::encodings::hash::{Blake3, Handle};
+use triblespace::core::inline::Inline;
 use triblespace::macros::{find, pattern};
-use triblespace::prelude::blobschemas::LongString;
+use triblespace::prelude::blobencodings::LongString;
 use triblespace::prelude::View;
 
 use GORBIE::notebook;
@@ -30,7 +30,7 @@ use GORBIE::widgets;
 use GORBIE::widgets::triblespace::{PileRepoState, PileRepoWidget};
 use GORBIE::NotebookCtx;
 
-type CommitHandle = Value<Handle<Blake3, SimpleArchive>>;
+type CommitHandle = Inline<Handle<SimpleArchive>>;
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -54,7 +54,7 @@ struct BranchInfo {
 }
 
 fn scan_branches(
-    repo: &mut Repository<Pile<Blake3>>,
+    repo: &mut Repository<Pile>,
     prefix: &str,
 ) -> Result<Vec<BranchInfo>, String> {
     repo.storage_mut()
@@ -84,7 +84,7 @@ fn scan_branches(
             .get(head)
             .map_err(|err| format!("branch metadata blob: {err:?}"))?;
         let name = find!(
-            (handle: Value<Handle<Blake3, LongString>>),
+            (handle: Inline<Handle<LongString>>),
             pattern!(&meta, [{ metadata::name: ?handle }])
         )
         .into_iter()
@@ -152,7 +152,7 @@ impl BranchCardState {
 }
 
 fn refresh_selected_branch(
-    repo: &mut Repository<Pile<Blake3>>,
+    repo: &mut Repository<Pile>,
     branches: &[BranchInfo],
     selected: Option<usize>,
     prev_head: &mut Option<CommitHandle>,

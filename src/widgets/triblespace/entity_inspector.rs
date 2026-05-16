@@ -16,18 +16,18 @@ use cubecl::prelude::*;
 use cubecl::server::Handle as CubeHandle;
 #[cfg(feature = "cubecl")]
 use cubecl::wgpu::{WgpuDevice, WgpuRuntime};
-use triblespace::core::blob::schemas::longstring::LongString;
-use triblespace::core::blob::schemas::wasmcode::WasmCode;
+use triblespace::core::blob::encodings::longstring::LongString;
+use triblespace::core::blob::encodings::wasmcode::WasmCode;
 use triblespace::core::blob::BlobCache;
 use triblespace::core::id::Id;
 use triblespace::core::query::TriblePattern;
 use triblespace::core::repo::BlobStoreGet;
-use triblespace::core::value::schemas::hash::{Blake3, Handle};
-use triblespace::core::value::schemas::UnknownValue;
-use triblespace::core::value::Value;
+use triblespace::core::inline::encodings::hash::{Blake3, Handle};
+use triblespace::core::inline::encodings::UnknownInline;
+use triblespace::core::inline::Inline;
 use triblespace::core::value_formatter::{WasmLimits, WasmValueFormatter};
-use triblespace::prelude::valueschemas::GenId;
-use triblespace::prelude::{find, pattern, ConstId, TribleSet, TribleSetFingerprint, View};
+use triblespace::prelude::inlineencodings::GenId;
+use triblespace::prelude::{find, pattern, MetaDescribe, TribleSet, TribleSetFingerprint, View};
 
 use crate::themes;
 
@@ -52,8 +52,8 @@ pub fn id_full(id: Id) -> String {
 }
 
 fn try_decode_genid(raw: &[u8; 32]) -> Option<Id> {
-    let v = triblespace::core::value::Value::<GenId>::new(*raw);
-    let parsed: Result<Id, _> = v.try_from_value();
+    let v = triblespace::core::inline::Inline::<GenId>::new(*raw);
+    let parsed: Result<Id, _> = v.try_from_inline();
     parsed.ok()
 }
 
@@ -104,19 +104,19 @@ struct EntityGraph {
 struct AttrInfo {
     label: String,
     schema: Option<Id>,
-    formatter: Option<Value<Handle<Blake3, WasmCode>>>,
+    formatter: Option<Inline<Handle<WasmCode>>>,
 }
 
 fn build_attr_info<B>(
     metadata: &TribleSet,
-    name_cache: &BlobCache<B, Blake3, LongString, View<str>>,
+    name_cache: &BlobCache<B, LongString, View<str>>,
 ) -> HashMap<Id, AttrInfo>
 where
-    B: BlobStoreGet<Blake3>,
+    B: BlobStoreGet,
 {
     let mut labels = HashMap::<Id, String>::new();
     for (attr, name_handle) in find!(
-        (attr: Id, name_handle: Value<Handle<Blake3, LongString>>),
+        (attr: Id, name_handle: Inline<Handle<LongString>>),
         pattern!(metadata, [{ ?attr @ triblespace::core::metadata::name: ?name_handle }])
     ) {
         if let Ok(name) = name_cache.get(name_handle) {
@@ -124,7 +124,7 @@ where
         }
     }
     for (usage, attr, name_handle) in find!(
-        (usage: Id, attr: Id, name_handle: Value<Handle<Blake3, LongString>>),
+        (usage: Id, attr: Id, name_handle: Inline<Handle<LongString>>),
         pattern!(metadata, [
             { ?usage @ triblespace::core::metadata::attribute: ?attr },
             { ?usage @ triblespace::core::metadata::tag: triblespace::core::metadata::KIND_ATTRIBUTE_USAGE },
@@ -143,14 +143,14 @@ where
     let mut schema_by_attr = HashMap::<Id, Id>::new();
     for (attr, schema) in find!(
         (attr: Id, schema: Id),
-        pattern!(metadata, [{ ?attr @ triblespace::core::metadata::value_schema: ?schema }])
+        pattern!(metadata, [{ ?attr @ triblespace::core::metadata::value_encoding: ?schema }])
     ) {
         schema_by_attr.insert(attr, schema);
     }
 
-    let mut formatter_by_schema = HashMap::<Id, Value<Handle<Blake3, WasmCode>>>::new();
+    let mut formatter_by_schema = HashMap::<Id, Inline<Handle<WasmCode>>>::new();
     for (schema, formatter) in find!(
-        (schema: Id, formatter: Value<Handle<Blake3, WasmCode>>),
+        (schema: Id, formatter: Inline<Handle<WasmCode>>),
         pattern!(metadata, [{ ?schema @ triblespace::core::metadata::value_formatter: ?formatter }])
     ) {
         formatter_by_schema.insert(schema, formatter);
@@ -186,20 +186,20 @@ where
 fn build_entity_graph<B>(
     data: &TribleSet,
     metadata: &TribleSet,
-    name_cache: &BlobCache<B, Blake3, LongString, View<str>>,
-    formatter_cache: &BlobCache<B, Blake3, WasmCode, WasmValueFormatter>,
+    name_cache: &BlobCache<B, LongString, View<str>>,
+    formatter_cache: &BlobCache<B, WasmCode, WasmValueFormatter>,
 ) -> EntityGraph
 where
-    B: BlobStoreGet<Blake3>,
+    B: BlobStoreGet,
 {
     let attr_info = build_attr_info(metadata, name_cache);
     let limits = WasmLimits::default();
 
-    let schema_genid = GenId::ID;
+    let schema_genid = <GenId as triblespace::core::metadata::MetaDescribe>::id();
     let mut entity_ids = HashSet::<Id>::new();
     let mut tribles = Vec::<(Id, Id, [u8; 32])>::new();
 
-    for (e, a, v) in find!((e: Id, a: Id, v: Value<UnknownValue>), data.pattern(e, a, v)) {
+    for (e, a, v) in find!((e: Id, a: Id, v: Inline<UnknownInline>), data.pattern(e, a, v)) {
         entity_ids.insert(e);
         if let Some(info) = attr_info.get(&a) {
             if info.schema == Some(schema_genid) {
@@ -340,11 +340,11 @@ fn cached_entity_graph<B>(
     cache_id: egui::Id,
     data: &TribleSet,
     metadata: &TribleSet,
-    name_cache: &BlobCache<B, Blake3, LongString, View<str>>,
-    formatter_cache: &BlobCache<B, Blake3, WasmCode, WasmValueFormatter>,
+    name_cache: &BlobCache<B, LongString, View<str>>,
+    formatter_cache: &BlobCache<B, WasmCode, WasmValueFormatter>,
 ) -> Arc<EntityGraph>
 where
-    B: BlobStoreGet<Blake3>,
+    B: BlobStoreGet,
 {
     let data_fingerprint = data.fingerprint();
     let metadata_fingerprint = metadata.fingerprint();
@@ -605,12 +605,12 @@ pub struct EntityInspectorResponse {
 #[must_use = "Use `EntityInspectorWidget::show(ui)` to render this widget."]
 pub struct EntityInspectorWidget<'a, B>
 where
-    B: BlobStoreGet<Blake3>,
+    B: BlobStoreGet,
 {
     data: &'a TribleSet,
     metadata: &'a TribleSet,
-    name_cache: &'a BlobCache<B, Blake3, LongString, View<str>>,
-    formatter_cache: &'a BlobCache<B, Blake3, WasmCode, WasmValueFormatter>,
+    name_cache: &'a BlobCache<B, LongString, View<str>>,
+    formatter_cache: &'a BlobCache<B, WasmCode, WasmValueFormatter>,
     selection: &'a mut Id,
     columns: usize,
     order: EntityOrder,
@@ -619,13 +619,13 @@ where
 
 impl<'a, B> EntityInspectorWidget<'a, B>
 where
-    B: BlobStoreGet<Blake3>,
+    B: BlobStoreGet,
 {
     pub fn new(
         data: &'a TribleSet,
         metadata: &'a TribleSet,
-        name_cache: &'a BlobCache<B, Blake3, LongString, View<str>>,
-        formatter_cache: &'a BlobCache<B, Blake3, WasmCode, WasmValueFormatter>,
+        name_cache: &'a BlobCache<B, LongString, View<str>>,
+        formatter_cache: &'a BlobCache<B, WasmCode, WasmValueFormatter>,
         selection: &'a mut Id,
     ) -> Self {
         #[cfg(feature = "cubecl")]

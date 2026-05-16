@@ -6,71 +6,71 @@
 //! triblespace = "0.34.1"
 //! ```
 
-use triblespace::core::blob::schemas::longstring::LongString;
-use triblespace::core::blob::schemas::simplearchive::SimpleArchive;
-use triblespace::core::blob::schemas::succinctarchive::SuccinctArchiveBlob;
-use triblespace::core::blob::schemas::wasmcode::WasmCode;
+use triblespace::core::blob::encodings::longstring::LongString;
+use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
+use triblespace::core::blob::encodings::succinctarchive::SuccinctArchiveBlob;
+use triblespace::core::blob::encodings::wasmcode::WasmCode;
 use triblespace::core::blob::MemoryBlobStore;
 use triblespace::core::id::Id;
 use triblespace::core::id::RawId;
 use triblespace::core::metadata;
-use triblespace::core::metadata::ConstDescribe;
+use triblespace::core::metadata::MetaDescribe;
 use triblespace::core::repo::BlobStore;
 use triblespace::core::repo::BlobStoreGet;
 use triblespace::core::trible::TribleSet;
-use triblespace::core::value::schemas::boolean::Boolean;
-use triblespace::core::value::schemas::ed25519::{
+use triblespace::core::inline::encodings::boolean::Boolean;
+use triblespace::core::inline::encodings::ed25519::{
     ED25519PublicKey, ED25519RComponent, ED25519SComponent,
 };
-use triblespace::core::value::schemas::f256::{F256BE, F256LE};
-use triblespace::core::value::schemas::f64::F64;
-use triblespace::core::value::schemas::genid::GenId;
-use triblespace::core::value::schemas::hash::{Blake3, Handle};
-use triblespace::core::value::schemas::iu256::{I256BE, I256LE, U256BE, U256LE};
-use triblespace::core::value::schemas::linelocation::LineLocation;
-use triblespace::core::value::schemas::r256::{R256BE, R256LE};
-use triblespace::core::value::schemas::range::{RangeInclusiveU128, RangeU128};
-use triblespace::core::value::schemas::shortstring::ShortString;
-use triblespace::core::value::schemas::time::NsTAIInterval;
-use triblespace::core::value::Value;
+use triblespace::core::inline::encodings::f256::{F256BE, F256LE};
+use triblespace::core::inline::encodings::f64::F64;
+use triblespace::core::inline::encodings::genid::GenId;
+use triblespace::core::inline::encodings::hash::{Blake3, Handle};
+use triblespace::core::inline::encodings::iu256::{I256BE, I256LE, U256BE, U256LE};
+use triblespace::core::inline::encodings::linelocation::LineLocation;
+use triblespace::core::inline::encodings::r256::{R256BE, R256LE};
+use triblespace::core::inline::encodings::range::{RangeInclusiveU128, RangeU128};
+use triblespace::core::inline::encodings::shortstring::ShortString;
+use triblespace::core::inline::encodings::time::NsTAIInterval;
+use triblespace::core::inline::Inline;
 use triblespace::macros::{find, pattern};
 use triblespace::prelude::View;
 
 use GORBIE::prelude::*;
 
-fn build_schema_metadata(blobs: &mut MemoryBlobStore<Blake3>) -> TribleSet {
+fn build_schema_metadata(blobs: &mut MemoryBlobStore) -> TribleSet {
     let mut metadata_set = TribleSet::new();
 
-    metadata_set += Boolean::describe(blobs).expect("boolean metadata");
-    metadata_set += ShortString::describe(blobs).expect("shortstring metadata");
-    metadata_set += GenId::describe(blobs).expect("genid metadata");
-    metadata_set += F64::describe(blobs).expect("f64 metadata");
-    metadata_set += F256LE::describe(blobs).expect("f256le metadata");
-    metadata_set += F256BE::describe(blobs).expect("f256be metadata");
-    metadata_set += U256LE::describe(blobs).expect("u256le metadata");
-    metadata_set += U256BE::describe(blobs).expect("u256be metadata");
-    metadata_set += I256LE::describe(blobs).expect("i256le metadata");
-    metadata_set += I256BE::describe(blobs).expect("i256be metadata");
-    metadata_set += R256LE::describe(blobs).expect("r256le metadata");
-    metadata_set += R256BE::describe(blobs).expect("r256be metadata");
-    metadata_set += RangeU128::describe(blobs).expect("range_u128 metadata");
-    metadata_set += RangeInclusiveU128::describe(blobs).expect("range_u128_inc metadata");
-    metadata_set += LineLocation::describe(blobs).expect("line_location metadata");
-    metadata_set += NsTAIInterval::describe(blobs).expect("nstai_interval metadata");
-    metadata_set += ED25519RComponent::describe(blobs).expect("ed25519_r metadata");
-    metadata_set += ED25519SComponent::describe(blobs).expect("ed25519_s metadata");
-    metadata_set += ED25519PublicKey::describe(blobs).expect("ed25519_pubkey metadata");
-    metadata_set += Blake3::describe(blobs).expect("blake3 metadata");
-    metadata_set += Handle::<Blake3, LongString>::describe(blobs).expect("handle longstring");
-    metadata_set += Handle::<Blake3, SimpleArchive>::describe(blobs).expect("handle simplearchive");
+    metadata_set += Boolean::describe();
+    metadata_set += ShortString::describe();
+    metadata_set += GenId::describe();
+    metadata_set += F64::describe();
+    metadata_set += F256LE::describe();
+    metadata_set += F256BE::describe();
+    metadata_set += U256LE::describe();
+    metadata_set += U256BE::describe();
+    metadata_set += I256LE::describe();
+    metadata_set += I256BE::describe();
+    metadata_set += R256LE::describe();
+    metadata_set += R256BE::describe();
+    metadata_set += RangeU128::describe();
+    metadata_set += RangeInclusiveU128::describe();
+    metadata_set += LineLocation::describe();
+    metadata_set += NsTAIInterval::describe();
+    metadata_set += ED25519RComponent::describe();
+    metadata_set += ED25519SComponent::describe();
+    metadata_set += ED25519PublicKey::describe();
+    metadata_set += Blake3::describe();
+    metadata_set += Handle::<LongString>::describe();
+    metadata_set += Handle::<SimpleArchive>::describe();
     metadata_set +=
-        Handle::<Blake3, SuccinctArchiveBlob>::describe(blobs).expect("handle succinctarchive");
-    metadata_set += Handle::<Blake3, WasmCode>::describe(blobs).expect("handle wasmcode");
+        Handle::<SuccinctArchiveBlob>::describe();
+    metadata_set += Handle::<WasmCode>::describe();
 
-    metadata_set += LongString::describe(blobs).expect("longstring metadata");
-    metadata_set += SimpleArchive::describe(blobs).expect("simplearchive metadata");
-    metadata_set += SuccinctArchiveBlob::describe(blobs).expect("succinctarchive metadata");
-    metadata_set += WasmCode::describe(blobs).expect("wasmcode metadata");
+    metadata_set += LongString::describe();
+    metadata_set += SimpleArchive::describe();
+    metadata_set += SuccinctArchiveBlob::describe();
+    metadata_set += WasmCode::describe();
 
     metadata_set
 }
@@ -79,7 +79,7 @@ fn render_schema_sections(
     ui: &mut egui::Ui,
     title: &str,
     metadata_set: &TribleSet,
-    blobs: &impl BlobStoreGet<Blake3>,
+    blobs: &impl BlobStoreGet,
     kind: Id,
 ) {
     let id_color = ui.visuals().weak_text_color();
@@ -91,8 +91,8 @@ fn render_schema_sections(
     let mut rows: Vec<(Id, String, String)> = find!(
         (
             id: Id,
-            name: Value<Handle<Blake3, LongString>>,
-            description: Value<Handle<Blake3, LongString>>
+            name: Inline<Handle<LongString>>,
+            description: Inline<Handle<LongString>>
         ),
         pattern!(metadata_set, [{
             ?id @
@@ -164,7 +164,7 @@ fn render_schema_sections(
 #[notebook]
 fn main(nb: &mut NotebookCtx) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    let mut blobs = MemoryBlobStore::<Blake3>::new();
+    let mut blobs = MemoryBlobStore::new();
     let metadata_set = build_schema_metadata(&mut blobs);
     let reader = blobs.reader().expect("metadata blob reader");
 
@@ -180,7 +180,7 @@ fn main(nb: &mut NotebookCtx) {
                 "Value schemas",
                 &metadata_set,
                 &reader,
-                metadata::KIND_VALUE_SCHEMA,
+                metadata::KIND_INLINE_ENCODING,
             );
             ctx.add_space(8.0);
             render_schema_sections(
@@ -188,7 +188,7 @@ fn main(nb: &mut NotebookCtx) {
                 "Blob schemas",
                 &metadata_set,
                 &reader,
-                metadata::KIND_BLOB_SCHEMA,
+                metadata::KIND_BLOB_ENCODING,
             );
         });
     });

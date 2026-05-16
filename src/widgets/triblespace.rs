@@ -2,13 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use eframe::egui;
-use triblespace::core::blob::schemas::simplearchive::{SimpleArchive, UnarchiveError};
+use triblespace::core::blob::encodings::simplearchive::{SimpleArchive, UnarchiveError};
 use triblespace::core::patch::{IdentitySchema, PATCH};
 use triblespace::core::repo::{
     BlobStore, BlobStoreGet, CommitSelector, Workspace, WorkspaceCheckoutError,
 };
-use triblespace::core::value::schemas::hash::{Blake3, Handle};
-use triblespace::core::value::{RawValue, Value, VALUE_LEN};
+use triblespace::core::inline::encodings::hash::{Blake3, Handle};
+use triblespace::core::inline::{RawInline, Inline, INLINE_LEN};
 
 pub mod commit_history;
 pub mod entity_inspector;
@@ -41,24 +41,24 @@ pub use pile_overview::PileOverviewTuning;
 #[cfg(feature = "gloss")]
 pub use pile_overview::PileOverviewWidget;
 
-type CommitHandle = Value<Handle<Blake3, SimpleArchive>>;
-type CommitSet = PATCH<VALUE_LEN, IdentitySchema, ()>;
+type CommitHandle = Inline<Handle<SimpleArchive>>;
+type CommitSet = PATCH<INLINE_LEN, IdentitySchema, ()>;
 
 /// Metadata used to render a commit card.
 #[derive(Clone, Debug)]
 pub struct CommitInfo {
-    pub parents: Vec<RawValue>,
+    pub parents: Vec<RawInline>,
     pub summary: String,
     pub message: Option<String>,
-    pub author: Option<RawValue>,
+    pub author: Option<RawInline>,
     pub timestamp_ms: Option<u64>,
 }
 
 /// Commit DAG data for the commit graph widget.
 #[derive(Clone, Debug)]
 pub struct CommitGraph {
-    pub order: Vec<RawValue>,
-    pub commits: HashMap<RawValue, CommitInfo>,
+    pub order: Vec<RawInline>,
+    pub commits: HashMap<RawInline, CommitInfo>,
     pub truncated: bool,
 }
 
@@ -66,11 +66,11 @@ pub struct CommitGraph {
 #[derive(Clone, Debug)]
 pub struct CommitHead {
     pub label: String,
-    pub commit: RawValue,
+    pub commit: RawInline,
 }
 
 impl CommitHead {
-    pub fn new(label: impl Into<String>, commit: RawValue) -> Self {
+    pub fn new(label: impl Into<String>, commit: RawInline) -> Self {
         Self {
             label: label.into(),
             commit,
@@ -82,8 +82,8 @@ impl CommitHead {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommitSelection {
     None,
-    Single(RawValue),
-    Range { start: RawValue, end: RawValue },
+    Single(RawInline),
+    Range { start: RawInline, end: RawInline },
 }
 
 impl Default for CommitSelection {
@@ -111,8 +111,8 @@ impl CommitSelection {
 /// Mutable selection state for the commit graph widget.
 #[derive(Clone, Debug, Default)]
 pub struct CommitSelectionState {
-    anchor: Option<RawValue>,
-    focus: Option<RawValue>,
+    anchor: Option<RawInline>,
+    focus: Option<RawInline>,
 }
 
 impl CommitSelectionState {
@@ -192,7 +192,7 @@ impl<'a> CommitGraphWidget<'a> {
         let output = egui::ScrollArea::horizontal()
             .auto_shrink([false; 2])
             .show(ui, |ui| {
-                let mut head_labels: HashMap<RawValue, Vec<String>> = HashMap::new();
+                let mut head_labels: HashMap<RawInline, Vec<String>> = HashMap::new();
                 let mut head_order = Vec::new();
                 let mut seen_heads = HashSet::new();
 
@@ -232,7 +232,7 @@ impl<'a> CommitGraphWidget<'a> {
                     left_padding + lanes_width + label_width + label_gap + card_width + 12.0;
                 let height = top_padding + (rows as f32 * row_height) + 4.0;
 
-                let head_set: HashSet<RawValue> = head_labels.keys().copied().collect();
+                let head_set: HashSet<RawInline> = head_labels.keys().copied().collect();
 
                 let available_width = ui.available_width();
                 let (rect, _) = ui.allocate_exact_size(
@@ -469,14 +469,14 @@ impl<'a> CommitGraphWidget<'a> {
 
 impl<Blobs> CommitSelector<Blobs> for CommitSelection
 where
-    Blobs: BlobStore<Blake3>,
+    Blobs: BlobStore,
 {
     fn select(
         self,
         ws: &mut Workspace<Blobs>,
     ) -> Result<
         CommitSet,
-        WorkspaceCheckoutError<<Blobs::Reader as BlobStoreGet<Blake3>>::GetError<UnarchiveError>>,
+        WorkspaceCheckoutError<<Blobs::Reader as BlobStoreGet>::GetError<UnarchiveError>>,
     > {
         match self {
             CommitSelection::None => Option::<CommitHandle>::None.select(ws),
@@ -489,7 +489,7 @@ where
 }
 
 struct CommitCard<'a> {
-    commit: RawValue,
+    commit: RawInline,
     info: &'a CommitInfo,
     lane: usize,
     pos: egui::Pos2,
@@ -498,11 +498,11 @@ struct CommitCard<'a> {
 
 #[derive(Clone, Debug)]
 struct CommitLayout {
-    positions: HashMap<RawValue, (usize, usize)>,
+    positions: HashMap<RawInline, (usize, usize)>,
     lane_count: usize,
 }
 
-fn layout_commit_graph(graph: &CommitGraph, heads: &[RawValue]) -> CommitLayout {
+fn layout_commit_graph(graph: &CommitGraph, heads: &[RawInline]) -> CommitLayout {
     let mut lane_by_commit = HashMap::new();
     let mut next_lane = 0usize;
 
@@ -597,7 +597,7 @@ fn commit_detail_line(now_ms: u64, info: &CommitInfo) -> String {
     parts.join("  ")
 }
 
-fn commit_tooltip(now_ms: u64, commit: RawValue, info: &CommitInfo) -> String {
+fn commit_tooltip(now_ms: u64, commit: RawInline, info: &CommitInfo) -> String {
     let mut tooltip = format!("hash: {}", hex_prefix(commit, 32));
     if let Some(message) = info.message.as_deref() {
         tooltip.push_str(&format!("\nmessage: {message}"));
@@ -611,7 +611,7 @@ fn commit_tooltip(now_ms: u64, commit: RawValue, info: &CommitInfo) -> String {
     tooltip
 }
 
-fn selected_commits(graph: &CommitGraph, selection: CommitSelection) -> HashSet<RawValue> {
+fn selected_commits(graph: &CommitGraph, selection: CommitSelection) -> HashSet<RawInline> {
     match selection {
         CommitSelection::None => HashSet::new(),
         CommitSelection::Single(commit) => {
@@ -623,7 +623,7 @@ fn selected_commits(graph: &CommitGraph, selection: CommitSelection) -> HashSet<
     }
 }
 
-fn range_commits(graph: &CommitGraph, start: RawValue, end: RawValue) -> HashSet<RawValue> {
+fn range_commits(graph: &CommitGraph, start: RawInline, end: RawInline) -> HashSet<RawInline> {
     let mut selected = HashSet::new();
     let mut stack = vec![end];
     while let Some(commit) = stack.pop() {
@@ -644,8 +644,8 @@ fn range_commits(graph: &CommitGraph, start: RawValue, end: RawValue) -> HashSet
     selected
 }
 
-fn commit_handle(raw: RawValue) -> CommitHandle {
-    Value::new(raw)
+fn commit_handle(raw: RawInline) -> CommitHandle {
+    Inline::new(raw)
 }
 
 fn now_ms() -> u64 {

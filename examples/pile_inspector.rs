@@ -17,9 +17,9 @@ use ed25519_dalek::{SecretKey, SigningKey};
 use hifitime::Epoch;
 use rand_core::OsRng;
 use rand_core::TryRngCore;
-use triblespace::core::blob::schemas::longstring::LongString;
-use triblespace::core::blob::schemas::simplearchive::SimpleArchive;
-use triblespace::core::blob::schemas::wasmcode::WasmCode;
+use triblespace::core::blob::encodings::longstring::LongString;
+use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
+use triblespace::core::blob::encodings::wasmcode::WasmCode;
 use triblespace::core::blob::BlobCache;
 use triblespace::core::id::Id;
 use triblespace::core::metadata;
@@ -31,11 +31,11 @@ use triblespace::core::repo::{
     BranchStore, Repository,
 };
 use triblespace::core::trible::TribleSet;
-use triblespace::core::value::schemas::ed25519 as ed;
-use triblespace::core::value::schemas::hash::{Blake3, Handle};
-use triblespace::core::value::schemas::time::NsTAIInterval;
-use triblespace::core::value::RawValue;
-use triblespace::core::value::Value;
+use triblespace::core::inline::encodings::ed25519 as ed;
+use triblespace::core::inline::encodings::hash::{Blake3, Handle};
+use triblespace::core::inline::encodings::time::NsTAIInterval;
+use triblespace::core::inline::RawInline;
+use triblespace::core::inline::Inline;
 use triblespace::core::value_formatter::WasmValueFormatter;
 use triblespace::macros::{find, id_hex, pattern};
 use triblespace::prelude::View;
@@ -57,7 +57,7 @@ const HISTOGRAM_BUCKET_COUNT: usize =
 
 #[derive(Clone, Debug)]
 struct BlobInfo {
-    hash: RawValue,
+    hash: RawInline,
     timestamp_ms: Option<u64>,
     length: Option<u64>,
 }
@@ -66,7 +66,7 @@ struct BlobInfo {
 struct BranchInfo {
     id: Id,
     name: Option<String>,
-    head: Option<RawValue>,
+    head: Option<RawInline>,
 }
 
 #[derive(Clone, Debug)]
@@ -85,7 +85,7 @@ struct PileSnapshot {
     path: PathBuf,
     file_len: u64,
     reader: PileReader<Blake3>,
-    blob_order: Vec<RawValue>,
+    blob_order: Vec<RawInline>,
     blob_stats: BlobStats,
     branches: Vec<BranchInfo>,
     commit_graph: CommitGraph,
@@ -113,8 +113,8 @@ fn hex_prefix(bytes: impl AsRef<[u8]>, prefix_len: usize) -> String {
     out
 }
 
-fn blob_info(reader: &PileReader<Blake3>, hash: RawValue) -> BlobInfo {
-    let handle = Value::<Handle<Blake3, SimpleArchive>>::new(hash);
+fn blob_info(reader: &PileReader<Blake3>, hash: RawInline) -> BlobInfo {
+    let handle = Inline::<Handle<SimpleArchive>>::new(hash);
     let meta = reader.metadata(handle).ok().flatten();
     let (timestamp_ms, length) = match meta {
         Some(meta) => (Some(meta.timestamp), Some(meta.length)),
@@ -271,7 +271,7 @@ fn snapshot_pile(pile: &mut Pile, path: &PathBuf) -> Result<PileSnapshot, String
         if let Some(branch_meta) = branch_meta {
             if let Ok(metadata_set) = reader.get::<TribleSet, SimpleArchive>(branch_meta) {
                 name = find!(
-                    (handle: Value<Handle<Blake3, LongString>>),
+                    (handle: Inline<Handle<LongString>>),
                     pattern!(&metadata_set, [{ metadata::name: ?handle }])
                 )
                 .into_iter()
@@ -279,7 +279,7 @@ fn snapshot_pile(pile: &mut Pile, path: &PathBuf) -> Result<PileSnapshot, String
                 .map(|view| view.to_string())
                 .next();
                 head = find!(
-                    (commit_head: Value<Handle<Blake3, SimpleArchive>>),
+                    (commit_head: Inline<Handle<SimpleArchive>>),
                     pattern!(&metadata_set, [{ branch_head: ?commit_head }])
                 )
                 .into_iter()
@@ -290,7 +290,7 @@ fn snapshot_pile(pile: &mut Pile, path: &PathBuf) -> Result<PileSnapshot, String
         branches.push(BranchInfo { id, name, head });
     }
 
-    let commit_heads: Vec<RawValue> = branches.iter().filter_map(|branch| branch.head).collect();
+    let commit_heads: Vec<RawInline> = branches.iter().filter_map(|branch| branch.head).collect();
     let commit_graph = build_commit_graph(&reader, &commit_heads);
 
     Ok(PileSnapshot {
@@ -306,7 +306,7 @@ fn snapshot_pile(pile: &mut Pile, path: &PathBuf) -> Result<PileSnapshot, String
 
 const DAG_MAX_COMMITS: usize = 240;
 
-fn build_commit_graph(reader: &impl BlobStoreGet<Blake3>, heads: &[RawValue]) -> CommitGraph {
+fn build_commit_graph(reader: &impl BlobStoreGet, heads: &[RawInline]) -> CommitGraph {
     let mut commits = HashMap::new();
     let mut order = Vec::new();
     let mut queue = VecDeque::new();
@@ -387,8 +387,8 @@ fn commit_summary(short_message: Option<&str>, long_message: Option<&str>) -> St
     summary.to_owned()
 }
 
-fn commit_timestamp_ms(interval: Value<NsTAIInterval>) -> Option<u64> {
-    let (_, upper): (Epoch, Epoch) = interval.try_from_value().ok()?;
+fn commit_timestamp_ms(interval: Inline<NsTAIInterval>) -> Option<u64> {
+    let (_, upper): (Epoch, Epoch) = interval.try_from_inline().ok()?;
     let ms = upper.to_unix_milliseconds();
     if ms.is_finite() {
         Some(ms.max(0.0).round() as u64)
@@ -397,8 +397,8 @@ fn commit_timestamp_ms(interval: Value<NsTAIInterval>) -> Option<u64> {
     }
 }
 
-fn commit_info(reader: &impl BlobStoreGet<Blake3>, commit: RawValue) -> CommitInfo {
-    let handle = Value::<Handle<Blake3, SimpleArchive>>::new(commit);
+fn commit_info(reader: &impl BlobStoreGet, commit: RawInline) -> CommitInfo {
+    let handle = Inline::<Handle<SimpleArchive>>::new(commit);
     let Ok(metadata_set) = reader.get::<TribleSet, SimpleArchive>(handle) else {
         return CommitInfo {
             parents: Vec::new(),
@@ -409,8 +409,8 @@ fn commit_info(reader: &impl BlobStoreGet<Blake3>, commit: RawValue) -> CommitIn
         };
     };
 
-    let parents: Vec<RawValue> = find!(
-        (parent_handle: Value<Handle<Blake3, SimpleArchive>>),
+    let parents: Vec<RawInline> = find!(
+        (parent_handle: Inline<Handle<SimpleArchive>>),
         pattern!(&metadata_set, [{ commit_parent: ?parent_handle }])
     )
     .into_iter()
@@ -426,7 +426,7 @@ fn commit_info(reader: &impl BlobStoreGet<Blake3>, commit: RawValue) -> CommitIn
     .next();
 
     let long_message = find!(
-        (message_handle: Value<Handle<Blake3, LongString>>),
+        (message_handle: Inline<Handle<LongString>>),
         pattern!(&metadata_set, [{ commit_message: ?message_handle }])
     )
     .into_iter()
@@ -439,7 +439,7 @@ fn commit_info(reader: &impl BlobStoreGet<Blake3>, commit: RawValue) -> CommitIn
     let message = long_message.or(short_message);
 
     let author = find!(
-        (pubkey: Value<ed::ED25519PublicKey>),
+        (pubkey: Inline<ed::ED25519PublicKey>),
         pattern!(&metadata_set, [{ commit_signed_by: ?pubkey }])
     )
     .into_iter()
@@ -447,7 +447,7 @@ fn commit_info(reader: &impl BlobStoreGet<Blake3>, commit: RawValue) -> CommitIn
     .next();
 
     let timestamp_ms = find!(
-        (ts: Value<NsTAIInterval>),
+        (ts: Inline<NsTAIInterval>),
         pattern!(&metadata_set, [{ commit_timestamp: ?ts }])
     )
     .into_iter()
@@ -1010,9 +1010,9 @@ fn main(nb: &mut NotebookCtx) {
                 }
             };
 
-            let formatter_cache: BlobCache<_, Blake3, WasmCode, WasmValueFormatter> =
+            let formatter_cache: BlobCache<_, WasmCode, WasmValueFormatter> =
                 BlobCache::new(snapshot.reader.clone());
-            let name_cache: BlobCache<_, Blake3, LongString, View<str>> =
+            let name_cache: BlobCache<_, LongString, View<str>> =
                 BlobCache::new(snapshot.reader.clone());
             let response = EntityInspectorWidget::new(
                 &checkout_data.data,
@@ -1095,7 +1095,7 @@ fn main(nb: &mut NotebookCtx) {
                 });
 
                 let now_ms = now_ms();
-                let branch_heads: HashSet<RawValue> = snapshot
+                let branch_heads: HashSet<RawInline> = snapshot
                     .branches
                     .iter()
                     .filter_map(|branch| branch.head)

@@ -6,10 +6,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use eframe::egui;
 use parking_lot::Mutex;
 use rapier2d::prelude::*;
-use triblespace::core::blob::schemas::simplearchive::SimpleArchive;
+use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
 use triblespace::core::repo::BlobStoreMeta;
-use triblespace::core::value::schemas::hash::{Blake3, Handle};
-use triblespace::core::value::{RawValue, Value};
+use triblespace::core::inline::encodings::hash::{Blake3, Handle};
+use triblespace::core::inline::{RawInline, Value};
 
 const SUMMARY_PANEL_PADDING: f32 = 6.0;
 const SUMMARY_SIM_ASPECT_RATIO: f32 = 2.0;
@@ -18,8 +18,8 @@ const SUMMARY_SIM_ASPECT_RATIO: f32 = 2.0;
 pub struct PileOverviewData<'a, R> {
     pub path: &'a std::path::Path,
     pub file_len: u64,
-    pub blob_order: &'a [RawValue],
-    pub branch_heads: &'a [RawValue],
+    pub blob_order: &'a [RawInline],
+    pub branch_heads: &'a [RawInline],
     pub branch_count: usize,
     pub oldest_ts: Option<u64>,
     pub newest_ts: Option<u64>,
@@ -800,7 +800,7 @@ fn overview_hash<R>(data: &PileOverviewData<'_, R>) -> u64 {
     hasher.finish()
 }
 
-fn hash_u64(hash: RawValue) -> u64 {
+fn hash_u64(hash: RawInline) -> u64 {
     let mut bytes = [0u8; 8];
     bytes.copy_from_slice(&hash[..8]);
     u64::from_le_bytes(bytes)
@@ -861,13 +861,13 @@ fn size_range(sim_rect: egui::Rect, levels: SummaryLevels) -> (f32, f32) {
 
 #[derive(Clone, Debug)]
 struct BlobInfo {
-    hash: RawValue,
+    hash: RawInline,
     timestamp_ms: Option<u64>,
     length: Option<u64>,
 }
 
-fn blob_info(reader: &impl BlobStoreMeta<Blake3>, hash: RawValue) -> BlobInfo {
-    let handle = Value::<Handle<Blake3, SimpleArchive>>::new(hash);
+fn blob_info(reader: &impl BlobStoreMeta<Blake3>, hash: RawInline) -> BlobInfo {
+    let handle = Inline::<Handle<SimpleArchive>>::new(hash);
     let meta = reader.metadata(handle).ok().flatten();
     let (timestamp_ms, length) = match meta {
         Some(meta) => (Some(meta.timestamp), Some(meta.length)),
@@ -883,7 +883,7 @@ fn blob_info(reader: &impl BlobStoreMeta<Blake3>, hash: RawValue) -> BlobInfo {
 fn select_sample<'a>(
     candidates: &[&'a BlobInfo],
     count: usize,
-    branch_heads: &HashSet<RawValue>,
+    branch_heads: &HashSet<RawInline>,
 ) -> Vec<&'a BlobInfo> {
     if count == 0 {
         return Vec::new();
@@ -919,7 +919,7 @@ where
 
     let candidate_refs: Vec<&BlobInfo> = candidates.iter().collect();
 
-    let branch_heads: HashSet<RawValue> = data.branch_heads.iter().copied().collect();
+    let branch_heads: HashSet<RawInline> = data.branch_heads.iter().copied().collect();
 
     let sample_count = target_sample_count(candidate_refs.len(), levels.blob);
     let sample_rate = levels.sample_rate.clamp(0.0, 1.0);

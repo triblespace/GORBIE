@@ -8,15 +8,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ed25519_dalek::SigningKey;
 use rand_core06::OsRng;
-use triblespace::core::blob::schemas::longstring::LongString;
-use triblespace::core::blob::schemas::simplearchive::SimpleArchive;
+use triblespace::core::blob::encodings::longstring::LongString;
+use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
 use triblespace::core::metadata;
 use triblespace::core::repo::pile::Pile;
 use triblespace::core::repo::{BlobStore, BlobStoreGet, BlobStoreMeta, BranchStore, Repository};
 use triblespace::core::trible::TribleSet;
-use triblespace::core::value::schemas::hash::{Blake3, Handle};
-use triblespace::core::value::schemas::iu256::U256BE;
-use triblespace::core::value::Value;
+use triblespace::core::inline::encodings::hash::{Blake3, Handle};
+use triblespace::core::inline::encodings::iu256::U256BE;
+use triblespace::core::inline::Inline;
 use triblespace::macros::{find, pattern};
 use triblespace::prelude::View;
 
@@ -28,18 +28,18 @@ use GORBIE::NotebookCtx;
 
 use GORBIE::telemetry::schema as t;
 
-type CommitHandle = Value<Handle<Blake3, SimpleArchive>>;
+type CommitHandle = Inline<Handle<SimpleArchive>>;
 
 struct RepoGuard {
-    repo: Option<Repository<Pile<Blake3>>>,
+    repo: Option<Repository<Pile>>,
 }
 
 impl RepoGuard {
-    fn new(repo: Repository<Pile<Blake3>>) -> Self {
+    fn new(repo: Repository<Pile>) -> Self {
         Self { repo: Some(repo) }
     }
 
-    fn as_mut(&mut self) -> Option<&mut Repository<Pile<Blake3>>> {
+    fn as_mut(&mut self) -> Option<&mut Repository<Pile>> {
         self.repo.as_mut()
     }
 }
@@ -97,7 +97,7 @@ impl RepoCache {
         if path_changed || self.repo.is_none() {
             self.repo = None;
             let mut pile =
-                Pile::<Blake3>::open(&open_path).map_err(|err| format!("open pile: {err:?}"))?;
+                Pile::open(&open_path).map_err(|err| format!("open pile: {err:?}"))?;
             if let Err(err) = pile.restore() {
                 let _ = pile.close();
                 return Err(format!("restore pile: {err:?}"));
@@ -175,7 +175,7 @@ fn contains_case_insensitive_ascii(haystack: &str, needle_lc: &[u8]) -> bool {
     false
 }
 
-fn u256be_to_u64(value: Value<U256BE>) -> Option<u64> {
+fn u256be_to_u64(value: Inline<U256BE>) -> Option<u64> {
     let raw = value.raw;
     if raw[..24].iter().any(|byte| *byte != 0) {
         return None;
@@ -185,8 +185,8 @@ fn u256be_to_u64(value: Value<U256BE>) -> Option<u64> {
 }
 
 fn load_longstring(
-    ws: &mut triblespace::core::repo::Workspace<Pile<Blake3>>,
-    handle: Value<Handle<Blake3, LongString>>,
+    ws: &mut triblespace::core::repo::Workspace<Pile>,
+    handle: Inline<Handle<LongString>>,
     cache: &mut HashMap<[u8; 32], String>,
 ) -> Result<String, String> {
     if let Some(value) = cache.get(&handle.raw) {
@@ -208,7 +208,7 @@ struct BranchInfo {
 }
 
 fn scan_branches(
-    repo: &mut Repository<Pile<Blake3>>,
+    repo: &mut Repository<Pile>,
     prefix: &str,
     prev: &[BranchInfo],
 ) -> Result<Vec<BranchInfo>, String> {
@@ -249,7 +249,7 @@ fn scan_branches(
                     .get(meta)
                     .map_err(|err| format!("branch metadata blob: {err:?}"))?;
                 let mut names = find!(
-                    (handle: Value<Handle<Blake3, LongString>>),
+                    (handle: Inline<Handle<LongString>>),
                     pattern!(&meta_set, [{ metadata::name: ?handle }])
                 )
                 .into_iter();
@@ -769,7 +769,7 @@ fn load_session(
 
     // Discover all sessions on this branch (always, for the dropdown).
     for (session_id, name_handle) in find!(
-        (id: triblespace::core::id::Id, name: Value<Handle<Blake3, LongString>>),
+        (id: triblespace::core::id::Id, name: Inline<Handle<LongString>>),
         pattern!(&space, [{
             ?id @
                 metadata::tag: t::kind_session,
@@ -790,7 +790,7 @@ fn load_session(
         let filter_entity = triblespace::core::id::ExclusiveId::force_ref(&filter_id);
         if index.session_title.is_none() {
             let session_title = find!(
-                (title: Value<Handle<Blake3, LongString>>),
+                (title: Inline<Handle<LongString>>),
                 pattern!(&space, [{ filter_entity @ t::name: ?title }])
             )
             .into_iter()
@@ -802,7 +802,7 @@ fn load_session(
         }
 
         let session_dur = find!(
-            (dur: Value<U256BE>),
+            (dur: Inline<U256BE>),
             pattern!(&space, [{ filter_entity @ t::duration_ns: ?dur }])
         )
         .into_iter()
@@ -820,7 +820,7 @@ fn load_session(
         }
 
         let session_dur = find!(
-            (dur: Value<U256BE>),
+            (dur: Inline<U256BE>),
             pattern!(&space, [{
                 metadata::tag: t::kind_session,
                 t::duration_ns: ?dur,
@@ -840,8 +840,8 @@ fn load_session(
             span: triblespace::core::id::Id,
             session: triblespace::core::id::Id,
             category: String,
-            name: Value<Handle<Blake3, LongString>>,
-            begin: Value<U256BE>
+            name: Inline<Handle<LongString>>,
+            begin: Inline<U256BE>
         ),
         pattern!(&space, [{
             ?span @
@@ -882,7 +882,7 @@ fn load_session(
     for (span_id, src_handle) in find!(
         (
             span: triblespace::core::id::Id,
-            src: Value<Handle<Blake3, LongString>>
+            src: Inline<Handle<LongString>>
         ),
         pattern!(&space, [{ ?span @ t::source: ?src }])
     ) {
@@ -893,7 +893,7 @@ fn load_session(
 
     // Span completion facts.
     for (span_id, dur_raw) in find!(
-        (span: triblespace::core::id::Id, dur: Value<U256BE>),
+        (span: triblespace::core::id::Id, dur: Inline<U256BE>),
         pattern!(&space, [{ ?span @ t::duration_ns: ?dur }])
     ) {
         let Some(dur) = u256be_to_u64(dur_raw) else {

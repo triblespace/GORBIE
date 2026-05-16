@@ -21,10 +21,10 @@ use triblespace::core::metadata;
 use triblespace::core::repo::pile::Pile;
 use triblespace::core::repo::{BlobStore, BlobStoreGet, BranchStore, Repository, Workspace};
 use triblespace::core::trible::TribleSet;
-use triblespace::core::value::schemas::hash::{Blake3, Handle};
-use triblespace::core::value::{TryToValue, Value};
+use triblespace::core::inline::encodings::hash::{Blake3, Handle};
+use triblespace::core::inline::{TryToInline, Inline};
 use triblespace::macros::{find, pattern};
-use triblespace::prelude::blobschemas::{FileBytes, LongString};
+use triblespace::prelude::blobencodings::{RawBytes, LongString};
 use triblespace::prelude::View;
 
 use GORBIE::notebook;
@@ -40,24 +40,24 @@ const TAG_ARCHIVED_ID: Id = triblespace::macros::id_hex!("480CB6A663C709478A26A8
 mod wiki {
     use triblespace::prelude::*;
     attributes! {
-        "EBFC56D50B748E38A14F5FC768F1B9C1" as fragment: valueschemas::GenId;
-        "6DBBE746B7DD7A4793CA098AB882F553" as content: valueschemas::Handle<valueschemas::Blake3, blobschemas::LongString>;
-        "78BABEF1792531A2E51A372D96FE5F3E" as title: valueschemas::Handle<valueschemas::Blake3, blobschemas::LongString>;
-        "DEAFB7E307DF72389AD95A850F24BAA5" as links_to: valueschemas::GenId;
+        "EBFC56D50B748E38A14F5FC768F1B9C1" as fragment: inlineencodings::GenId;
+        "6DBBE746B7DD7A4793CA098AB882F553" as content: inlineencodings::Handle<blobencodings::LongString>;
+        "78BABEF1792531A2E51A372D96FE5F3E" as title: inlineencodings::Handle<blobencodings::LongString>;
+        "DEAFB7E307DF72389AD95A850F24BAA5" as links_to: inlineencodings::GenId;
     }
 }
 
 mod file {
     use triblespace::prelude::*;
     attributes! {
-        "C1E3A12230595280F22ABEB8733D082C" as content: valueschemas::Handle<valueschemas::Blake3, blobschemas::FileBytes>;
-        "AA6AB6F5E68F3A9D95681251C2B9DAFA" as name: valueschemas::Handle<valueschemas::Blake3, blobschemas::LongString>;
-        "BFE2C88ECD13D56F80967C343FC072EE" as mime: valueschemas::ShortString;
+        "C1E3A12230595280F22ABEB8733D082C" as content: inlineencodings::Handle<blobencodings::RawBytes>;
+        "AA6AB6F5E68F3A9D95681251C2B9DAFA" as name: inlineencodings::Handle<blobencodings::LongString>;
+        "BFE2C88ECD13D56F80967C343FC072EE" as mime: inlineencodings::ShortString;
     }
 }
 
-type TextHandle = Value<Handle<Blake3, LongString>>;
-type FileHandle = Value<Handle<Blake3, FileBytes>>;
+type TextHandle = Inline<Handle<LongString>>;
+type FileHandle = Inline<Handle<RawBytes>>;
 
 fn fmt_id(id: Id) -> String {
     format!("{id:x}")
@@ -68,13 +68,13 @@ fn fmt_id(id: Id) -> String {
 struct WikiLive {
     wiki_space: TribleSet,
     files_space: TribleSet,
-    wiki_ws: Workspace<Pile<Blake3>>,
-    files_ws: Option<Workspace<Pile<Blake3>>>,
+    wiki_ws: Workspace<Pile>,
+    files_ws: Option<Workspace<Pile>>,
 }
 
 impl WikiLive {
     fn open(path: &std::path::Path) -> Result<Self, String> {
-        let mut pile = Pile::<Blake3>::open(path).map_err(|e| format!("open pile: {e:?}"))?;
+        let mut pile = Pile::open(path).map_err(|e| format!("open pile: {e:?}"))?;
         if let Err(err) = pile.restore() {
             let _ = pile.close();
             return Err(format!("restore: {err:?}"));
@@ -277,8 +277,8 @@ impl WikiLive {
             (eid, h)
         } else if hex.len() == 64 {
             let hash_str = format!("blake3:{hex}");
-            let hash_value: Value<triblespace::core::value::schemas::hash::Hash<Blake3>> =
-                hash_str.as_str().try_to_value().ok()?;
+            let hash_value: Inline<triblespace::core::inline::encodings::hash::Hash<Blake3>> =
+                hash_str.as_str().try_to_inline().ok()?;
             let content_handle: FileHandle = hash_value.into();
             let eid = find!(
                 eid: Id,
@@ -318,7 +318,7 @@ impl WikiLive {
         };
 
         let result = (|| -> Result<PathBuf, String> {
-            let blob: Blob<FileBytes> = ws.get(handle).map_err(|e| format!("get blob: {e:?}"))?;
+            let blob: Blob<RawBytes> = ws.get(handle).map_err(|e| format!("get blob: {e:?}"))?;
             let tmp_dir = std::env::temp_dir().join("liora-files");
             std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("mkdir: {e}"))?;
             let path = tmp_dir.join(&name);
@@ -338,7 +338,7 @@ impl WikiLive {
 
 // ── helpers ──────────────────────────────────────────────────────────
 
-fn find_branch(repo: &mut Repository<Pile<Blake3>>, name: &str) -> Option<Id> {
+fn find_branch(repo: &mut Repository<Pile>, name: &str) -> Option<Id> {
     let reader = repo.storage_mut().reader().ok()?;
     for item in repo.storage_mut().branches().ok()? {
         let bid = item.ok()?;

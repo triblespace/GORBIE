@@ -8,7 +8,7 @@
 //! ```
 
 use eframe::egui;
-use triblespace::core::blob::schemas::wasmcode::WasmCode;
+use triblespace::core::blob::encodings::wasmcode::WasmCode;
 use triblespace::core::blob::BlobCache;
 use triblespace::core::examples::literature;
 use triblespace::core::id::ExclusiveId;
@@ -16,12 +16,12 @@ use triblespace::core::id::Id;
 use triblespace::core::repo::memoryrepo::MemoryRepo;
 use triblespace::core::repo::BlobStore;
 use triblespace::core::repo::BlobStorePut;
-use triblespace::core::value::schemas::hash::Blake3;
-use triblespace::core::value::schemas::hash::Handle;
+use triblespace::core::inline::encodings::hash::Blake3;
+use triblespace::core::inline::encodings::hash::Handle;
 use triblespace::core::value_formatter::WasmValueFormatter;
-use triblespace::prelude::blobschemas::LongString;
-use triblespace::prelude::valueschemas::{GenId, ShortString, R256};
-use triblespace::prelude::{entity, ConstDescribe, ConstId, TribleSet, View};
+use triblespace::prelude::blobencodings::LongString;
+use triblespace::prelude::inlineencodings::{GenId, ShortString, R256};
+use triblespace::prelude::{entity, MetaDescribe, TribleSet, View};
 
 use GORBIE::prelude::*;
 use GORBIE::widgets::triblespace::{id_short, EntityInspectorWidget};
@@ -31,8 +31,8 @@ mod demo {
 
     // A tiny synthetic schema so we can render human-friendly rows and references.
     attributes! {
-        "B603E10B4BBF45B7A1BA0B7D9FA2D001" as pub name: valueschemas::ShortString;
-        "B603E10B4BBF45B7A1BA0B7D9FA2D002" as pub isa: valueschemas::GenId;
+        "B603E10B4BBF45B7A1BA0B7D9FA2D001" as pub name: inlineencodings::ShortString;
+        "B603E10B4BBF45B7A1BA0B7D9FA2D002" as pub isa: inlineencodings::GenId;
     }
 }
 
@@ -50,10 +50,10 @@ fn build_demo_space() -> (TribleSet, TribleSet, MemoryRepo, Id) {
     let lit_quote = literature::quote.id();
     let lit_page_count = literature::page_count.id();
 
-    let schema_genid = GenId::ID;
-    let schema_shortstring = ShortString::ID;
-    let schema_handle = Handle::<Blake3, LongString>::ID;
-    let schema_r256 = R256::ID;
+    let schema_genid = <GenId as MetaDescribe>::id();
+    let schema_shortstring = <ShortString as MetaDescribe>::id();
+    let schema_handle = <Handle<LongString> as MetaDescribe>::id();
+    let schema_r256 = <R256 as MetaDescribe>::id();
     for (attr, name, schema) in [
         (name, "name", schema_shortstring),
         (isa, "isa", schema_genid),
@@ -69,14 +69,14 @@ fn build_demo_space() -> (TribleSet, TribleSet, MemoryRepo, Id) {
             .expect("name handle");
         metadata += entity! { ExclusiveId::force_ref(&attr) @
             triblespace::core::metadata::name: name_handle,
-            triblespace::core::metadata::value_schema: schema,
+            triblespace::core::metadata::value_encoding: schema,
         };
     }
 
-    metadata += GenId::describe(&mut storage).expect("genid metadata");
-    metadata += Handle::<Blake3, LongString>::describe(&mut storage).expect("handle metadata");
-    metadata += R256::describe(&mut storage).expect("r256 metadata");
-    metadata += ShortString::describe(&mut storage).expect("shortstring metadata");
+    metadata += GenId::describe();
+    metadata += <Handle<LongString> as MetaDescribe>::describe();
+    metadata += R256::describe();
+    metadata += ShortString::describe();
 
     fn demo_id(seed: u16) -> Id {
         let mut raw = [0u8; 16];
@@ -318,9 +318,9 @@ fn main(nb: &mut NotebookCtx) {
 
     let (data, metadata, mut storage, default_selected) = build_demo_space();
     let reader = storage.reader().expect("demo blob store reader");
-    let formatter_cache: BlobCache<_, Blake3, WasmCode, WasmValueFormatter> =
+    let formatter_cache: BlobCache<_, WasmCode, WasmValueFormatter> =
         BlobCache::new(reader.clone());
-    let name_cache: BlobCache<_, Blake3, LongString, View<str>> = BlobCache::new(reader);
+    let name_cache: BlobCache<_, LongString, View<str>> = BlobCache::new(reader);
     let inspector = nb.state(
         "inspector",
         InspectorState {

@@ -6,7 +6,7 @@ use rand_core06::OsRng;
 use triblespace::core::repo::Repository;
 use triblespace::core::repo::pile::Pile;
 use triblespace::core::trible::TribleSet;
-use triblespace::core::value::schemas::hash::Blake3;
+use triblespace::core::inline::encodings::hash::Blake3;
 
 use crate::dataflow::ComputedState;
 use crate::themes::GorbieToggleButtonStyle;
@@ -14,7 +14,7 @@ use crate::widgets::Button;
 
 /// Result of a background pile open operation.
 struct OpenResult {
-    repo: Repository<Pile<Blake3>>,
+    repo: Repository<Pile>,
     path: PathBuf,
 }
 
@@ -26,7 +26,7 @@ struct OpenResult {
 pub struct PileRepoState {
     pile_path: String,
     open_path: Option<PathBuf>,
-    repo: Option<Repository<Pile<Blake3>>>,
+    repo: Option<Repository<Pile>>,
     signing_key: SigningKey,
     last_error: Option<String>,
     opener: ComputedState<Option<Result<OpenResult, String>>>,
@@ -78,11 +78,11 @@ impl PileRepoState {
         self.opener.is_running()
     }
 
-    pub fn repo(&self) -> Option<&Repository<Pile<Blake3>>> {
+    pub fn repo(&self) -> Option<&Repository<Pile>> {
         self.repo.as_ref()
     }
 
-    pub fn repo_mut(&mut self) -> Option<&mut Repository<Pile<Blake3>>> {
+    pub fn repo_mut(&mut self) -> Option<&mut Repository<Pile>> {
         self.repo.as_mut()
     }
 
@@ -136,7 +136,7 @@ impl PileRepoState {
         self.opener.spawn(move || {
             let result = (|| -> Result<OpenResult, String> {
                 let mut pile =
-                    Pile::<Blake3>::open(&path).map_err(|err| format!("open pile: {err:?}"))?;
+                    Pile::open(&path).map_err(|err| format!("open pile: {err:?}"))?;
                 if let Err(err) = pile.restore() {
                     let _ = pile.close();
                     return Err(format!("restore pile: {err:?}"));
@@ -156,7 +156,7 @@ impl PileRepoState {
 pub struct PileRepoResponse<'a> {
     pub opened: bool,
     pub closed: bool,
-    pub repo: Option<&'a mut Repository<Pile<Blake3>>>,
+    pub repo: Option<&'a mut Repository<Pile>>,
 }
 
 /// UI helper that edits `PileRepoState` and offers Open/Close controls.

@@ -1202,15 +1202,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
-name = "const_blake3"
-version = "0.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73669b833cef325e02d23313debfb6fc18651590af0812036cc42239286a712d"
-dependencies = [
- "blake3",
-]
-
-[[package]]
 name = "constant_time_eq"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8032,9 +8023,7 @@ dependencies = [
 
 [[package]]
 name = "triblespace"
-version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94a64ed605dff529fbd8e9e685ba3d9637efa0d0518229c2b5f5b354162c318c"
+version = "0.39.0"
 dependencies = [
  "ed25519-dalek",
  "log",
@@ -8048,17 +8037,15 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core"
-version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dbc98e16743c76c213440e1e68bc52aa81cbe3bfdff9b0877cc1e6ef2cabbf0"
+version = "0.39.0"
 dependencies = [
  "anybytes",
  "arbitrary",
  "arrayvec",
+ "base64",
  "blake3",
  "bytemuck",
  "bytes",
- "const_blake3",
  "crossbeam-channel",
  "ed25519",
  "ed25519-dalek",
@@ -8098,9 +8085,7 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core-macros"
-version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bc2d6aaf4f43683b282ca0d21e7532f099f0200aa3c42dd6ef1b5f037195235"
+version = "0.39.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8110,9 +8095,7 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros"
-version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "059e8975ca48a3ad13bfa87ea531a74a4b9e6486781ff9731064570d8f7db72b"
+version = "0.39.0"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -8126,9 +8109,7 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros-common"
-version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "306cf9d70d1e440b119db52eef49c0a670e81bfacc9b233afa0bc576c50c3e6f"
+version = "0.39.0"
 dependencies = [
  "proc-macro2",
  "quote",
