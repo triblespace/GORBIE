@@ -7,7 +7,7 @@ use triblespace::core::patch::{IdentitySchema, PATCH};
 use triblespace::core::repo::{
     BlobStore, BlobStoreGet, CommitSelector, Workspace, WorkspaceCheckoutError,
 };
-use triblespace::core::inline::encodings::hash::{Blake3, Handle};
+use triblespace::core::inline::encodings::hash::Handle;
 use triblespace::core::inline::{RawInline, Inline, INLINE_LEN};
 
 pub mod commit_history;

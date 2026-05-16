@@ -6,7 +6,6 @@ use rand_core06::OsRng;
 use triblespace::core::repo::Repository;
 use triblespace::core::repo::pile::Pile;
 use triblespace::core::trible::TribleSet;
-use triblespace::core::inline::encodings::hash::Blake3;
 
 use crate::dataflow::ComputedState;
 use crate::themes::GorbieToggleButtonStyle;

@@ -22,12 +22,12 @@ use triblespace::core::blob::BlobCache;
 use triblespace::core::id::Id;
 use triblespace::core::query::TriblePattern;
 use triblespace::core::repo::BlobStoreGet;
-use triblespace::core::inline::encodings::hash::{Blake3, Handle};
+use triblespace::core::inline::encodings::hash::Handle;
 use triblespace::core::inline::encodings::UnknownInline;
 use triblespace::core::inline::Inline;
 use triblespace::core::value_formatter::{WasmLimits, WasmValueFormatter};
 use triblespace::prelude::inlineencodings::GenId;
-use triblespace::prelude::{find, pattern, MetaDescribe, TribleSet, TribleSetFingerprint, View};
+use triblespace::prelude::{find, pattern, TribleSet, TribleSetFingerprint, View};
 
 use crate::themes;
 
