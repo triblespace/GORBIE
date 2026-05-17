@@ -26,6 +26,8 @@ pub(crate) mod floating;
 mod headless;
 /// Convenient glob import of common types and constants.
 pub mod prelude;
+/// Notebook-wide search bar — opt-in via [`CardCtx::search`].
+pub mod search;
 /// Thread-safe state management via [`StateId`](state::StateId) handles.
 pub mod state;
 /// Telemetry dashboard (requires `telemetry` feature).
@@ -1086,6 +1088,11 @@ impl eframe::App for Notebook {
                     });
                 });
         });
+
+        // Notebook-wide search bar — opt-in via `CardCtx::current_search`.
+        // Only renders if at least one widget requested search within
+        // the last couple of frames.
+        search::render_bar(&ctx);
 
         ctx.data_mut(|data| {
             data.insert_temp(state_id, runtime);

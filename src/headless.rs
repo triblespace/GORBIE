@@ -9,6 +9,25 @@ use std::time::{Duration, Instant};
 type HeadlessResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 const HEADLESS_PNG_PPI: f32 = 254.0;
 
+/// Shift every clip rect and mesh vertex in `primitives` vertically by
+/// `delta` (in logical points). Used during tiled rendering to pull
+/// content from a later band of the card into the next tile's
+/// texture, so the renderer can keep using a small `screen_descriptor`.
+/// Paint callbacks are left untouched — they aren't generally used by
+/// the GORBIE widget set, and translating them would require deeper
+/// integration with `egui_wgpu`.
+fn shift_primitives_y(primitives: &mut [egui::ClippedPrimitive], delta: f32) {
+    let shift = egui::vec2(0.0, delta);
+    for prim in primitives {
+        prim.clip_rect = prim.clip_rect.translate(shift);
+        if let egui::epaint::Primitive::Mesh(mesh) = &mut prim.primitive {
+            for v in &mut mesh.vertices {
+                v.pos.y += delta;
+            }
+        }
+    }
+}
+
 pub(super) fn run_headless(
     mut core: NotebookCore,
     config: HeadlessCaptureConfig,
@@ -52,10 +71,17 @@ impl HeadlessWgpuRunner {
             compatible_surface: None,
             force_fallback_adapter: false,
         }))?;
+        // Default `Limits::default()` caps `max_texture_dimension_2d`
+        // at 8192, which clips tall notebook cards (e.g. compass with
+        // many goals, messages with long bodies). Request the
+        // adapter's full hardware ceiling — usually 16384 — so the
+        // render succeeds for cards that just need a slightly larger
+        // single-tile budget. Cards above the hardware limit still
+        // need a tile-and-stitch backend.
         let device_desc = wgpu::DeviceDescriptor {
             label: Some("gorbie_headless_device"),
             required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
+            required_limits: adapter.limits(),
             experimental_features: wgpu::ExperimentalFeatures::default(),
             memory_hints: wgpu::MemoryHints::default(),
             trace: wgpu::Trace::default(),
@@ -109,8 +135,11 @@ impl HeadlessWgpuRunner {
             };
 
             output.textures_delta = textures_delta;
-            let image = self.render_output(output, egui::vec2(self.card_width, final_height))?;
-            self.save_capture(index, &image)?;
+            let tiles =
+                self.render_output(output, egui::vec2(self.card_width, final_height))?;
+            for (tile_idx, image) in tiles.iter().enumerate() {
+                self.save_capture(index, tile_idx, tiles.len(), image)?;
+            }
             index += 1;
         }
         Ok(())
@@ -180,7 +209,7 @@ impl HeadlessWgpuRunner {
         &mut self,
         output: egui::FullOutput,
         size_points: egui::Vec2,
-    ) -> HeadlessResult<RenderedImage> {
+    ) -> HeadlessResult<Vec<RenderedImage>> {
         let egui::FullOutput {
             textures_delta,
             shapes,
@@ -188,71 +217,109 @@ impl HeadlessWgpuRunner {
             ..
         } = output;
         let width = (size_points.x * pixels_per_point).round().max(1.0) as u32;
-        let height = (size_points.y * pixels_per_point).round().max(1.0) as u32;
-        self.ensure_target(width, height)?;
+        let full_height = (size_points.y * pixels_per_point).round().max(1.0) as u32;
 
         for (id, delta) in &textures_delta.set {
             self.renderer
                 .update_texture(&self.device, &self.queue, *id, delta);
         }
 
-        let clipped_primitives = self.ctx.tessellate(shapes, pixels_per_point);
-        let screen_descriptor = egui_wgpu::ScreenDescriptor {
-            size_in_pixels: [width, height],
-            pixels_per_point,
-        };
+        // Cards taller than `tile_max_height` are split into vertical
+        // tiles. The shapes are tessellated once; between tiles, every
+        // clip rect and mesh vertex is shifted upward by the previous
+        // tile's height so the renderer sees them landing inside a
+        // tile-sized texture with its own `screen_descriptor`. This
+        // produces multiple PNGs per card — also handy for human
+        // readers (and LLM ingesters) who'd rather not load a
+        // 200-megapixel single image.
+        //
+        // The cap is well below the GPU's `max_texture_dimension_2d`
+        // (typically 16384) so each tile stays browseable on its own.
+        const TARGET_TILE_HEIGHT: u32 = 4000;
+        let gpu_max = self.device.limits().max_texture_dimension_2d;
+        let tile_max_height = TARGET_TILE_HEIGHT.min(gpu_max).min(full_height).max(1);
+        let mut clipped_primitives = self.ctx.tessellate(shapes, pixels_per_point);
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("gorbie_headless_encoder"),
-            });
-        let mut callbacks = self.renderer.update_buffers(
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            &clipped_primitives,
-            &screen_descriptor,
-        );
+        let mut tiles = Vec::new();
+        let mut y_cursor: u32 = 0;
+        let mut tile_offset_points: f32 = 0.0;
+        while y_cursor < full_height {
+            let this_tile_height = (full_height - y_cursor).min(tile_max_height);
 
-        let clear = color32_to_wgpu(self.ctx.global_style().visuals.window_fill);
-        let target = self.target.as_ref().expect("target ensured");
-        {
-            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("gorbie_headless_pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &target.view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(clear),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                multiview_mask: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
+            // Shift primitives up by the previous tile's height (not on
+            // the first iteration). `tile_offset_points` accumulates
+            // across tiles so the second tile sees vertices already at
+            // (orig - tile_max_height_points), the third at (orig - 2 *
+            // tile_max_height_points), etc.
+            if y_cursor > 0 {
+                let shift = -(tile_max_height as f32) / pixels_per_point;
+                shift_primitives_y(&mut clipped_primitives, shift);
+                tile_offset_points += -shift;
+            }
+            let _ = tile_offset_points; // currently informational only
+
+            self.ensure_target(width, this_tile_height)?;
+            let screen_descriptor = egui_wgpu::ScreenDescriptor {
+                size_in_pixels: [width, this_tile_height],
+                pixels_per_point,
+            };
+
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("gorbie_headless_encoder"),
+                });
+            let mut callbacks = self.renderer.update_buffers(
+                &self.device,
+                &self.queue,
+                &mut encoder,
+                &clipped_primitives,
+                &screen_descriptor,
+            );
+
+            let clear = color32_to_wgpu(self.ctx.global_style().visuals.window_fill);
+            let target = self.target.as_ref().expect("target ensured");
+            {
+                let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("gorbie_headless_pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &target.view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(clear),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    multiview_mask: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                let mut render_pass = render_pass.forget_lifetime();
+                self.renderer
+                    .render(&mut render_pass, &clipped_primitives, &screen_descriptor);
+            }
+            target.copy_to_buffer(&mut encoder);
+
+            callbacks.push(encoder.finish());
+            self.queue.submit(callbacks);
+            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+
+            let pixels = target.readback(&self.device)?;
+            tiles.push(RenderedImage {
+                width,
+                height: this_tile_height,
+                pixels,
             });
-            let mut render_pass = render_pass.forget_lifetime();
-            self.renderer
-                .render(&mut render_pass, &clipped_primitives, &screen_descriptor);
+
+            y_cursor += this_tile_height;
         }
-        target.copy_to_buffer(&mut encoder);
 
-        callbacks.push(encoder.finish());
-        self.queue.submit(callbacks);
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-
-        let pixels = target.readback(&self.device)?;
         for id in &textures_delta.free {
             self.renderer.free_texture(id);
         }
-        Ok(RenderedImage {
-            width,
-            height,
-            pixels,
-        })
+        Ok(tiles)
     }
 
     fn ensure_target(&mut self, width: u32, height: u32) -> HeadlessResult<()> {
@@ -270,8 +337,21 @@ impl HeadlessWgpuRunner {
         Ok(())
     }
 
-    fn save_capture(&self, index: usize, image: &RenderedImage) -> HeadlessResult<()> {
-        let filename = format!("card_{:04}.png", index + 1);
+    fn save_capture(
+        &self,
+        index: usize,
+        tile_idx: usize,
+        tile_count: usize,
+        image: &RenderedImage,
+    ) -> HeadlessResult<()> {
+        // Single-tile cards stay as `card_NNNN.png`; multi-tile cards
+        // get `card_NNNN_pMM.png` (1-based page index) so the original
+        // naming is preserved for the common case.
+        let filename = if tile_count <= 1 {
+            format!("card_{:04}.png", index + 1)
+        } else {
+            format!("card_{:04}_p{:02}.png", index + 1, tile_idx + 1)
+        };
         let path = self.output_dir.join(filename);
         write_png_rgba(&path, image.width, image.height, &image.pixels)?;
         Ok(())

@@ -21,7 +21,7 @@ pub struct Button<'a> {
     fill: Option<Color32>,
     light: Option<Color32>,
     latched: bool,
-    min_height: Option<f32>,
+    width_px: Option<f32>,
     gorbie_style: Option<GorbieButtonStyle>,
 }
 
@@ -35,7 +35,7 @@ impl<'a> Button<'a> {
             fill: None,
             light: None,
             latched: false,
-            min_height: None,
+            width_px: None,
             gorbie_style: None,
         }
     }
@@ -70,10 +70,32 @@ impl<'a> Button<'a> {
         self
     }
 
-    /// Set the height in grid modules (1 module = 12px).
-    /// Default is 2 modules. The shadow is included in the total.
+    /// Set the width in grid modules (1 module = 12px). Height is fixed at
+    /// 3 modules. Without an explicit width the button sizes to fit its label.
     pub fn modules(mut self, n: u32) -> Self {
-        self.min_height = Some(n as f32 * crate::card_ctx::GRID_ROW_MODULE);
+        self.width_px = Some(n as f32 * crate::card_ctx::GRID_ROW_MODULE);
+        self
+    }
+
+    /// Match the width of a full grid row (12 columns = 744px).
+    pub fn full(self) -> Self { self.columns(12) }
+    /// Match the width of a three-quarter grid cell (9 columns = 555px).
+    pub fn three_quarters(self) -> Self { self.columns(9) }
+    /// Match the width of a two-thirds grid cell (8 columns = 492px).
+    pub fn two_thirds(self) -> Self { self.columns(8) }
+    /// Match the width of a half grid cell (6 columns = 366px).
+    pub fn half(self) -> Self { self.columns(6) }
+    /// Match the width of a one-third grid cell (4 columns = 240px).
+    pub fn third(self) -> Self { self.columns(4) }
+    /// Match the width of a quarter grid cell (3 columns = 177px).
+    pub fn quarter(self) -> Self { self.columns(3) }
+
+    /// Match the width of an arbitrary grid column span (`n` columns plus
+    /// `n-1` gutters). Escape hatch for spans that don't divide 12 cleanly;
+    /// prefer the named methods ([`Self::full`], [`Self::half`], etc.) when
+    /// they apply.
+    pub fn columns(mut self, n: u32) -> Self {
+        self.width_px = Some(crate::card_ctx::span_width(n));
         self
     }
 }
@@ -87,7 +109,7 @@ impl Widget for Button<'_> {
             fill,
             light,
             latched,
-            min_height,
+            width_px,
             gorbie_style,
         } = self;
 
@@ -96,10 +118,15 @@ impl Widget for Button<'_> {
         let shadow_offset = gstyle.shadow_offset;
         let shadow_inset = vec2(shadow_offset.x.max(0.0), shadow_offset.y.max(0.0));
         let padding = ui.spacing().button_padding;
+        let module = crate::card_ctx::GRID_ROW_MODULE;
 
         let label_text = text.text().to_string();
-        let max_text_width =
-            (ui.available_width() - padding.x * 2.0 - shadow_inset.x).at_least(0.0);
+        // If width is explicit, constrain the galley to that box. Otherwise
+        // let it size to natural content.
+        let max_text_width = match width_px {
+            Some(w) => (w - padding.x * 2.0 - shadow_inset.x).at_least(0.0),
+            None => f32::INFINITY,
+        };
         let galley = text.into_galley(
             ui,
             Some(egui::TextWrapMode::Truncate),
@@ -107,12 +134,12 @@ impl Widget for Button<'_> {
             TextStyle::Button,
         );
 
-        let mut body_size = galley.size() + padding * 2.0;
-        let target_h = min_height
-            .unwrap_or(2.0 * crate::card_ctx::GRID_ROW_MODULE)
-            .max(ui.spacing().interact_size.y);
-        body_size.y = body_size.y.at_least(target_h - shadow_inset.y);
-        body_size.x = body_size.x.max(ui.available_width() - shadow_inset.x);
+        let body_height = (3.0 * module - shadow_inset.y).at_least(0.0);
+        let body_width = match width_px {
+            Some(w) => (w - shadow_inset.x).at_least(0.0),
+            None => galley.size().x + padding.x * 2.0,
+        };
+        let body_size = vec2(body_width, body_height);
         let desired_size = body_size + shadow_inset;
 
         let (outer_rect, mut response) = ui.allocate_exact_size(desired_size, Sense::click());
@@ -236,7 +263,7 @@ pub struct RadioButton<'a, T> {
     value: &'a mut T,
     option: T,
     text: WidgetText,
-    min_height: Option<f32>,
+    width_px: Option<f32>,
     fill: Option<Color32>,
     light: Option<Color32>,
     gorbie_style: Option<GorbieRadioStyle>,
@@ -249,16 +276,39 @@ impl<'a, T> RadioButton<'a, T> {
             value,
             option,
             text: text.into(),
-            min_height: None,
+            width_px: None,
             fill: None,
             light: None,
             gorbie_style: None,
         }
     }
 
-    /// Set the height in grid modules (1 module = 12px). Default is 2.
+    /// Set the width in grid modules (1 module = 12px). Height is fixed at
+    /// 3 modules. Without an explicit width the radio sizes to fit its label.
     pub fn modules(mut self, n: u32) -> Self {
-        self.min_height = Some(n as f32 * crate::card_ctx::GRID_ROW_MODULE);
+        self.width_px = Some(n as f32 * crate::card_ctx::GRID_ROW_MODULE);
+        self
+    }
+
+    /// Match the width of a full grid row (12 columns = 744px).
+    pub fn full(self) -> Self { self.columns(12) }
+    /// Match the width of a three-quarter grid cell (9 columns = 555px).
+    pub fn three_quarters(self) -> Self { self.columns(9) }
+    /// Match the width of a two-thirds grid cell (8 columns = 492px).
+    pub fn two_thirds(self) -> Self { self.columns(8) }
+    /// Match the width of a half grid cell (6 columns = 366px).
+    pub fn half(self) -> Self { self.columns(6) }
+    /// Match the width of a one-third grid cell (4 columns = 240px).
+    pub fn third(self) -> Self { self.columns(4) }
+    /// Match the width of a quarter grid cell (3 columns = 177px).
+    pub fn quarter(self) -> Self { self.columns(3) }
+
+    /// Match the width of an arbitrary grid column span (`n` columns plus
+    /// `n-1` gutters). Escape hatch for spans that don't divide 12 cleanly;
+    /// prefer the named methods ([`Self::full`], [`Self::half`], etc.) when
+    /// they apply.
+    pub fn columns(mut self, n: u32) -> Self {
+        self.width_px = Some(crate::card_ctx::span_width(n));
         self
     }
 
@@ -284,7 +334,7 @@ where
             value,
             option,
             text,
-            min_height,
+            width_px,
             fill,
             light,
             gorbie_style,
@@ -296,13 +346,16 @@ where
         let shadow_offset = gstyle.shadow_offset;
         let shadow_inset = vec2(shadow_offset.x.max(0.0), shadow_offset.y.max(0.0));
 
+        let module = crate::card_ctx::GRID_ROW_MODULE;
         let padding = ui.spacing().button_padding;
         let indicator_size = (ui.spacing().interact_size.y - 6.0).at_least(14.0);
         let gap = (padding.x * 0.8).at_least(6.0);
         let label_text = text.text().to_string();
-        let max_text_width =
-            (ui.available_width() - padding.x * 2.0 - indicator_size - gap - shadow_inset.x)
-                .at_least(0.0);
+        let max_text_width = match width_px {
+            Some(w) => (w - padding.x * 2.0 - indicator_size - gap - shadow_inset.x)
+                .at_least(0.0),
+            None => f32::INFINITY,
+        };
         let galley = text.into_galley(
             ui,
             Some(egui::TextWrapMode::Truncate),
@@ -310,16 +363,11 @@ where
             TextStyle::Button,
         );
 
-        let content_height = galley.size().y.max(indicator_size);
-        let min_body_height = {
-            let target_h = min_height
-                .unwrap_or(2.0 * crate::card_ctx::GRID_ROW_MODULE)
-                .max(ui.spacing().interact_size.y);
-            target_h - shadow_inset.y
+        let body_height = (3.0 * module - shadow_inset.y).at_least(0.0);
+        let body_width = match width_px {
+            Some(w) => (w - shadow_inset.x).at_least(0.0),
+            None => padding.x + indicator_size + gap + galley.size().x + padding.x,
         };
-        let body_height = (content_height + padding.y * 2.0).at_least(min_body_height);
-        let mut body_width = padding.x + indicator_size + gap + galley.size().x + padding.x;
-        body_width = body_width.max(ui.available_width() - shadow_inset.x);
         let desired_size = vec2(body_width, body_height) + shadow_inset;
 
         let (outer_rect, mut response) = ui.allocate_exact_size(desired_size, Sense::click());
@@ -445,7 +493,7 @@ struct ChoiceToggleOption<T> {
 pub struct ChoiceToggle<'a, T> {
     value: &'a mut T,
     options: Vec<ChoiceToggleOption<T>>,
-    min_height: Option<f32>,
+    width_px: Option<f32>,
     fill: Option<Color32>,
     light: Option<Color32>,
     gorbie_style: Option<GorbieChoiceToggleStyle>,
@@ -457,7 +505,7 @@ impl<'a, T> ChoiceToggle<'a, T> {
         Self {
             value,
             options: Vec::new(),
-            min_height: None,
+            width_px: None,
             fill: None,
             light: None,
             gorbie_style: None,
@@ -473,9 +521,33 @@ impl<'a, T> ChoiceToggle<'a, T> {
         self
     }
 
-    /// Set the height in grid modules (1 module = 12px). Default is 2.
+    /// Set the total toggle width in grid modules (1 module = 12px). Segments
+    /// share the width equally (minus inter-segment gaps). Height is fixed at
+    /// 3 modules. Without an explicit width segments size to the widest label.
     pub fn modules(mut self, n: u32) -> Self {
-        self.min_height = Some(n as f32 * crate::card_ctx::GRID_ROW_MODULE);
+        self.width_px = Some(n as f32 * crate::card_ctx::GRID_ROW_MODULE);
+        self
+    }
+
+    /// Match the width of a full grid row (12 columns = 744px).
+    pub fn full(self) -> Self { self.columns(12) }
+    /// Match the width of a three-quarter grid cell (9 columns = 555px).
+    pub fn three_quarters(self) -> Self { self.columns(9) }
+    /// Match the width of a two-thirds grid cell (8 columns = 492px).
+    pub fn two_thirds(self) -> Self { self.columns(8) }
+    /// Match the width of a half grid cell (6 columns = 366px).
+    pub fn half(self) -> Self { self.columns(6) }
+    /// Match the width of a one-third grid cell (4 columns = 240px).
+    pub fn third(self) -> Self { self.columns(4) }
+    /// Match the width of a quarter grid cell (3 columns = 177px).
+    pub fn quarter(self) -> Self { self.columns(3) }
+
+    /// Match the width of an arbitrary grid column span (`n` columns plus
+    /// `n-1` gutters). Escape hatch for spans that don't divide 12 cleanly;
+    /// prefer the named methods ([`Self::full`], [`Self::half`], etc.) when
+    /// they apply.
+    pub fn columns(mut self, n: u32) -> Self {
+        self.width_px = Some(crate::card_ctx::span_width(n));
         self
     }
 
@@ -515,7 +587,7 @@ where
         let Self {
             value,
             options,
-            min_height,
+            width_px,
             fill,
             light,
             gorbie_style,
@@ -531,10 +603,24 @@ where
         let shadow_offset = gstyle.shadow_offset;
         let shadow_inset = vec2(shadow_offset.x.max(0.0), shadow_offset.y.max(0.0));
         let padding = ui.spacing().button_padding;
+        let module = crate::card_ctx::GRID_ROW_MODULE;
         let text_style = TextStyle::Button;
+        let segment_count = options.len();
+        let segment_gap = gstyle.segment_gap;
+
+        // With an explicit total width, divide it equally among segments
+        // (minus the inter-segment gaps). Otherwise each segment fits its
+        // own label.
+        let explicit_segment_width = width_px.map(|total| {
+            let gaps_total = segment_gap * segment_count.saturating_sub(1) as f32;
+            ((total - gaps_total) / segment_count.max(1) as f32).at_least(0.0)
+        });
 
         let wrap_mode = Some(egui::TextWrapMode::Truncate);
-        let max_text_width = ui.available_width().at_least(0.0);
+        let max_text_width = match explicit_segment_width {
+            Some(w) => (w - padding.x * 2.0).at_least(0.0),
+            None => f32::INFINITY,
+        };
 
         struct RenderedChoice<T> {
             value: T,
@@ -559,19 +645,17 @@ where
             });
         }
 
-        let segment_count = choices.len();
-        let segment_gap = gstyle.segment_gap;
-
-        let mut segment_size = vec2(0.0, 0.0);
-        for choice in &choices {
-            segment_size = segment_size.max(choice.galley.size());
-        }
-        segment_size += padding * 2.0;
-
-        let target_h = min_height
-            .unwrap_or(2.0 * crate::card_ctx::GRID_ROW_MODULE)
-            .max(ui.spacing().interact_size.y);
-        segment_size.y = segment_size.y.at_least(target_h - shadow_inset.y);
+        let segment_width = match explicit_segment_width {
+            Some(w) => w,
+            None => {
+                let mut w = 0.0_f32;
+                for choice in &choices {
+                    w = w.max(choice.galley.size().x);
+                }
+                w + padding.x * 2.0
+            }
+        };
+        let segment_size = vec2(segment_width, 3.0 * module - shadow_inset.y);
 
         let body_width = segment_size.x * segment_count as f32
             + segment_gap * (segment_count.saturating_sub(1) as f32);

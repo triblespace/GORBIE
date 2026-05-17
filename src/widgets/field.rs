@@ -41,15 +41,17 @@ fn paint_scanline(painter: &egui::Painter, rect: Rect, color: Color32, height: f
     }
 }
 
-/// Paint a progress bar in the scanline area.
+/// Paint the filled portion of a progress bar in the scanline area.
 ///
-/// `range` is a `start..end` pair in 0.0..=1.0 — the filled portion
-/// of the bar. For example, `0.0..0.5` fills the left half;
-/// `0.3..0.7` fills a centered segment (useful for bounce animations).
+/// `range` is a `start..end` pair in 0.0..=1.0 — the lit segment of
+/// the bar (typically `0.0..fraction` for a classic left-to-right
+/// fill). The unfilled portion is left blank — when search is active
+/// the bar is a single filled stripe that grows, with no surrounding
+/// track.
 fn paint_progress_scanline(
     painter: &egui::Painter,
     rect: Rect,
-    color: Color32,
+    ink: Color32,
     height: f32,
     range: std::ops::Range<f32>,
 ) {
@@ -69,21 +71,13 @@ fn paint_progress_scanline(
         return;
     }
 
-    // Background (dim).
-    let dim = crate::themes::blend(color, Color32::TRANSPARENT, 0.7);
-    let bg_rect = Rect::from_min_max(pos2(left, y0), pos2(right, y1));
-    if bg_rect.is_positive() {
-        painter.rect_filled(bg_rect, 0.0, dim);
-    }
-
-    // Filled portion.
     let start = range.start.clamp(0.0, 1.0);
     let end = range.end.clamp(0.0, 1.0);
     let x0 = left + total_w * start.min(end);
     let x1 = left + total_w * start.max(end);
     if x1 > x0 {
         let fill_rect = Rect::from_min_max(pos2(x0, y0), pos2(x1, y1));
-        painter.rect_filled(fill_rect, 0.0, color);
+        painter.rect_filled(fill_rect, 0.0, ink);
     }
 }
 
@@ -193,7 +187,7 @@ fn lcd_ink_color(dark_mode: bool) -> Color32 {
 fn singleline_margin(ui: &Ui, row_height: f32) -> Margin {
     let padding = ui.spacing().button_padding;
     let row_mod = crate::card_ctx::GRID_ROW_MODULE;
-    let target_height = (2.0 * row_mod).max(ui.spacing().interact_size.y);
+    let target_height = 3.0 * row_mod;
     let vertical = ((target_height - row_height) * 0.5).at_least(0.0);
     let pad_x = padding.x.round().clamp(0.0, i8::MAX as f32) as i8;
     let pad_y = vertical.round().clamp(0.0, i8::MAX as f32) as i8;
@@ -331,7 +325,7 @@ fn lcd_text_edit(
     };
     let desired_inner_size = vec2(desired_inner_width, desired_inner_height);
     let row_mod = crate::card_ctx::GRID_ROW_MODULE;
-    let min_h = (2.0 * row_mod).max(ui.spacing().interact_size.y);
+    let min_h = 3.0 * row_mod;
     let min_size = vec2(ui.spacing().interact_size.x, min_h);
     let desired_outer_size = (desired_inner_size + margin.sum()).at_least(min_size);
     let (_auto_id, outer_rect) = ui.allocate_space(desired_outer_size);
@@ -951,7 +945,7 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
                 .max(display_galley.size().y);
             let desired_inner_size = vec2(desired_inner_width, desired_inner_height);
             let row_mod = crate::card_ctx::GRID_ROW_MODULE;
-            let min_height = (2.0 * row_mod).max(ui.spacing().interact_size.y);
+            let min_height = 3.0 * row_mod;
             let desired_outer_size = (desired_inner_size + margin.sum())
                 .at_least(vec2(ui.spacing().interact_size.x, min_height));
             let (_auto_id, outer_rect) = ui.allocate_space(desired_outer_size);

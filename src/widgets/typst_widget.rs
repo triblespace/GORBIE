@@ -620,10 +620,46 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
         }
     };
 
+    // Open a notebook-wide search session. This makes the search bar
+    // appear automatically and lets us feed per-page matches back so
+    // the bar can show counts + drive prev/next navigation.
+    let mut search = crate::search::new_session(ui.ctx().clone());
+    let needle = search.query().to_lowercase();
+    let search_active = !needle.is_empty();
+
+    // Pre-compute the list of source byte ranges that match the needle
+    // ONCE for the whole document (instead of re-finding per page).
+    // Each entry is `(start, end)` in source bytes; ranges are sorted
+    // and disjoint so we can binary-search into them later.
+    let match_ranges: Vec<std::ops::Range<usize>> = if search_active {
+        let source_obj = state.world.main_source();
+        let source_text = source_obj.text();
+        let lower = source_text.to_lowercase();
+        // If lowercasing changed the byte count (rare — e.g. German ß),
+        // the byte-indices in `lower` no longer map onto `source_text`.
+        // Skip search rather than misalign.
+        if lower.len() == source_text.len() {
+            let mut out = Vec::new();
+            let start = preamble_len.min(lower.len());
+            let mut cursor = start;
+            while let Some(pos) = lower[cursor..].find(&needle) {
+                let s = cursor + pos;
+                let e = s + needle.len();
+                out.push(s..e);
+                cursor = e;
+            }
+            out
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
     let text_color = ui.visuals().text_color();
     let pixels_per_point = ui.ctx().pixels_per_point();
 
-    for page in doc.pages.iter() {
+    for (page_idx, page) in doc.pages.iter().enumerate() {
         let (shapes, size, text_layout) = painter::render_frame_to_shapes(
             &page.frame,
             text_color,
@@ -633,13 +669,68 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
         let (rect, response) =
             ui.allocate_exact_size(size, egui::Sense::click_and_drag());
 
-        if !ui.is_rect_visible(rect) {
-            continue;
-        }
-
         let offset = rect.min.to_vec2();
         let chars = &text_layout.chars;
         let has_text = !chars.is_empty();
+        let visible = ui.is_rect_visible(rect);
+
+        // ── Search match reporting ─────────────────────────────────
+        // Runs for ALL pages (even those scrolled off-screen) so the
+        // global match counter reflects the whole document, not just
+        // what's currently in view. Painting underlines is gated on
+        // visibility; scroll-to-focused is unconditional so prev/next
+        // can navigate to off-screen matches.
+        if !match_ranges.is_empty() && has_text {
+            let source_obj = state.world.main_source();
+            let glyph_ranges: Vec<Option<(usize, usize)>> = chars
+                .iter()
+                .map(|ch| {
+                    let (span, off) = ch.span;
+                    source_obj.range(span).map(|nr| {
+                        let s = nr.start + off as usize;
+                        let e = (s + ch.text.len()).min(nr.end);
+                        (s, e)
+                    })
+                })
+                .collect();
+            let mut match_chars: Vec<Vec<usize>> =
+                (0..match_ranges.len()).map(|_| Vec::new()).collect();
+            for (ci, gr) in glyph_ranges.iter().enumerate() {
+                let Some((gs, ge)) = gr else { continue };
+                let mi = match_ranges.partition_point(|m| m.end <= *gs);
+                if let Some(m) = match_ranges.get(mi) {
+                    if m.start < *ge {
+                        match_chars[mi].push(ci);
+                    }
+                }
+            }
+            for (mi, overlapping) in match_chars.iter().enumerate() {
+                let match_id = response.id.with(("typst_match", page_idx, mi));
+                let info = search.report(match_id);
+                if overlapping.is_empty() {
+                    continue;
+                }
+                let mut union = egui::Rect::NOTHING;
+                for &ci in overlapping {
+                    let r = chars[ci].rect.translate(offset);
+                    if visible {
+                        crate::search::paint_match_underline(
+                            ui.painter(),
+                            r,
+                            info.is_focused,
+                        );
+                    }
+                    union = union.union(r);
+                }
+                if info.should_scroll_to && union != egui::Rect::NOTHING {
+                    ui.scroll_to_rect(union, Some(egui::Align::Center));
+                }
+            }
+        }
+
+        if !visible {
+            continue;
+        }
 
         // ── Selection state ────────────────────────────────────────
         let sel_id = response.id;

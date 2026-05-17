@@ -13,9 +13,10 @@ pub const GRID_GUTTER: f32 = 12.0;
 
 /// Vertical module height for the modular grid, in pixels.
 ///
-/// Row tops snap to multiples of this value (relative to the grid origin),
-/// producing uniform row gaps and field-aligned content. Matches the
-/// horizontal gutter so the grid is truly modular (square gutters).
+/// Cell heights are rounded up to the next multiple of this value, so row
+/// tops always land on a module-aligned baseline (relative to the grid
+/// origin). Matches the horizontal gutter so the grid is truly modular
+/// (square gutters).
 pub const GRID_ROW_MODULE: f32 = 12.0;
 
 /// Edge padding of the grid, in pixels.
@@ -78,6 +79,17 @@ impl<'a> CardCtx<'a> {
     /// `ctx.button("text")` always produces a GORBIE button.
     pub fn button(&mut self, text: impl Into<egui::WidgetText>) -> egui::Response {
         self.ui.add(crate::widgets::Button::new(text))
+    }
+
+    /// Open a search session against the notebook-wide search bar.
+    ///
+    /// Calling this during render is what makes the bar appear — when
+    /// no widget opens a session, the bar disappears. Read the current
+    /// query via [`crate::search::SearchSession::query`] and report
+    /// matches via [`crate::search::SearchSession::report`] so the bar
+    /// can show counts and let the user navigate prev/next.
+    pub fn search(&mut self) -> crate::search::SearchSession {
+        crate::search::new_session(self.ui.ctx().clone())
     }
 
     /// GORBIE-styled toggle button (checkbox-like, latching on/off).
@@ -393,13 +405,16 @@ impl<'a> CardCtx<'a> {
     /// ```
     pub fn grid(&mut self, build: impl FnOnce(&mut Grid<'_, '_>)) {
         let store = self.store;
+        let grid_id = self.ui.id().with("gorbie_grid");
         let left = self.ui.cursor().min.x + GRID_EDGE_PAD;
         let top = self.ui.cursor().min.y + GRID_EDGE_PAD;
         let mut g = Grid {
             ui: self.ui,
             store,
+            grid_id,
             left,
             cursor: 0,
+            row_index: 0,
             row_top: top,
             row_max_bottom: top,
         };
@@ -505,10 +520,16 @@ impl<'a> DerefMut for CardCtx<'a> {
 pub struct Grid<'ui, 'store> {
     ui: &'ui mut egui::Ui,
     store: &'store state::StateStore,
+    /// Stable identifier for this grid, used as a prefix for per-cell
+    /// frame-delayed sizing state.
+    grid_id: egui::Id,
     /// Left edge of the grid (pixel x).
     left: f32,
     /// Current column within the row (0..GRID_COLUMNS).
     cursor: u32,
+    /// Current row index (0-based). Combines with `cursor` to form a
+    /// stable per-cell ID.
+    row_index: u32,
     /// Top of the current row (pixel y).
     row_top: f32,
     /// Tallest cell bottom in the current row.
@@ -577,9 +598,24 @@ impl<'ui, 'store> Grid<'ui, 'store> {
         let x = self.left + col_x(self.cursor);
         let width = span_width(span);
 
+        // Frame-delayed row sizing: every cell in row N uses the
+        // previous frame's measured row height as `max_rect.height`.
+        // Sub-layouts inside the cell (e.g. `Align::Center` cross-axis,
+        // which fills `frame_size` to `available_rect.height()`) then
+        // see the actual row height instead of a fake unbounded one,
+        // so vertical centering aligns with the other cells in the row.
+        // First frame: 0.0 → no expansion, items at their natural sizes.
+        // Subsequent frames: the row's measured height converges in one
+        // frame and stays stable, because once `max_rect.height` matches
+        // the content height, centering produces the same height back.
+        let row_id = self.row_state_id();
+        let row_height: f32 = self
+            .ui
+            .ctx()
+            .data(|d| d.get_temp::<f32>(row_id).unwrap_or(0.0));
         let cell_rect = egui::Rect::from_min_size(
             egui::pos2(x, self.row_top),
-            egui::vec2(width, f32::MAX),
+            egui::vec2(width, row_height),
         );
 
         let store = self.store;
@@ -592,15 +628,26 @@ impl<'ui, 'store> Grid<'ui, 'store> {
         let mut ctx = CardCtx::new(&mut child, store);
         add_contents(&mut ctx);
 
+        // Snap cell heights up to the next module so rows stay on a
+        // typographic baseline grid: every row_top lands on a grid line
+        // relative to the start of the grid.
         let used_bottom = child.min_rect().bottom();
-        if used_bottom > self.row_max_bottom {
-            self.row_max_bottom = used_bottom;
+        let used_height = (used_bottom - self.row_top).max(0.0);
+        let snapped_height = (used_height / GRID_ROW_MODULE).ceil() * GRID_ROW_MODULE;
+        let snapped_bottom = self.row_top + snapped_height;
+        if snapped_bottom > self.row_max_bottom {
+            self.row_max_bottom = snapped_bottom;
         }
 
         self.cursor += span;
         if self.cursor >= GRID_COLUMNS {
             self.cursor = 0;
         }
+    }
+
+    /// Stable identifier for the current row's persisted height.
+    fn row_state_id(&self) -> egui::Id {
+        self.grid_id.with(("row", self.row_index))
     }
 
     /// Skip columns (typographic furniture / blank space).
@@ -633,13 +680,31 @@ impl<'ui, 'store> Grid<'ui, 'store> {
 
     /// Start a new row with one module (12px) of vertical gutter.
     fn new_row(&mut self) {
+        // Persist the row we just finished so next frame's cells use
+        // the correct `max_rect.height` for cross-axis centering, etc.
+        self.persist_row_height();
         self.row_top = self.row_max_bottom + GRID_ROW_MODULE;
         self.row_max_bottom = self.row_top;
         self.cursor = 0;
+        self.row_index += 1;
+    }
+
+    /// Save the current row's measured height (`row_max_bottom - row_top`)
+    /// to `ctx.data` so the next frame's cells in that row can read it
+    /// back as their `max_rect.height`.
+    fn persist_row_height(&mut self) {
+        let height = (self.row_max_bottom - self.row_top).max(0.0);
+        let row_id = self.row_state_id();
+        self.ui
+            .ctx()
+            .data_mut(|d| d.insert_temp(row_id, height));
     }
 
     /// Advance the parent Ui's cursor past all grid content.
     fn finish(&mut self) {
+        // Persist the last row's measured height too (`new_row` only
+        // fires between rows, not after the last one).
+        self.persist_row_height();
         // Don't snap the last row — just add bottom padding.
         // Inter-row snapping is handled by new_row().
         let total_height = (self.row_max_bottom + GRID_EDGE_PAD - self.ui.cursor().min.y).max(0.0);
