@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.16.0 - 2026-05-31
+
+- **Bump optional `triblespace` dep 0.42 → 0.44.** Picks up the
+  descriptive-capabilities substrate, `BranchStore → PinStore`
+  rename, `Repository::new` taking `F: Into<Fragment>`, and the
+  engine improvements (NotAttr, same-Variable handling,
+  RegularPathConstraint end-bound proposal, path! infix `?`/`!`/`^`).
+  No code changes required on the GORBIE side — the upgrade is
+  source-compatible through the deprecated-but-still-working
+  TribleSet handoff to Repository::new.
+
 ## 0.14.3 - 2026-05-16
 
 - **Bump optional `triblespace` dep 0.40 → 0.41.** Tracks the
