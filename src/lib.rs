@@ -23,6 +23,7 @@ pub mod cards;
 /// Background computation with [`ComputedState`](dataflow::ComputedState).
 pub mod dataflow;
 pub(crate) mod floating;
+#[cfg(not(target_arch = "wasm32"))]
 mod headless;
 /// Convenient glob import of common types and constants.
 pub mod prelude;
@@ -39,18 +40,23 @@ pub mod themes;
 pub mod widgets;
 
 pub use gorbie_macros::notebook;
+pub use gorbie_macros::__gorbie_web_export;
 
 use crate::themes::industrial_dark;
 use crate::themes::industrial_fonts;
 use crate::themes::industrial_light;
 use eframe::egui::{self};
 use std::any::TypeId;
-use std::path::PathBuf;
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::PathBuf;
+#[cfg(not(target_arch = "wasm32"))]
+use std::process::Command;
+#[cfg(not(target_arch = "wasm32"))]
 use dark_light::Mode;
 
 
@@ -70,6 +76,7 @@ impl SourceLocation {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn format_arg(&self, template: &str) -> String {
         let file = &self.file;
         let line = self.line;
@@ -80,6 +87,7 @@ impl SourceLocation {
             .replace("{column}", &column.to_string())
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn file_line_column(&self) -> String {
         let file = &self.file;
         let line = self.line;
@@ -106,12 +114,14 @@ enum CardIdentityKey {
 ///
 /// Argument strings may contain `{file}`, `{line}`, and `{column}` placeholders
 /// that are expanded when a card's source location is opened.
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Debug)]
 pub struct EditorCommand {
     program: String,
     args: Vec<String>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl EditorCommand {
     /// Creates a new editor command with the given program name.
     pub fn new(program: impl Into<String>) -> Self {
@@ -144,6 +154,7 @@ impl EditorCommand {
 
 struct CardEntry {
     card: Box<dyn cards::Card + 'static>,
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     source: Option<SourceLocation>,
     identity: egui::Id,
 }
@@ -184,11 +195,15 @@ impl NotebookState {
 /// Configuration for a notebook application.
 pub struct NotebookConfig {
     title: String,
+    #[cfg(not(target_arch = "wasm32"))]
     editor: Option<EditorCommand>,
+    #[cfg(not(target_arch = "wasm32"))]
     headless_capture: Option<HeadlessCaptureConfig>,
+    #[cfg(not(target_arch = "wasm32"))]
     headless_settle_timeout: Option<Duration>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone)]
 struct HeadlessCaptureConfig {
     output_dir: PathBuf,
@@ -197,6 +212,7 @@ struct HeadlessCaptureConfig {
     settle_timeout: Duration,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone)]
 struct AppIcons {
     light: Arc<egui::IconData>,
@@ -212,10 +228,12 @@ struct NotebookCore {
 
 struct Notebook {
     core: NotebookCore,
+    #[cfg(not(target_arch = "wasm32"))]
     icons: Option<AppIcons>,
+    #[cfg(not(target_arch = "wasm32"))]
     icon_is_dark: Option<bool>,
     #[cfg(feature = "telemetry")]
-    #[allow(dead_code)] // kept alive to flush/close the telemetry sink on shutdown
+    #[allow(dead_code)]
     telemetry: Option<telemetry::Telemetry>,
 }
 
@@ -234,8 +252,11 @@ pub use card_ctx::GRID_COLUMNS;
 pub use card_ctx::GRID_GUTTER;
 
 pub(crate) const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
+#[cfg(not(target_arch = "wasm32"))]
 const NOTEBOOK_MIN_HEIGHT: f32 = 360.0;
+#[cfg(not(target_arch = "wasm32"))]
 const HEADLESS_DEFAULT_PIXELS_PER_POINT: f32 = 2.0;
+#[cfg(not(target_arch = "wasm32"))]
 const HEADLESS_DEFAULT_SETTLE_TIMEOUT: Duration = Duration::from_millis(2000);
 
 impl Default for NotebookConfig {
@@ -253,19 +274,24 @@ impl NotebookConfig {
         let title = name.into();
         Self {
             title,
+            #[cfg(not(target_arch = "wasm32"))]
             editor: editor_from_env(),
+            #[cfg(not(target_arch = "wasm32"))]
             headless_capture: None,
+            #[cfg(not(target_arch = "wasm32"))]
             headless_settle_timeout: None,
         }
     }
 
     /// Overrides the editor command used for "open in editor" buttons.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn with_editor(mut self, editor: EditorCommand) -> Self {
         self.editor = Some(editor);
         self
     }
 
     /// Enables headless capture mode, rendering each card to a PNG in `output_dir`.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn with_headless_capture(mut self, output_dir: impl Into<PathBuf>) -> Self {
         let settle_timeout = self
             .headless_settle_timeout
@@ -281,6 +307,7 @@ impl NotebookConfig {
 
     /// Like [`with_headless_capture`](Self::with_headless_capture), but with a
     /// custom `pixels_per_point` scaling factor for the rendered output.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn with_headless_capture_scaled(
         mut self,
         output_dir: impl Into<PathBuf>,
@@ -305,6 +332,7 @@ impl NotebookConfig {
 
     /// Sets the settle timeout for headless capture. The renderer waits up to
     /// this duration for the UI to stabilize before capturing.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn with_headless_settle_timeout(mut self, timeout: Duration) -> Self {
         self.headless_settle_timeout = Some(timeout);
         if let Some(headless) = &mut self.headless_capture {
@@ -319,9 +347,10 @@ impl NotebookConfig {
 
     /// Launches the notebook application.
     ///
-    /// The `body` closure is called once per frame to populate cards. In headless
-    /// mode the cards are rendered to PNGs and the process exits; otherwise an
-    /// interactive window is opened.
+    /// On native, the `body` closure is called once per frame in an interactive
+    /// window (or headless capture mode). On wasm, the notebook renders into a
+    /// `<canvas id="gorbie_canvas">` element.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn run(self, body: impl FnMut(&mut NotebookCtx) + 'static) -> eframe::Result {
         let config = self;
         if let Some(headless) = config.headless_capture.clone() {
@@ -380,8 +409,56 @@ impl NotebookConfig {
             }),
         )
     }
+
+    /// Launches the notebook in the browser.
+    ///
+    /// Looks for a `<canvas id="gorbie_canvas">` element and starts the eframe
+    /// web runner on it.
+    #[cfg(target_arch = "wasm32")]
+    pub fn run(self, body: impl FnMut(&mut NotebookCtx) + 'static) -> Result<(), wasm_bindgen::JsValue> {
+        use wasm_bindgen::JsCast;
+
+        eframe::WebLogger::init(log::LevelFilter::Debug).ok();
+
+        let canvas_id = "gorbie_canvas";
+        let document = web_sys::window().unwrap().document().unwrap();
+        let canvas = document
+            .get_element_by_id(canvas_id)
+            .unwrap_or_else(|| panic!("no <canvas id=\"{canvas_id}\"> found"))
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .expect("element is not a canvas");
+
+        let runner = eframe::WebRunner::new();
+        let body = Box::new(body);
+        let config = self;
+
+        wasm_bindgen_futures::spawn_local(async move {
+            runner
+                .start(
+                    canvas,
+                    eframe::WebOptions::default(),
+                    Box::new(|cc| {
+                        cc.egui_ctx.set_fonts(industrial_fonts());
+                        cc.egui_ctx
+                            .set_style_of(egui::Theme::Light, industrial_light());
+                        cc.egui_ctx
+                            .set_style_of(egui::Theme::Dark, industrial_dark());
+
+                        Ok(Box::new(Notebook {
+                            core: NotebookCore::new(config, body),
+                            #[cfg(feature = "telemetry")]
+                            telemetry: None,
+                        }))
+                    }),
+                )
+                .await
+                .expect("eframe start failed");
+        });
+        Ok(())
+    }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn load_app_icons() -> Option<AppIcons> {
     let light =
         eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon_light.png")).ok()?;
@@ -392,6 +469,7 @@ fn load_app_icons() -> Option<AppIcons> {
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn editor_from_env() -> Option<EditorCommand> {
     let gorbie_editor = std::env::var("GORBIE_EDITOR")
         .ok()
@@ -412,6 +490,7 @@ fn editor_from_env() -> Option<EditorCommand> {
     Some(command)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn log_missing_editor_hint() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
@@ -524,6 +603,7 @@ impl NotebookCore {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn has_settled(&self) -> bool {
         self.settled.swap(false, Ordering::Relaxed)
     }
@@ -534,6 +614,7 @@ impl NotebookCore {
         notebook
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn draw_card(
         &self,
         ctx: &egui::Context,
@@ -564,6 +645,7 @@ impl NotebookCore {
 }
 
 impl Notebook {
+    #[cfg(not(target_arch = "wasm32"))]
     fn update_app_icon(&mut self, ctx: &egui::Context) {
         let Some(icons) = self.icons.as_ref() else {
             return;
@@ -586,6 +668,7 @@ impl Notebook {
 impl eframe::App for Notebook {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        #[cfg(not(target_arch = "wasm32"))]
         self.update_app_icon(&ctx);
         ctx.global_style_mut(|style| {
             style.visuals.clip_rect_margin = 0.0;
@@ -883,9 +966,12 @@ impl eframe::App for Notebook {
                                         }
 
                                         let show_detach_button = !*card_detached;
+                                        #[cfg(not(target_arch = "wasm32"))]
                                         let show_open_button = show_detach_button
                                             && entry.source.is_some()
                                             && config.editor.is_some();
+                                        #[cfg(target_arch = "wasm32")]
+                                        let show_open_button = false;
                                         if show_detach_button {
                                             let tab_size = egui::vec2(20.0, 2.0 * crate::card_ctx::GRID_ROW_MODULE);
                                             let tab_pull = 4.0;
@@ -928,6 +1014,7 @@ impl eframe::App for Notebook {
                                             let top_y =
                                                 (card_rect.top() + top_offset).round();
                                             let detach_pos = egui::pos2(tab_x, top_y);
+                                            #[allow(unused_variables)]
                                             let open_pos = show_open_button.then(|| {
                                                 egui::pos2(
                                                     tab_x,
@@ -936,6 +1023,7 @@ impl eframe::App for Notebook {
                                             });
 
                                             ui.push_id((i, card_identity), |ui| {
+                                                #[cfg(not(target_arch = "wasm32"))]
                                                 if let Some(open_pos) = open_pos {
                                                     let open_id =
                                                         ui.id().with("open_button");
@@ -991,6 +1079,7 @@ impl eframe::App for Notebook {
                                                             resp
                                                         });
 
+                                                    #[cfg(not(target_arch = "wasm32"))]
                                                     if open_resp.inner.clicked() {
                                                         if let (Some(source), Some(editor)) =
                                                             (

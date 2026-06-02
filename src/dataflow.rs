@@ -3,8 +3,11 @@
 /// Use [`spawn`](Self::spawn) to kick off a computation and [`poll`](Self::poll)
 /// to check for completion. The current value remains accessible while a new one
 /// is being computed.
+///
+/// On wasm, `spawn` runs the action synchronously (no threads available).
 pub struct ComputedState<T> {
     value: T,
+    #[cfg(not(target_arch = "wasm32"))]
     in_flight: Option<std::thread::JoinHandle<T>>,
 }
 
@@ -13,6 +16,7 @@ impl<T> ComputedState<T> {
     pub fn new(value: T) -> Self {
         Self {
             value,
+            #[cfg(not(target_arch = "wasm32"))]
             in_flight: None,
         }
     }
@@ -30,16 +34,27 @@ impl<T> ComputedState<T> {
     /// Replaces the current value and cancels any in-flight computation.
     pub fn set(&mut self, value: T) {
         self.value = value;
-        self.in_flight = None;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.in_flight = None;
+        }
     }
 
     /// Returns `true` if a background computation is in progress.
     pub fn is_running(&self) -> bool {
-        self.in_flight.is_some()
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.in_flight.is_some()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            false
+        }
     }
 
     /// Checks whether the in-flight computation has finished.
     /// If so, updates the stored value and returns `true`.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn poll(&mut self) -> bool
     where
         T: Send + 'static,
@@ -55,8 +70,16 @@ impl<T> ComputedState<T> {
         true
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn poll(&mut self) -> bool {
+        false
+    }
+
     /// Spawns `action` on a background thread if no computation is already running.
     /// Returns a mutable reference to the current (potentially stale) value.
+    ///
+    /// On wasm, runs `action` synchronously and updates the value immediately.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn spawn(&mut self, action: impl FnOnce() -> T + Send + 'static) -> &mut T
     where
         T: Send + 'static,
@@ -65,6 +88,12 @@ impl<T> ComputedState<T> {
         if !self.is_running() {
             self.in_flight = Some(std::thread::spawn(action));
         }
+        &mut self.value
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn spawn(&mut self, action: impl FnOnce() -> T) -> &mut T {
+        self.value = action();
         &mut self.value
     }
 }

@@ -34,6 +34,9 @@ dependencies = [
  "ttf-parser",
  "typst",
  "typst-syntax",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
