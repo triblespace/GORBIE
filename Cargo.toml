@@ -1,7 +1,7 @@
 [package]
 name = "GORBIE"
 description = "GORBIE! Is a minimalist notebook library for Rust."
-version = "0.16.0"
+version = "0.17.0"
 edition = "2021"
 authors = ["Jan-Paul Bultmann <jp@bultmann.eu>"]
 license = "MIT OR Apache-2.0"
@@ -29,7 +29,7 @@ include = [
 ]
 
 [dependencies]
-gorbie-macros = { version = "0.8.0", path = "gorbie-macros" }
+gorbie-macros = { version = "0.9.0", path = "gorbie-macros" }
 eframe = { version = "0.34", features = ["persistence", "wgpu"] }
 egui = { version = "0.34", features = ["color-hex"] }
 parking_lot = { version = "0.12.3", features = ["arc_lock"] }
@@ -60,7 +60,7 @@ version = "0.35"
 optional = true
 
 [dependencies.triblespace]
-version = "0.44"
+version = "0.45"
 optional = true
 
 [dependencies.polars]

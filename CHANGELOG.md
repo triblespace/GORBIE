@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.17.0 - 2026-06-03
+
+- **Bump optional `triblespace` dep 0.44 → 0.45.** Picks up the PATCH
+  `LocalLeaf` archive-leaf elimination (~47% memory savings on
+  `SimpleArchive` ingest, archive ingest now equal to or faster than
+  heap at all measured scales), the `ArchiveEntry` / `insert_archive`
+  ingest path, and the `team revoke` removal. No GORBIE-side code
+  changes required.
+- **Web export via recursive `cfg`-gated proc macro.** The notebook
+  builder now ships a clean wasm export path through a proc-macro
+  that walks the cell tree at compile time and emits per-target
+  code, so notebooks compile down to a static bundle without a
+  runtime feature flag.
+
 ## 0.16.0 - 2026-05-31
 
 - **Bump optional `triblespace` dep 0.42 → 0.44.** Picks up the

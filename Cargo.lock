@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "GORBIE"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "comemo",
  "ctrlc",
@@ -3231,7 +3231,7 @@ dependencies = [
 
 [[package]]
 name = "gorbie-macros"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -8026,9 +8026,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace"
-version = "0.44.0"
+version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9415c4ec56c2b3f6b3dd70bbdbd83410765d55ead68b36e060de4d652a2de4db"
+checksum = "182634cb3f5fe2a4170dee2af2ebd8413a69aa628ddd65668e88a650f8028123"
 dependencies = [
  "ed25519-dalek",
  "log",
@@ -8042,9 +8042,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core"
-version = "0.44.0"
+version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "903b65023c25f8a630aa205d52053005be23ca4c59471a632412c88ed214fc83"
+checksum = "6a69e4996488c117946c28b4f7c0df224f634b9fbdb7c50a790cc94079cf3933"
 dependencies = [
  "anybytes",
  "arbitrary",
@@ -8093,9 +8093,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core-macros"
-version = "0.44.0"
+version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "679d98f7fc41df535f9460ea3e64a933c8f9639e6b5dcbac613edfeee1099275"
+checksum = "ceeec88722cb926d30df8d96fa527e4b497b9b87df1a7bd2d95d9fca702baec4"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8105,9 +8105,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros"
-version = "0.44.0"
+version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e7f0b91398c3200253a90528c51bff55df8ab11dc38eb5c101cc5bfeae12cc9"
+checksum = "e16da6c5b223221156e82420c06b1317bf16dc4d06a85fb990d90acdc3d159a2"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -8121,9 +8121,9 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros-common"
-version = "0.44.0"
+version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8815574d213b336e9b082e90d347be4f8d14461ae67bad6ab718f547875fd88f"
+checksum = "04430197be2786056271c3e17df6ca65e898999533ca34c3f72484aa3e040959"
 dependencies = [
  "proc-macro2",
  "quote",
