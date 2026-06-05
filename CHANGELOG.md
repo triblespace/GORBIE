@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.18.0 - 2026-06-05
+
+- **Bump optional `triblespace` dep 0.45 → 0.46.** Picks up the new
+  `PinSnapshot` type (cheap O(refcount-bump) snapshot of the
+  pin → head map via `PinStore::pin_snapshot()`), the
+  snapshot-first publish ordering in `triblespace-net` (closes a
+  race where a peer dialing in after a gossip hit a stale serving
+  snapshot), and the OP_DELIVER_CAP swarm-fetch + dialer-equals-
+  issuer verify path. No GORBIE-side code changes required.
+
 ## 0.17.0 - 2026-06-03
 
 - **Bump optional `triblespace` dep 0.44 → 0.45.** Picks up the PATCH
