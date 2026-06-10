@@ -37,6 +37,29 @@ pub const fn span_width(n: u32) -> f32 {
     n as f32 * GRID_COL_WIDTH + n.saturating_sub(1) as f32 * GRID_GUTTER
 }
 
+/// Context-data key for the notebook-wide section default set by
+/// [`set_default_section_open`].
+fn section_default_open_id() -> egui::Id {
+    egui::Id::new("gorbie_default_section_open")
+}
+
+/// Set whether [`CardCtx::section`] starts open (the built-in default)
+/// or collapsed, notebook-wide.
+///
+/// Call once — e.g. at the top of the first card's closure — before any
+/// sections render. Only affects each section's FIRST appearance: once
+/// the user toggles a section, their choice is persisted per title and
+/// wins over this default. [`CardCtx::section_collapsed`] is unaffected
+/// (it always defaults closed).
+///
+/// ```ignore
+/// // Start every section collapsed for a dashboard-style notebook:
+/// GORBIE::card_ctx::set_default_section_open(ui.ctx(), false);
+/// ```
+pub fn set_default_section_open(ctx: &egui::Context, open: bool) {
+    ctx.data_mut(|d| d.insert_temp(section_default_open_id(), open));
+}
+
 /// Card-scoped context that threads the state store through all nested layouts.
 ///
 /// `CardCtx` wraps an `egui::Ui` and provides layout methods that pass
@@ -148,6 +171,26 @@ impl<'a> CardCtx<'a> {
         crate::widgets::typst_widget::typst_math_display(self.ui, expr);
     }
 
+    // ── Environment ──────────────────────────────────────────────────
+
+    /// True when this render pass is driven by the headless capture
+    /// renderer (`--headless`). Widgets can consult this to adapt for
+    /// screenshots; [`section`](Self::section) already forces sections
+    /// open under it. Convenience for [`crate::is_headless`] — the
+    /// underlying marker lives on the `egui::Context`.
+    pub fn is_headless(&self) -> bool {
+        crate::is_headless(self.ui.ctx())
+    }
+
+    /// Set whether [`section`](Self::section) starts open (the
+    /// built-in default) or collapsed, notebook-wide. Convenience for
+    /// [`set_default_section_open`] — call from any card before the
+    /// sections render (the first card of the notebook is the natural
+    /// spot). Headless captures ignore this and always render open.
+    pub fn set_default_section_open(&self, open: bool) {
+        set_default_section_open(self.ui.ctx(), open);
+    }
+
     // ── Section ──────────────────────────────────────────────────────
 
     /// Collapsible section with a bold colored header (open by default).
@@ -155,6 +198,12 @@ impl<'a> CardCtx<'a> {
     /// The header color is deterministically assigned from the title via
     /// [`colorhash::ral_categorical`], like colored divider tabs in stationery.
     /// Click to expand/collapse.
+    ///
+    /// The "open by default" half can be flipped notebook-wide with
+    /// [`set_default_section_open`] — useful for dashboards composing
+    /// many heavy sections where starting collapsed keeps the initial
+    /// view scannable. A user's persisted open/closed choice always
+    /// wins over either default.
     ///
     /// ```ignore
     /// ctx.section("Parameters", |ctx| {
@@ -167,7 +216,12 @@ impl<'a> CardCtx<'a> {
         title: &str,
         add_contents: impl FnOnce(&mut CardCtx<'_>),
     ) {
-        self.section_inner(title, true, add_contents);
+        let default_open = self
+            .ui
+            .ctx()
+            .data(|d| d.get_temp::<bool>(section_default_open_id()))
+            .unwrap_or(true);
+        self.section_inner(title, default_open, add_contents);
     }
 
     /// Collapsible section that starts collapsed (closed by default).
@@ -198,6 +252,12 @@ impl<'a> CardCtx<'a> {
         add_contents: impl FnOnce(&mut CardCtx<'_>),
     ) {
         use crate::themes::colorhash;
+
+        // Headless captures always render sections open — a collapsed
+        // section screenshots as a bare header bar, which defeats the
+        // point of capturing. Overrides both the notebook-wide default
+        // and `section_collapsed`.
+        let default_open = default_open || crate::is_headless(self.ui.ctx());
 
         let id = self.ui.make_persistent_id(title);
         let mut open = self.ui.ctx().data_mut(|d| {

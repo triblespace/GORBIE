@@ -55,6 +55,10 @@ impl HeadlessWgpuRunner {
         std::fs::create_dir_all(&config.output_dir)?;
 
         let ctx = egui::Context::default();
+        // Make headless mode readable by widgets (GORBIE::is_headless)
+        // — e.g. sections force-open during capture so screenshots
+        // always show their contents.
+        crate::mark_headless(&ctx);
         ctx.set_fonts(industrial_fonts());
         ctx.set_style_of(egui::Theme::Light, industrial_light());
         ctx.set_style_of(egui::Theme::Dark, industrial_dark());

@@ -251,6 +251,29 @@ pub use card_ctx::GRID_COL_WIDTH;
 pub use card_ctx::GRID_COLUMNS;
 pub use card_ctx::GRID_GUTTER;
 
+/// Context-data key for the headless-capture marker.
+fn headless_marker_id() -> egui::Id {
+    egui::Id::new("gorbie_headless_capture")
+}
+
+/// True when `ctx` is driven by the headless capture renderer
+/// (`--headless` / [`NotebookConfig::with_headless_capture`]).
+///
+/// Widgets can consult this to adapt rendering for screenshots —
+/// e.g. [`CardCtx::section`] forces sections open in headless mode so
+/// captures always show their contents, regardless of the interactive
+/// collapsed-by-default setting.
+pub fn is_headless(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp(headless_marker_id()))
+        .unwrap_or(false)
+}
+
+/// Mark `ctx` as headless. Called by the capture renderer during setup.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn mark_headless(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(headless_marker_id(), true));
+}
+
 pub(crate) const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
 #[cfg(not(target_arch = "wasm32"))]
 const NOTEBOOK_MIN_HEIGHT: f32 = 360.0;
