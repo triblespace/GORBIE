@@ -143,6 +143,7 @@ petgraph = "0.8.3"
 rand_core = "0.9.5"
 bytemuck = { version = "1", features = ["derive"] }
 glam = "0.30"
+hifitime = "4.2.3"
 
 [[example]]
 name = "globe"
@@ -195,3 +196,7 @@ required-features = ["triblespace", "typst", "cubecl"]
 
 [[example]]
 name = "spatial_resolver"
+
+[[example]]
+name = "spatial_pile_resolver"
+required-features = ["triblespace"]
