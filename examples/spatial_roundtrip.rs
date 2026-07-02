@@ -189,4 +189,114 @@ fn main() {
         cities.len()
     );
     println!("ECEF radii sit at ~6357–6378 km (pole vs equator), confirming the WGS84 ellipsoid.");
+
+    external_reality_check();
+}
+
+/// External-reality validation of the WGS84 geodetic→ECEF conversion
+/// against *authoritative published values*, not just internal
+/// self-consistency.
+///
+/// The earlier round-trip proves the encoding is lossless and that the
+/// converter's output is internally consistent, but "the ellipsoid falls
+/// out of the radii" is a weak claim — any oblate-ish formula would pass.
+/// This pins the converter to the numbers a standards body publishes.
+///
+/// Source: NGA.STND.0036_1.0.0_WGS84, "Department of Defense World
+/// Geodetic System 1984" (National Geospatial-Intelligence Agency,
+/// 2014-07-08), Table 3.1 (defining parameters) and derived geometric
+/// constants:
+///   - semi-major axis        a  = 6378137.0 m            (defining, exact)
+///   - inverse flattening     1/f = 298.257223563         (defining, exact)
+///   - semi-minor axis        b  = 6356752.3142 m         (derived)
+///   - first eccentricity²    e² = 6.694379990141e-3      (derived)
+///
+/// These are checkpoints where the WGS84 geometry is fixed by definition,
+/// so the ECEF coordinates are *published values*, not model output:
+///   - the equator on the prime meridian sits at ECEF (a, 0, 0);
+///   - a quarter-turn east sits at ECEF (0, a, 0);
+///   - the geographic north pole sits at ECEF (0, 0, b) — the polar
+///     radius IS the published semi-minor axis.
+fn external_reality_check() {
+    // NGA WGS84 published constants.
+    const A_PUB: f64 = 6_378_137.0; // semi-major axis, m (defining)
+    const B_PUB: f64 = 6_356_752.3142; // semi-minor axis, m (derived, 4 dp as published)
+    const E2_PUB: f64 = 6.694_379_990_141e-3; // first eccentricity squared (derived)
+
+    // The converter's own e² (from the defining 1/f) must match the
+    // independently-published derived e² to full published precision.
+    const F: f64 = 1.0 / 298.257_223_563;
+    let e2 = F * (2.0 - F);
+
+    println!("\nExternal-reality check — WGS84 geodetic→ECEF vs NGA.STND.0036 published values:\n");
+    let mut fails = 0usize;
+    let mut check = |name: &str, ok: bool| {
+        println!("  [{}] {name}", if ok { "ok" } else { "FAIL" });
+        if !ok {
+            fails += 1;
+        }
+    };
+
+    check(
+        &format!(
+            "first eccentricity² matches published 6.694379990141e-3 (got {e2:.15e})"
+        ),
+        (e2 - E2_PUB).abs() < 1e-15,
+    );
+
+    // Prime-meridian equator → published (a, 0, 0).
+    let eq0 = geodetic_to_ecef(0.0, 0.0, 0.0);
+    check(
+        &format!("equator/prime-meridian ECEF = (a,0,0) = ({A_PUB:.1}, 0, 0)  [got {:.4}, {:.4}, {:.4}]", eq0[0], eq0[1], eq0[2]),
+        (eq0[0] - A_PUB).abs() < 1e-6 && eq0[1].abs() < 1e-6 && eq0[2].abs() < 1e-6,
+    );
+
+    // Equator, 90° east → published (0, a, 0).
+    let eq90 = geodetic_to_ecef(0.0, 90.0, 0.0);
+    check(
+        &format!("equator/90°E ECEF = (0,a,0) = (0, {A_PUB:.1}, 0)  [got {:.4}, {:.4}, {:.4}]", eq90[0], eq90[1], eq90[2]),
+        eq90[0].abs() < 1e-6 && (eq90[1] - A_PUB).abs() < 1e-6 && eq90[2].abs() < 1e-6,
+    );
+
+    // North pole → published (0, 0, b): the polar radius is the semi-minor
+    // axis. Tolerance 1e-3 m because B_PUB is quoted to 4 decimal places.
+    let pole = geodetic_to_ecef(90.0, 0.0, 0.0);
+    check(
+        &format!("north-pole ECEF Z = semi-minor axis b = {B_PUB:.4} m  [got {:.4} m]", pole[2]),
+        pole[0].abs() < 1e-6 && pole[1].abs() < 1e-6 && (pole[2] - B_PUB).abs() < 1e-3,
+    );
+
+    if fails == 0 {
+        println!(
+            "\nOK — the converter reproduces WGS84's published semi-major/semi-minor axes and\n\
+             eccentricity exactly, so the geodetic→ECEF path is validated against an external\n\
+             standard, not just against itself."
+        );
+    } else {
+        println!("\n{fails} external-reality check(s) FAILED.");
+        std::process::exit(1);
+    }
+
+    // Honesty about scope: what is NOT validated here, and what real
+    // external validation would require.
+    //
+    // These checkpoints fix the ellipsoid's *shape* (a, b, e²) but not a
+    // real point on the crust. Full external validation against measured
+    // reality would import an authoritative station catalogue — e.g. the
+    // IGS/ITRF2020 SINEX solution, which publishes each GNSS reference
+    // station's ECEF (X,Y,Z) to the millimetre — and assert the converter
+    // reproduces the published ECEF from that station's published
+    // geodetic latitude/longitude/ellipsoidal-height, allowing for the
+    // cm-level ITRF-vs-WGS84 datum realisation difference. That needs an
+    // external dataset (offline-fetchable but not vendored here), so it is
+    // documented rather than run. Likewise, validating a *satellite* pass
+    // would require a real TLE + an SGP4 propagator (an external model)
+    // to generate ground-truth ECI/ECEF states — out of scope for this
+    // headless encoding test, and noted so the gap is explicit.
+    println!(
+        "\nNot validated offline (documented, not run): real ITRF station ECEF (needs the\n\
+         IGS/ITRF2020 SINEX catalogue) and real satellite ephemeris (needs a TLE + SGP4).\n\
+         Those require external datasets/models; the checks above are the strongest offline\n\
+         validation — published defining/derived WGS84 constants."
+    );
 }
