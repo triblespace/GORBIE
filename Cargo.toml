@@ -60,7 +60,8 @@ version = "0.35"
 optional = true
 
 [dependencies.triblespace]
-version = "0.46"
+version = "0.47"
+path = "../triblespace-rs"
 optional = true
 
 [dependencies.polars]

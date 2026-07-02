@@ -136,9 +136,15 @@ impl PileRepoState {
             let result = (|| -> Result<OpenResult, String> {
                 let mut pile =
                     Pile::open(&path).map_err(|err| format!("open pile: {err:?}"))?;
-                if let Err(err) = pile.restore() {
+                if let Err(err) = pile.refresh() {
+                    // Fail loud: never auto-truncate (a stale binary reading a
+                    // newer-format record would eat all data past it). Repair is
+                    // explicit: `trible pile restore <path>`.
                     let _ = pile.close();
-                    return Err(format!("restore pile: {err:?}"));
+                    return Err(format!(
+                        "refresh pile: {err:?}; refusing to auto-repair — run `trible pile restore {}` to repair a torn tail",
+                        path.display()
+                    ));
                 }
                 let repo = Repository::new(pile, signing_key, TribleSet::new())
                     .map_err(|err| format!("create repository: {err:?}"))?;
