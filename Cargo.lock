@@ -6,6 +6,7 @@ version = 4
 name = "GORBIE"
 version = "0.18.1"
 dependencies = [
+ "bytemuck",
  "comemo",
  "ctrlc",
  "cubecl",
@@ -17,6 +18,7 @@ dependencies = [
  "egui-wgpu",
  "egui_graphs",
  "egui_plot",
+ "glam 0.30.10",
  "gorbie-commonmark",
  "gorbie-macros",
  "hifitime",
@@ -8026,9 +8028,7 @@ dependencies = [
 
 [[package]]
 name = "triblespace"
-version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0377c89a6b685ef2993145b311918452e59a85a8404e3059181f0fc8d0326f6f"
+version = "0.47.0"
 dependencies = [
  "ed25519-dalek",
  "log",
@@ -8042,9 +8042,7 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core"
-version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f737b346c5d001a0d723c4be1aa3fed464124765a1dfcfeaaaa0bd5643171a4a"
+version = "0.47.0"
 dependencies = [
  "anybytes",
  "arbitrary",
@@ -8053,7 +8051,6 @@ dependencies = [
  "blake3",
  "bytemuck",
  "bytes",
- "crossbeam-channel",
  "ed25519",
  "ed25519-dalek",
  "ethnum",
@@ -8093,9 +8090,7 @@ dependencies = [
 
 [[package]]
 name = "triblespace-core-macros"
-version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfd0714e6d1c2954bb529886b7f00809a69e00c8dcba941e30581c6b386bc574"
+version = "0.47.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8105,9 +8100,7 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros"
-version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0f597e1597b57d90fe8f1def88531b6f5b8b2d7116dc419555f7e342ddc0d1e"
+version = "0.47.0"
 dependencies = [
  "ed25519-dalek",
  "hex",
@@ -8121,9 +8114,7 @@ dependencies = [
 
 [[package]]
 name = "triblespace-macros-common"
-version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa0f109e428feb04371e965f516699461c95e8164ff4879d2ba177afc5722c40"
+version = "0.47.0"
 dependencies = [
  "proc-macro2",
  "quote",

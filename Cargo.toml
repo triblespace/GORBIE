@@ -141,6 +141,25 @@ exclude = ["gorbie_commonmark"]
 ed25519-dalek = "2.1.1"
 petgraph = "0.8.3"
 rand_core = "0.9.5"
+bytemuck = { version = "1", features = ["derive"] }
+glam = "0.30"
+
+[[example]]
+name = "globe"
+
+[[example]]
+name = "spatial_roundtrip"
+required-features = ["triblespace"]
+
+[[example]]
+name = "spatial_motor"
+required-features = ["triblespace"]
+
+[[example]]
+name = "spatial_sclerp"
+
+[[example]]
+name = "spatial_pga"
 
 [[example]]
 name = "polars"
@@ -174,3 +193,5 @@ required-features = ["triblespace"]
 name = "wiki_viewer"
 required-features = ["triblespace", "typst", "cubecl"]
 
+[[example]]
+name = "spatial_resolver"

@@ -274,6 +274,25 @@ pub(crate) fn mark_headless(ctx: &egui::Context) {
     ctx.data_mut(|d| d.insert_temp(headless_marker_id(), true));
 }
 
+/// Context-data key for the wgpu render-target colour format.
+fn wgpu_target_format_id() -> egui::Id {
+    egui::Id::new("gorbie_wgpu_target_format")
+}
+
+/// The wgpu colour-target format the notebook is rendering into, when
+/// running on the wgpu backend (which GORBIE selects on native — see
+/// [`NotebookConfig::run`]). `None` under glow or before the first
+/// frame.
+///
+/// A custom 3D card (e.g. an `egui_wgpu` paint callback) needs this to
+/// build a render pipeline whose fragment-target format matches egui's
+/// pass; it isn't otherwise available from inside a callback's
+/// `prepare`. The notebook publishes it each frame from the eframe
+/// [`Frame`](eframe::Frame).
+pub fn wgpu_target_format(ctx: &egui::Context) -> Option<egui_wgpu::wgpu::TextureFormat> {
+    ctx.data(|d| d.get_temp(wgpu_target_format_id()))
+}
+
 pub(crate) const NOTEBOOK_COLUMN_WIDTH: f32 = 768.0;
 #[cfg(not(target_arch = "wasm32"))]
 const NOTEBOOK_MIN_HEIGHT: f32 = 360.0;
@@ -389,6 +408,12 @@ impl NotebookConfig {
 
         let icons = load_app_icons();
         let mut native_options = eframe::NativeOptions::default();
+        // Render live on the wgpu backend (Metal/Vulkan/D3D12), not glow.
+        // Unifies the live renderer with the headless capture path and
+        // cubecl's GPU compute — one GPU API across the stack — and is
+        // what custom 3D paint callbacks (the globe widget) require:
+        // `Frame::wgpu_render_state()` is `None` under the glow backend.
+        native_options.renderer = eframe::Renderer::Wgpu;
         native_options.persist_window = true;
         native_options.viewport = native_options
             .viewport
@@ -689,8 +714,15 @@ impl Notebook {
 }
 
 impl eframe::App for Notebook {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // Publish the wgpu colour-target format so custom 3D cards can
+        // build pipelines that match egui's pass (see
+        // `wgpu_target_format`). Present only on the wgpu backend.
+        if let Some(rs) = frame.wgpu_render_state() {
+            let fmt = rs.target_format;
+            ctx.data_mut(|d| d.insert_temp(wgpu_target_format_id(), fmt));
+        }
         #[cfg(not(target_arch = "wasm32"))]
         self.update_app_icon(&ctx);
         ctx.global_style_mut(|style| {
