@@ -17,7 +17,7 @@ use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
 use triblespace::core::id::Id;
 use triblespace::core::metadata;
 use triblespace::core::repo::pile::Pile;
-use triblespace::core::repo::{BlobStore, BlobStoreGet, BlobStoreMeta, BranchStore, Repository};
+use triblespace::core::repo::{BlobStore, BlobStoreGet, BlobStoreMeta, PinStore, Repository};
 use triblespace::core::trible::TribleSet;
 use triblespace::core::inline::encodings::hash::{Blake3, Handle};
 use triblespace::core::inline::Inline;
@@ -66,7 +66,7 @@ fn scan_branches(
         .map_err(|err| format!("open pile reader: {err:?}"))?;
     let iter = repo
         .storage_mut()
-        .branches()
+        .pins()
         .map_err(|err| format!("list branches: {err:?}"))?;
 
     let mut branches = Vec::new();
