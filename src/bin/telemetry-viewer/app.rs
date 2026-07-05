@@ -98,9 +98,15 @@ impl RepoCache {
             self.repo = None;
             let mut pile =
                 Pile::open(&open_path).map_err(|err| format!("open pile: {err:?}"))?;
-            if let Err(err) = pile.restore() {
+            // Viewer = read path: non-mutating load, never amputate. A
+            // corrupt tail fails loud; truncation is an explicit operator
+            // decision (`trible pile amputate`).
+            if let Err(err) = pile.refresh() {
                 let _ = pile.close();
-                return Err(format!("restore pile: {err:?}"));
+                return Err(format!(
+                    "pile failed to load ({err:?}); refusing to auto-truncate — repair \
+                     explicitly with `trible pile amputate` if the tail is genuinely torn"
+                ));
             }
             let repo = Repository::new(pile, self.signing_key.clone(), TribleSet::new())
                 .map_err(|err| format!("create repository: {err:?}"))?;

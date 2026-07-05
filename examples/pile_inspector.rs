@@ -192,10 +192,14 @@ fn format_age_compact(now_ms: u64, ts_ms: u64) -> String {
 
 fn open_pile(path: &PathBuf) -> Result<Pile, String> {
     let mut pile: Pile = Pile::open(path).map_err(|err| err.to_string())?;
-    if let Err(err) = pile.restore() {
+    // Inspector = read path: non-mutating load, never amputate.
+    if let Err(err) = pile.refresh() {
         // Avoid Drop warnings on early errors.
         let _ = pile.close();
-        return Err(err.to_string());
+        return Err(format!(
+            "pile failed to load ({err:?}); refusing to auto-truncate — repair \
+             explicitly with `trible pile amputate` if the tail is genuinely torn"
+        ));
     }
     Ok(pile)
 }

@@ -75,9 +75,13 @@ struct WikiLive {
 impl WikiLive {
     fn open(path: &std::path::Path) -> Result<Self, String> {
         let mut pile = Pile::open(path).map_err(|e| format!("open pile: {e:?}"))?;
-        if let Err(err) = pile.restore() {
+        // Viewer = read path: non-mutating load, never amputate.
+        if let Err(err) = pile.refresh() {
             let _ = pile.close();
-            return Err(format!("restore: {err:?}"));
+            return Err(format!(
+                "pile failed to load ({err:?}); refusing to auto-truncate — repair \
+                 explicitly with `trible pile amputate` if the tail is genuinely torn"
+            ));
         }
         let signing_key = ed25519_dalek::SigningKey::generate(&mut rand_core06::OsRng);
         let mut repo = Repository::new(pile, signing_key, TribleSet::new())

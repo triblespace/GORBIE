@@ -582,7 +582,7 @@ fn main() {
     // comes from disk.
     let facts: TribleSet = {
         let mut pile = Pile::open(&tmp).expect("re-open pile");
-        pile.restore().expect("restore pile index from disk");
+        pile.refresh().expect("load pile index from disk");
         let mut repo = Repository::new(pile, SigningKey::from_bytes(&[42u8; 32]), TribleSet::new())
             .expect("repo (reopen)");
         let facts = {
