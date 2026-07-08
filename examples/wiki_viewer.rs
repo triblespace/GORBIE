@@ -19,7 +19,7 @@ use triblespace::core::blob::Blob;
 use triblespace::core::id::Id;
 use triblespace::core::metadata;
 use triblespace::core::repo::pile::Pile;
-use triblespace::core::repo::{BlobStore, BlobStoreGet, BranchStore, Repository, Workspace};
+use triblespace::core::repo::{BlobStore, BlobStoreGet, PinStore, Repository, Workspace};
 use triblespace::core::trible::TribleSet;
 use triblespace::core::inline::encodings::hash::{Blake3, Handle};
 use triblespace::core::inline::{TryToInline, Inline};
@@ -344,7 +344,7 @@ impl WikiLive {
 
 fn find_branch(repo: &mut Repository<Pile>, name: &str) -> Option<Id> {
     let reader = repo.storage_mut().reader().ok()?;
-    for item in repo.storage_mut().branches().ok()? {
+    for item in repo.storage_mut().pins().ok()? {
         let bid = item.ok()?;
         let head = repo.storage_mut().head(bid).ok()??;
         let meta: TribleSet = reader.get(head).ok()?;
@@ -390,8 +390,8 @@ fn force_step_kernel(
         let px = pos[ix];
         let py = pos[iy];
 
-        let mut fx = 0.0f32;
-        let mut fy = 0.0f32;
+        let mut fx = f32::new(0.0);
+        let mut fy = f32::new(0.0);
 
         for j in 0..node_count {
             if j != i {
@@ -408,7 +408,7 @@ fn force_step_kernel(
 
         // Count degree to normalize attraction (high-degree nodes
         // don't collapse into a ball).
-        let mut degree = 1.0f32;
+        let mut degree = f32::new(1.0);
         for e in 0..edge_count {
             let ea = edges[(e * 2) as usize];
             let eb = edges[(e * 2 + 1) as usize];
@@ -504,8 +504,8 @@ fn fdeb_step_kernel(
             // Electrostatic: unit-vector pull toward corresponding
             // point on each compatible edge, averaged over compatible
             // count so total magnitude is bounded ≤ 1.
-            let mut fx_elec = 0.0f32;
-            let mut fy_elec = 0.0f32;
+            let mut fx_elec = f32::new(0.0);
+            let mut fy_elec = f32::new(0.0);
 
             for other in 0u32..edge_count {
                 if other != e {
@@ -703,22 +703,18 @@ impl WikiGraph {
                 &gpu.client,
                 CubeCount::new_1d(((n as u32) + 255) / 256),
                 CubeDim::new_1d(256),
-                ArrayArg::from_raw_parts::<f32>(&gpu.pos_handle, n * 2, 1),
-                ArrayArg::from_raw_parts::<f32>(&gpu.vel_handle, n * 2, 1),
-                ArrayArg::from_raw_parts::<u32>(
-                    &gpu.edges_handle,
-                    gpu.edge_count.max(1) as usize * 2,
-                    1,
-                ),
-                ScalarArg::new(gpu.node_count),
-                ScalarArg::new(gpu.edge_count),
-                ArrayArg::from_raw_parts::<f32>(&gpu.pos_out_handle, n * 2, 1),
+                ArrayArg::from_raw_parts(gpu.pos_handle.clone(), n * 2),
+                ArrayArg::from_raw_parts(gpu.vel_handle.clone(), n * 2),
+                ArrayArg::from_raw_parts(gpu.edges_handle.clone(), gpu.edge_count.max(1) as usize * 2),
+                gpu.node_count,
+                gpu.edge_count,
+                ArrayArg::from_raw_parts(gpu.pos_out_handle.clone(), n * 2),
             );
         }
 
         std::mem::swap(&mut gpu.pos_handle, &mut gpu.pos_out_handle);
 
-        let bytes = gpu.client.read_one(gpu.pos_handle.clone());
+        let bytes = gpu.client.read_one(gpu.pos_handle.clone()).expect("gpu readback");
         let positions: &[f32] = f32::from_bytes(&bytes);
 
         // Compute center of mass and average angular velocity,
@@ -827,12 +823,12 @@ impl WikiGraph {
                         &client,
                         CubeCount::new_1d((total + 255) / 256),
                         CubeDim::new_1d(256),
-                        ArrayArg::from_raw_parts::<f32>(&pts_handle, total_floats, 1),
-                        ArrayArg::from_raw_parts::<f32>(&pts_out_handle, total_floats, 1),
-                        ScalarArg::new(e),
-                        ScalarArg::new(K),
-                        ScalarArg::new(step_size),
-                        ScalarArg::new(SPRING_K),
+                        ArrayArg::from_raw_parts(pts_handle.clone(), total_floats),
+                        ArrayArg::from_raw_parts(pts_out_handle.clone(), total_floats),
+                        e,
+                        K,
+                        step_size,
+                        SPRING_K,
                     );
                 }
                 std::mem::swap(&mut pts_handle, &mut pts_out_handle);
@@ -841,7 +837,7 @@ impl WikiGraph {
             iterations = (iterations * 2 / 3).max(10);
         }
 
-        let bytes = client.read_one(pts_handle);
+        let bytes = client.read_one(pts_handle).expect("gpu readback");
         let result: &[f32] = f32::from_bytes(&bytes);
 
         if result.len() >= 4 {

@@ -1147,23 +1147,22 @@ impl<R: Runtime> GpuSaRunnerState<R> {
                 &client,
                 CubeCount::new_1d(batch_size as u32),
                 CubeDim::new_1d(1),
-                ArrayArg::from_raw_parts::<u32>(&edges_handle, problem.edges_flat.len(), 1),
-                ScalarArg::new(problem.node_count as u32),
-                ScalarArg::new(problem.edges.len() as u32),
-                ScalarArg::new(seed32),
-                ScalarArg::new(initial_temp),
-                ScalarArg::new(floor_temp),
-                ArrayArg::from_raw_parts::<u32>(&orders_handle, order_len, 1),
-                ArrayArg::from_raw_parts::<u32>(&positions_handle, order_len, 1),
-                ArrayArg::from_raw_parts::<u32>(&best_orders_handle, order_len, 1),
-                ArrayArg::from_raw_parts::<u32>(&current_costs_handle, batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(&best_orders_costs_handle, batch_size, 1),
-                ArrayArg::from_raw_parts::<f32>(&temp_floor_handle, batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(&rng_states_handle, batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(&stagnant_steps_handle, batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(&seed_versions_handle, batch_size, 1),
-            )
-            .expect("minla SA init kernel launch");
+                ArrayArg::from_raw_parts(edges_handle.clone(), problem.edges_flat.len()),
+                problem.node_count as u32,
+                problem.edges.len() as u32,
+                seed32,
+                initial_temp,
+                floor_temp,
+                ArrayArg::from_raw_parts(orders_handle.clone(), order_len),
+                ArrayArg::from_raw_parts(positions_handle.clone(), order_len),
+                ArrayArg::from_raw_parts(best_orders_handle.clone(), order_len),
+                ArrayArg::from_raw_parts(current_costs_handle.clone(), batch_size),
+                ArrayArg::from_raw_parts(best_orders_costs_handle.clone(), batch_size),
+                ArrayArg::from_raw_parts(temp_floor_handle.clone(), batch_size),
+                ArrayArg::from_raw_parts(rng_states_handle.clone(), batch_size),
+                ArrayArg::from_raw_parts(stagnant_steps_handle.clone(), batch_size),
+                ArrayArg::from_raw_parts(seed_versions_handle.clone(), batch_size),
+            );
         }
 
         Ok(Self {
@@ -1200,25 +1199,24 @@ impl<R: Runtime> GpuSaRunnerState<R> {
                 &self.client,
                 CubeCount::new_1d(self.batch_size as u32),
                 CubeDim::new_1d(1),
-                ArrayArg::from_raw_parts::<u32>(&self.adj_offsets_handle, self.node_count + 1, 1),
-                ArrayArg::from_raw_parts::<u32>(&self.adj_list_handle, self.adj_list_len, 1),
-                ScalarArg::new(self.node_count as u32),
-                ScalarArg::new(steps),
-                ScalarArg::new(config.cooling_adjust),
-                ScalarArg::new(reheat_steps),
-                ArrayArg::from_raw_parts::<u32>(&self.orders_handle, order_len, 1),
-                ArrayArg::from_raw_parts::<u32>(&self.positions_handle, order_len, 1),
-                ArrayArg::from_raw_parts::<u32>(&self.best_orders_handle, order_len, 1),
-                ArrayArg::from_raw_parts::<u32>(&self.current_costs_handle, self.batch_size, 1),
-                ArrayArg::from_raw_parts::<f32>(&self.temp_floor_handle, self.batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(&self.best_orders_costs_handle, self.batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(&self.rng_states_handle, self.batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(&self.stagnant_steps_handle, self.batch_size, 1),
-            )
-            .expect("minla SA kernel launch");
+                ArrayArg::from_raw_parts(self.adj_offsets_handle.clone(), self.node_count + 1),
+                ArrayArg::from_raw_parts(self.adj_list_handle.clone(), self.adj_list_len),
+                self.node_count as u32,
+                steps,
+                config.cooling_adjust,
+                reheat_steps,
+                ArrayArg::from_raw_parts(self.orders_handle.clone(), order_len),
+                ArrayArg::from_raw_parts(self.positions_handle.clone(), order_len),
+                ArrayArg::from_raw_parts(self.best_orders_handle.clone(), order_len),
+                ArrayArg::from_raw_parts(self.current_costs_handle.clone(), self.batch_size),
+                ArrayArg::from_raw_parts(self.temp_floor_handle.clone(), self.batch_size),
+                ArrayArg::from_raw_parts(self.best_orders_costs_handle.clone(), self.batch_size),
+                ArrayArg::from_raw_parts(self.rng_states_handle.clone(), self.batch_size),
+                ArrayArg::from_raw_parts(self.stagnant_steps_handle.clone(), self.batch_size),
+            );
         }
 
-        let costs_bytes = self.client.read_one(self.best_orders_costs_handle.clone());
+        let costs_bytes = self.client.read_one(self.best_orders_costs_handle.clone()).expect("gpu readback");
         let costs = u32::from_bytes(&costs_bytes);
         let mut best_cost = u32::MAX;
         let mut best_index = 0usize;
@@ -1247,23 +1245,22 @@ impl<R: Runtime> GpuSaRunnerState<R> {
                 &self.client,
                 CubeCount::new_1d(self.batch_size as u32),
                 CubeDim::new_1d(1),
-                ScalarArg::new(self.node_count as u32),
-                ScalarArg::new(best_index as u32),
-                ScalarArg::new(best_cost),
-                ScalarArg::new(stale_steps),
-                ScalarArg::new(self.best_version),
-                ScalarArg::new(reset_floor),
-                ArrayArg::from_raw_parts::<u32>(&self.orders_handle, order_len, 1),
-                ArrayArg::from_raw_parts::<u32>(&self.positions_handle, order_len, 1),
-                ArrayArg::from_raw_parts::<u32>(&self.best_orders_handle, order_len, 1),
-                ArrayArg::from_raw_parts::<u32>(&self.current_costs_handle, self.batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(&self.best_orders_costs_handle, self.batch_size, 1),
-                ArrayArg::from_raw_parts::<f32>(&self.temp_floor_handle, self.batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(&self.stagnant_steps_handle, self.batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(&self.reseeded_handle, self.batch_size, 1),
-                ArrayArg::from_raw_parts::<u32>(&self.seed_versions_handle, self.batch_size, 1),
-            )
-            .expect("minla SA reseed kernel launch");
+                self.node_count as u32,
+                best_index as u32,
+                best_cost,
+                stale_steps,
+                self.best_version,
+                reset_floor,
+                ArrayArg::from_raw_parts(self.orders_handle.clone(), order_len),
+                ArrayArg::from_raw_parts(self.positions_handle.clone(), order_len),
+                ArrayArg::from_raw_parts(self.best_orders_handle.clone(), order_len),
+                ArrayArg::from_raw_parts(self.current_costs_handle.clone(), self.batch_size),
+                ArrayArg::from_raw_parts(self.best_orders_costs_handle.clone(), self.batch_size),
+                ArrayArg::from_raw_parts(self.temp_floor_handle.clone(), self.batch_size),
+                ArrayArg::from_raw_parts(self.stagnant_steps_handle.clone(), self.batch_size),
+                ArrayArg::from_raw_parts(self.reseeded_handle.clone(), self.batch_size),
+                ArrayArg::from_raw_parts(self.seed_versions_handle.clone(), self.batch_size),
+            );
         }
 
         Ok(GpuSaBatch {
@@ -1282,7 +1279,7 @@ impl<R: Runtime> GpuSaRunnerState<R> {
             .clone()
             .offset_start(offset_start)
             .offset_end(offset_end);
-        let order_bytes = self.client.read_one(handle);
+        let order_bytes = self.client.read_one(handle).expect("gpu readback");
         let order = u32::from_bytes(&order_bytes);
         order
             .iter()
@@ -1494,7 +1491,7 @@ fn minla_sa_init_kernel(
             positions[base + node] = pos as u32;
         }
 
-        let mut cost = 0u32;
+        let mut cost = u32::new(0);
         for edge in 0..edge_count {
             let edge_index = edge * 2;
             let u = edges[edge_index] as usize;
@@ -1577,7 +1574,7 @@ fn minla_sa_kernel(
                 let node_j_usize = node_j as usize;
                 let pos_i = i as u32;
                 let pos_j = j as u32;
-                let mut delta_cost: i32 = 0;
+                let mut delta_cost = i32::new(0);
 
                 let start_i = adj_offsets[node_i_usize] as usize;
                 let end_i = adj_offsets[node_i_usize + 1] as usize;

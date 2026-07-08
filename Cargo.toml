@@ -78,7 +78,7 @@ version = "4.2.3"
 optional = true
 
 [dependencies.cubecl]
-version = "0.9.0"
+version = "0.10.0"
 default-features = false
 features = ["wgpu", "std"]
 optional = true
