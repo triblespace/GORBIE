@@ -45,6 +45,16 @@ impl Default for Fnv1a64 {
     }
 }
 
+impl std::hash::Hasher for Fnv1a64 {
+    fn write(&mut self, bytes: &[u8]) {
+        self.update(bytes);
+    }
+
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
 /// One-shot FNV-1a hash of a byte slice, returning a 64-bit digest.
 pub fn hash64(bytes: &[u8]) -> u64 {
     let mut h = Fnv1a64::new();
@@ -91,9 +101,40 @@ pub const RAL_CATEGORICAL: &[u16] = &[
     6019, // pastel green
 ];
 
+/// A colorblind-safe categorical RAL palette.
+///
+/// Every pairwise distinction here is carried by luminance plus the
+/// orange/yellow-vs-blue/teal axis — red-vs-green is NEVER the
+/// load-bearing difference, so the palette stays legible under
+/// red-green color vision deficiency (the most common kind). Use this
+/// whenever the color itself must carry categorical meaning without a
+/// text label to disambiguate (stream tags, feed pills, chart series);
+/// [`RAL_CATEGORICAL`] is fine where color is decorative or always
+/// paired with readable text.
+pub const RAL_CVD_SAFE: &[u16] = &[
+    2009, // traffic orange (mid, warm)
+    5012, // light blue (mid, cool)
+    1003, // signal yellow (light, warm)
+    5005, // signal blue (dark, cool)
+    1028, // melon yellow (light, warm)
+    5024, // pastel blue (light, cool)
+    2004, // pure orange (mid, warm)
+    5021, // water blue (dark, cool)
+];
+
 /// Pick a color from [`RAL_CATEGORICAL`] using a pre-computed hash.
 pub fn ral_categorical_from_hash(hash: u64) -> Color32 {
     ral_from_hash_in_palette(hash, RAL_CATEGORICAL)
+}
+
+/// Pick a color from [`RAL_CVD_SAFE`] using a pre-computed hash.
+pub fn ral_cvd_safe_from_hash(hash: u64) -> Color32 {
+    ral_from_hash_in_palette(hash, RAL_CVD_SAFE)
+}
+
+/// Hash a byte slice and return a colorblind-safe categorical RAL color.
+pub fn ral_cvd_safe(bytes: &[u8]) -> Color32 {
+    ral_cvd_safe_from_hash(hash64(bytes))
 }
 
 /// Pick a RAL color from an arbitrary palette slice using a pre-computed hash.

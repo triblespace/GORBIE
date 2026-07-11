@@ -667,6 +667,50 @@ fn lcd_text_edit(
     LcdTextEditOutput { response, changed }
 }
 
+/// A read-only LCD-style value display, visually matching [`NumberField`].
+///
+/// Renders `text` centered in the same LCD frame the editable fields
+/// use, sized to the text (minimum 3 grid modules tall). `ink`
+/// overrides the LCD ink color — pass an accent (e.g.
+/// [`crate::themes::button_light_on`]) to flag an exceptional state —
+/// while `None` uses the theme's default LCD ink.
+///
+/// ```ignore
+/// widgets::lcd_readout(ui, "74.2 ms", None);
+/// widgets::lcd_readout(ui, "93.1 ms", Some(themes::button_light_on()));
+/// ```
+pub fn lcd_readout(ui: &mut Ui, text: &str, ink: Option<Color32>) -> Response {
+    let gstyle = GorbieNumberFieldStyle::from(ui.style().as_ref());
+    let text_color = ink.unwrap_or_else(|| lcd_ink_color(ui.visuals().dark_mode));
+
+    let font_id = lcd_font_id(ui);
+    let row_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
+    let margin = singleline_margin(ui, row_height);
+    let galley =
+        ui.fonts_mut(|fonts| fonts.layout_no_wrap(text.to_owned(), font_id, text_color));
+
+    let row_mod = crate::card_ctx::GRID_ROW_MODULE;
+    let min_size = vec2(ui.spacing().interact_size.x, 3.0 * row_mod);
+    let desired = (galley.size() + margin.sum()).at_least(min_size);
+    let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::hover());
+
+    if ui.is_rect_visible(rect) {
+        paint_field_frame(
+            ui.painter(),
+            rect,
+            gstyle.fill,
+            gstyle.outline,
+            gstyle.rounding,
+        );
+        let inner = rect - margin;
+        let placement = place_galley(&galley, inner, Align2::CENTER_CENTER);
+        ui.painter_at(rect.shrink(1.0))
+            .galley(placement.pos, galley, text_color);
+    }
+
+    response
+}
+
 /// A draggable numeric input with LCD-style text rendering.
 ///
 /// Click to enter edit mode; drag horizontally to adjust the value.

@@ -13,6 +13,7 @@ use triblespace::core::inline::{RawInline, Inline, INLINE_LEN};
 pub mod commit_history;
 pub mod entity_inspector;
 pub mod pile_repo;
+pub mod pile_tail;
 #[cfg(feature = "gloss")]
 pub mod pile_overview;
 
@@ -28,6 +29,7 @@ pub use entity_inspector::EntityOrder;
 pub use pile_repo::PileRepoResponse;
 pub use pile_repo::PileRepoState;
 pub use pile_repo::PileRepoWidget;
+pub use pile_tail::PileTail;
 #[cfg(feature = "gloss")]
 pub use pile_overview::PileOverviewData;
 #[cfg(feature = "gloss")]

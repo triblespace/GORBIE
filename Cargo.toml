@@ -195,6 +195,10 @@ name = "wiki_viewer"
 required-features = ["triblespace", "typst", "cubecl"]
 
 [[example]]
+name = "dashboard_widgets"
+required-features = ["plots", "triblespace"]
+
+[[example]]
 name = "spatial_resolver"
 
 [[example]]

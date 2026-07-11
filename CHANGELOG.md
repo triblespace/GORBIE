@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Live-dashboard widget set.** Four new reusable widgets grown out
+  of the `drive` operational dashboard: `StreamLane` (scrolling
+  tagged text runs with chunked, lazily laid-out rendering and a
+  colorblind-safe default palette), `BudgetGauge` (scalar vs budget,
+  composed from the LCD readout + `ProgressBar` meter; over/under is
+  expressed through luminance and the RAL 2005 accent, never
+  red/green), `MetricStrip` (feature `plots`; rolling time-series
+  with inline readout and optional p50/p95 percentile band), and
+  `EventFeed` (newest-first rows with colorhash category pills and
+  collapsible detail). Plus `widgets::lcd_readout` (read-only LCD
+  display field) and `colorhash::RAL_CVD_SAFE` (colorblind-safe
+  categorical palette; `Fnv1a64` now implements `std::hash::Hasher`).
+- **`PileTail` live-tail helper (feature `triblespace`).** The
+  delta-tail pattern from the telemetry viewer as a reusable state
+  machine: owns a read-only pile handle (open-loud, never amputates,
+  never pushes), tracks the last seen branch head, and `poll()`
+  returns only the `TribleSet` delta since the previous head with
+  built-in wall-clock throttling (throttled polls skip no data).
+  Branch by id or lazily-resolved name. See
+  `examples/dashboard_widgets.rs` for all five in one notebook.
+
 ## 0.18.0 - 2026-06-05
 
 - **Bump optional `triblespace` dep 0.45 → 0.46.** Picks up the new
