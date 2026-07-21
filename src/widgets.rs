@@ -32,12 +32,10 @@ pub mod progress;
 pub mod slider;
 /// Scrolling stream of tagged text runs.
 pub mod stream_lane;
-/// Polars table display widget.
-#[cfg(feature = "polars")]
+/// Table view with fixed header and sized columns. Polars-free — the
+/// polars feature only gates the dataframe display built on top of it.
 pub mod table;
-#[cfg(feature = "polars")]
 mod table_layout;
-#[cfg(feature = "polars")]
 mod table_sizing;
 /// TribleSpace browser widgets (pile repo, inspectors).
 #[cfg(feature = "triblespace")]
@@ -74,7 +72,5 @@ pub use slider::Slider;
 pub use slider::SliderClamping;
 pub use stream_lane::RunStyle;
 pub use stream_lane::StreamLane;
-#[cfg(feature = "polars")]
 pub use table::Column;
-#[cfg(feature = "polars")]
 pub use table::TableBuilder;
