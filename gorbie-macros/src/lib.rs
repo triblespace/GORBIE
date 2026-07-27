@@ -74,6 +74,7 @@ pub fn notebook(attr: TokenStream, item: TokenStream) -> TokenStream {
                 let mut __gorbie_headless_out_dir: Option<std::path::PathBuf> = None;
                 let mut __gorbie_headless_scale: Option<f32> = None;
                 let mut __gorbie_headless_wait_ms: Option<u64> = None;
+                let mut __gorbie_headless_theme: Option<#gorbie::HeadlessTheme> = None;
                 let mut __gorbie_export = false;
                 let mut __gorbie_export_out_dir: Option<std::path::PathBuf> = None;
                 let mut __gorbie_args = std::env::args().skip(1);
@@ -122,6 +123,29 @@ pub fn notebook(attr: TokenStream, item: TokenStream) -> TokenStream {
                                 return;
                             }
                         }
+                        "--theme" => {
+                            match __gorbie_args.next().as_deref() {
+                                Some("light") => {
+                                    __gorbie_headless_theme = Some(#gorbie::HeadlessTheme::Light);
+                                }
+                                Some("dark") => {
+                                    __gorbie_headless_theme = Some(#gorbie::HeadlessTheme::Dark);
+                                }
+                                Some("auto") => {
+                                    __gorbie_headless_theme = Some(#gorbie::HeadlessTheme::Auto);
+                                }
+                                _ => {
+                                    eprintln!("--theme expects light, dark, or auto");
+                                    return;
+                                }
+                            }
+                        }
+                        "--light" => {
+                            __gorbie_headless_theme = Some(#gorbie::HeadlessTheme::Light);
+                        }
+                        "--dark" => {
+                            __gorbie_headless_theme = Some(#gorbie::HeadlessTheme::Dark);
+                        }
                         "--export" => {
                             __gorbie_export = true;
                         }
@@ -152,6 +176,10 @@ pub fn notebook(attr: TokenStream, item: TokenStream) -> TokenStream {
                 }
 
                 if __gorbie_headless {
+                    if let Some(theme) = __gorbie_headless_theme {
+                        __gorbie_notebook_owner =
+                            __gorbie_notebook_owner.with_headless_theme(theme);
+                    }
                     let out_dir = __gorbie_headless_out_dir
                         .unwrap_or_else(|| std::path::PathBuf::from("gorbie_capture"));
                     __gorbie_notebook_owner = if let Some(scale) = __gorbie_headless_scale {

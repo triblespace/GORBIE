@@ -1,6 +1,5 @@
 use crate::themes::{industrial_dark, industrial_fonts, industrial_light};
 use crate::{HeadlessCaptureConfig, NotebookCore, NOTEBOOK_MIN_HEIGHT};
-use dark_light::Mode;
 use eframe::egui;
 use egui_wgpu::wgpu;
 use std::path::{Path, PathBuf};
@@ -62,10 +61,30 @@ impl HeadlessWgpuRunner {
         ctx.set_fonts(industrial_fonts());
         ctx.set_style_of(egui::Theme::Light, industrial_light());
         ctx.set_style_of(egui::Theme::Dark, industrial_dark());
-        let theme = match dark_light::detect() {
-            Ok(Mode::Light) => egui::ThemePreference::Light,
-            Ok(Mode::Dark) => egui::ThemePreference::Dark,
-            Ok(Mode::Unspecified) | Err(_) => egui::ThemePreference::Dark,
+        // A headless capture does not ask the operating system anything unless
+        // explicitly told to. This used to call `dark_light::detect()`
+        // unconditionally, which was wrong twice over:
+        //
+        // 1. On macOS `dark-light` goes through System Events, so a capture run
+        //    triggers an automation-permission prompt — and once granted, it
+        //    changed the machine's actual appearance (observed live, mid-session,
+        //    on the author's desktop, 2026-07-25).
+        // 2. It made captures NON-REPRODUCIBLE. The same command produced a
+        //    light or a dark PNG depending on what the operator's desktop
+        //    happened to be at that moment, so two runs could not be diffed and
+        //    the difference attributed to the code.
+        //
+        // `--theme auto` still offers the old behaviour for anyone who wants a
+        // capture that matches their desktop; it is just no longer the silent
+        // default.
+        let theme = match config.theme {
+            crate::HeadlessTheme::Light => egui::ThemePreference::Light,
+            crate::HeadlessTheme::Dark => egui::ThemePreference::Dark,
+            crate::HeadlessTheme::Auto => match dark_light::detect() {
+                Ok(dark_light::Mode::Light) => egui::ThemePreference::Light,
+                Ok(dark_light::Mode::Dark) => egui::ThemePreference::Dark,
+                Ok(dark_light::Mode::Unspecified) | Err(_) => egui::ThemePreference::Dark,
+            },
         };
         ctx.set_theme(theme);
 

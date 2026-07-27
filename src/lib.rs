@@ -201,6 +201,30 @@ pub struct NotebookConfig {
     headless_capture: Option<HeadlessCaptureConfig>,
     #[cfg(not(target_arch = "wasm32"))]
     headless_settle_timeout: Option<Duration>,
+    #[cfg(not(target_arch = "wasm32"))]
+    headless_theme: HeadlessTheme,
+}
+
+/// Which theme a headless capture renders in.
+///
+/// Defaults to [`Dark`](HeadlessTheme::Dark) rather than following the desktop,
+/// so a render is a pure function of the notebook and this flag. Ambient system
+/// state used to leak in here and made captures non-reproducible — the same
+/// command produced a light or a dark PNG depending on the operator's machine.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HeadlessTheme {
+    /// Render light.
+    Light,
+    /// Render dark. The default.
+    #[default]
+    Dark,
+    /// Follow the operating system's appearance.
+    ///
+    /// Opt-in only, because it is not reproducible and, on macOS, querying it
+    /// goes through System Events — which prompts for automation permission and
+    /// has been observed changing the machine's own appearance.
+    Auto,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -210,6 +234,7 @@ struct HeadlessCaptureConfig {
     card_width: f32,
     pixels_per_point: f32,
     settle_timeout: Duration,
+    theme: HeadlessTheme,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -322,6 +347,7 @@ impl NotebookConfig {
             headless_capture: None,
             #[cfg(not(target_arch = "wasm32"))]
             headless_settle_timeout: None,
+            headless_theme: HeadlessTheme::default(),
         }
     }
 
@@ -343,7 +369,22 @@ impl NotebookConfig {
             card_width: NOTEBOOK_COLUMN_WIDTH,
             pixels_per_point: HEADLESS_DEFAULT_PIXELS_PER_POINT,
             settle_timeout,
+            theme: self.headless_theme,
         });
+        self
+    }
+
+    /// Sets which theme a headless capture renders in.
+    ///
+    /// Defaults to [`HeadlessTheme::Dark`]. Call before
+    /// [`with_headless_capture`](Self::with_headless_capture) — the capture
+    /// config snapshots this value.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_headless_theme(mut self, theme: HeadlessTheme) -> Self {
+        self.headless_theme = theme;
+        if let Some(headless) = &mut self.headless_capture {
+            headless.theme = theme;
+        }
         self
     }
 
@@ -368,6 +409,7 @@ impl NotebookConfig {
             card_width: NOTEBOOK_COLUMN_WIDTH,
             pixels_per_point,
             settle_timeout,
+            theme: self.headless_theme,
         });
         self
     }
