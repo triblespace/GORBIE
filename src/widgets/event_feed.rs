@@ -155,14 +155,11 @@ fn show_row(ui: &mut Ui, item: &FeedItem, open: &mut HashSet<u64>) {
                 fonts.layout_no_wrap(item.category.clone(), font_id, pill_text_color)
             });
             let pad = vec2(6.0, 2.0);
-            let (pill_rect, _) = ui.allocate_exact_size(
-                galley.size() + pad * 2.0,
-                Sense::hover(),
-            );
+            let (pill_rect, _) = ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::hover());
             if ui.is_rect_visible(pill_rect) {
                 ui.painter().rect_filled(pill_rect, 2.0, pill_color);
-                let placement = Align2::CENTER_CENTER
-                    .align_size_within_rect(galley.size(), pill_rect);
+                let placement =
+                    Align2::CENTER_CENTER.align_size_within_rect(galley.size(), pill_rect);
                 ui.painter().galley(placement.min, galley, pill_text_color);
             }
 
@@ -179,11 +176,7 @@ fn show_row(ui: &mut Ui, item: &FeedItem, open: &mut HashSet<u64>) {
         });
 
         if expandable {
-            let response = ui.interact(
-                row.response.rect,
-                ui.id().with("row"),
-                Sense::click(),
-            );
+            let response = ui.interact(row.response.rect, ui.id().with("row"), Sense::click());
             if response.hovered() {
                 ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
             }

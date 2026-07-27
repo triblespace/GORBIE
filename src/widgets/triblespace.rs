@@ -3,19 +3,19 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use eframe::egui;
 use triblespace::core::blob::encodings::simplearchive::{SimpleArchive, UnarchiveError};
+use triblespace::core::inline::encodings::hash::Handle;
+use triblespace::core::inline::{Inline, RawInline, INLINE_LEN};
 use triblespace::core::patch::{IdentitySchema, PATCH};
 use triblespace::core::repo::{
     BlobStore, BlobStoreGet, CommitSelector, Workspace, WorkspaceCheckoutError,
 };
-use triblespace::core::inline::encodings::hash::Handle;
-use triblespace::core::inline::{RawInline, Inline, INLINE_LEN};
 
 pub mod commit_history;
 pub mod entity_inspector;
-pub mod pile_repo;
-pub mod pile_tail;
 #[cfg(feature = "gloss")]
 pub mod pile_overview;
+pub mod pile_repo;
+pub mod pile_tail;
 
 pub use commit_history::CommitHistoryResponse;
 pub use commit_history::CommitHistoryState;
@@ -26,10 +26,6 @@ pub use entity_inspector::EntityInspectorResponse;
 pub use entity_inspector::EntityInspectorStats;
 pub use entity_inspector::EntityInspectorWidget;
 pub use entity_inspector::EntityOrder;
-pub use pile_repo::PileRepoResponse;
-pub use pile_repo::PileRepoState;
-pub use pile_repo::PileRepoWidget;
-pub use pile_tail::PileTail;
 #[cfg(feature = "gloss")]
 pub use pile_overview::PileOverviewData;
 #[cfg(feature = "gloss")]
@@ -42,6 +38,10 @@ pub use pile_overview::PileOverviewState;
 pub use pile_overview::PileOverviewTuning;
 #[cfg(feature = "gloss")]
 pub use pile_overview::PileOverviewWidget;
+pub use pile_repo::PileRepoResponse;
+pub use pile_repo::PileRepoState;
+pub use pile_repo::PileRepoWidget;
+pub use pile_tail::PileTail;
 
 type CommitHandle = Inline<Handle<SimpleArchive>>;
 type CommitSet = PATCH<INLINE_LEN, IdentitySchema, ()>;

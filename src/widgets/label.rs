@@ -5,12 +5,7 @@ pub fn row_label(ui: &mut Ui, text: impl Into<WidgetText>) -> Response {
     let text = text.into();
     let wrap_mode = Some(TextWrapMode::Extend);
     let max_text_width = ui.available_width().max(0.0);
-    let galley = text.into_galley(
-        ui,
-        wrap_mode,
-        max_text_width,
-        TextStyle::Name("LCD".into()),
-    );
+    let galley = text.into_galley(ui, wrap_mode, max_text_width, TextStyle::Name("LCD".into()));
 
     let height = ui.spacing().interact_size.y.max(galley.size().y);
     let desired_size = vec2(galley.size().x, height);

@@ -10,13 +10,13 @@ use ed25519_dalek::SigningKey;
 use rand_core06::OsRng;
 use triblespace::core::blob::encodings::longstring::LongString;
 use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
+use triblespace::core::inline::encodings::hash::{Blake3, Handle};
+use triblespace::core::inline::encodings::iu256::U256BE;
+use triblespace::core::inline::Inline;
 use triblespace::core::metadata;
 use triblespace::core::repo::pile::Pile;
 use triblespace::core::repo::{BlobStore, BlobStoreGet, BlobStoreMeta, PinStore, Repository};
 use triblespace::core::trible::TribleSet;
-use triblespace::core::inline::encodings::hash::{Blake3, Handle};
-use triblespace::core::inline::encodings::iu256::U256BE;
-use triblespace::core::inline::Inline;
 use triblespace::macros::{find, pattern};
 use triblespace::prelude::View;
 
@@ -96,8 +96,7 @@ impl RepoCache {
 
         if path_changed || self.repo.is_none() {
             self.repo = None;
-            let mut pile =
-                Pile::open(&open_path).map_err(|err| format!("open pile: {err:?}"))?;
+            let mut pile = Pile::open(&open_path).map_err(|err| format!("open pile: {err:?}"))?;
             // Viewer = read path: non-mutating load, never amputate. A
             // corrupt tail fails loud; truncation is an explicit operator
             // decision (`trible pile amputate`).

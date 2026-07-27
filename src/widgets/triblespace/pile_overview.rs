@@ -7,9 +7,9 @@ use eframe::egui;
 use parking_lot::Mutex;
 use rapier2d::prelude::*;
 use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
-use triblespace::core::repo::BlobStoreMeta;
 use triblespace::core::inline::encodings::hash::{Blake3, Handle};
 use triblespace::core::inline::{RawInline, Value};
+use triblespace::core::repo::BlobStoreMeta;
 
 const SUMMARY_PANEL_PADDING: f32 = 6.0;
 const SUMMARY_SIM_ASPECT_RATIO: f32 = 2.0;

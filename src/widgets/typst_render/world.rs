@@ -1,8 +1,8 @@
+use typst::diag::{FileResult, Severity};
 use typst::foundations::{Bytes, Datetime};
 use typst::layout::PagedDocument;
-use typst::text::{Font, FontBook};
 use typst::syntax::{FileId, Source, VirtualPath};
-use typst::diag::{FileResult, Severity};
+use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
 use typst::{Library, LibraryExt, World};
 
@@ -124,12 +124,16 @@ impl World for GorbieWorld {
         if id == self.main_id {
             Ok(self.source.clone())
         } else {
-            Err(typst::diag::FileError::NotFound(id.vpath().as_rootless_path().into()))
+            Err(typst::diag::FileError::NotFound(
+                id.vpath().as_rootless_path().into(),
+            ))
         }
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
-        Err(typst::diag::FileError::NotFound(id.vpath().as_rootless_path().into()))
+        Err(typst::diag::FileError::NotFound(
+            id.vpath().as_rootless_path().into(),
+        ))
     }
 
     fn font(&self, index: usize) -> Option<Font> {

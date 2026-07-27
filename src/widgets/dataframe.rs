@@ -33,11 +33,7 @@ pub fn data_summary_tiny(ui: &mut egui::Ui, active_df: &DataFrame, total_df: &Da
         None
     };
     let summary = format_overview(rows, cols, totals);
-    ui.label(
-        RichText::new(summary)
-            .font(small_font)
-            .color(summary_color),
-    );
+    ui.label(RichText::new(summary).font(small_font).color(summary_color));
 }
 
 pub fn data_export_tiny(ui: &mut egui::Ui, df: &DataFrame) {
@@ -54,9 +50,9 @@ pub fn data_export_tiny(ui: &mut egui::Ui, df: &DataFrame) {
     let summary_color = crate::themes::blend(body_text, base_fill, 0.55);
 
     let export_state_id = ui.id().with("dataframe_export_state");
-    let mut state =
-        ui.data_mut(|data| data.get_temp::<DataExportState>(export_state_id))
-            .unwrap_or_default();
+    let mut state = ui
+        .data_mut(|data| data.get_temp::<DataExportState>(export_state_id))
+        .unwrap_or_default();
 
     let mut copy_clicked = false;
     let mut save_clicked = false;
@@ -188,12 +184,18 @@ pub fn dataframe_summary(ui: &mut egui::Ui, df: &DataFrame) {
     )
     .max(label_width("column", &small_font));
     let dtype_width = max_width(
-        &summaries.iter().map(|s| s.dtype.clone()).collect::<Vec<_>>(),
+        &summaries
+            .iter()
+            .map(|s| s.dtype.clone())
+            .collect::<Vec<_>>(),
         &small_font,
     )
     .max(label_width("type", &small_font));
     let nulls_width = max_width(
-        &summaries.iter().map(|s| s.nulls.clone()).collect::<Vec<_>>(),
+        &summaries
+            .iter()
+            .map(|s| s.nulls.clone())
+            .collect::<Vec<_>>(),
         &small_font,
     )
     .max(label_width("nulls", &small_font));
@@ -307,23 +309,18 @@ pub fn dataframe_summary(ui: &mut egui::Ui, df: &DataFrame) {
 
 pub fn dataframe(ui: &mut egui::Ui, df: &DataFrame) -> Result<DataFrame, String> {
     let filter_state_id = ui.id().with("dataframe_filter_state");
-    let mut filter_state =
-        ui.data_mut(|data| data.get_temp::<DataframeFilterState>(filter_state_id))
-            .unwrap_or_default();
+    let mut filter_state = ui
+        .data_mut(|data| data.get_temp::<DataframeFilterState>(filter_state_id))
+        .unwrap_or_default();
     let selection_state_id = ui.id().with("dataframe_selection_state");
-    let mut selection_state =
-        ui.data_mut(|data| data.get_temp::<DataframeSelectionState>(selection_state_id))
-            .unwrap_or_default();
+    let mut selection_state = ui
+        .data_mut(|data| data.get_temp::<DataframeSelectionState>(selection_state_id))
+        .unwrap_or_default();
 
     let prev_filter_state = filter_state.clone();
     let prev_selection_state = selection_state.clone();
 
-    let result = dataframe_core(
-        ui,
-        df,
-        &mut filter_state.query,
-        &mut selection_state.row,
-    );
+    let result = dataframe_core(ui, df, &mut filter_state.query, &mut selection_state.row);
 
     let _ = (filter_state.query.clone(), selection_state.row);
 
@@ -537,12 +534,9 @@ fn dataframe_core(
                     let preview = previews.get(index);
                     header.col(|ui| {
                         let desired_size = egui::vec2(ui.available_width(), header_height);
-                        let (rect, _response) = ui.allocate_exact_size(
-                            desired_size,
-                            egui::Sense::hover(),
-                        );
-                        let content_rect =
-                            rect.shrink2(egui::vec2(cell_padding_x, 0.0));
+                        let (rect, _response) =
+                            ui.allocate_exact_size(desired_size, egui::Sense::hover());
+                        let content_rect = rect.shrink2(egui::vec2(cell_padding_x, 0.0));
                         let mut header_ui = ui.new_child(
                             egui::UiBuilder::new()
                                 .max_rect(content_rect)
@@ -592,7 +586,8 @@ fn dataframe_core(
                                     if let Ok(column) = &active_df.column(col.as_str()) {
                                         if let Ok(value) = column.get(row_index) {
                                             let (text, is_null) = format_cell_value(value);
-                                            let color = if is_null { null_color } else { body_text };
+                                            let color =
+                                                if is_null { null_color } else { body_text };
                                             ui.label(
                                                 RichText::new(text)
                                                     .color(color)
@@ -605,11 +600,7 @@ fn dataframe_core(
                         });
                     }
                     if row.response().clicked() {
-                        next_selection = if is_selected {
-                            None
-                        } else {
-                            Some(row_index)
-                        };
+                        next_selection = if is_selected { None } else { Some(row_index) };
                     }
                 });
             });
@@ -660,9 +651,9 @@ fn load_column_previews(
     columns: &[String],
 ) -> Vec<ColumnPreview> {
     let preview_id = ui.id().with("dataframe_preview_cache");
-    let mut cache =
-        ui.data_mut(|data| data.get_temp::<DataframePreviewCache>(preview_id))
-            .unwrap_or_default();
+    let mut cache = ui
+        .data_mut(|data| data.get_temp::<DataframePreviewCache>(preview_id))
+        .unwrap_or_default();
     let schema = df
         .get_columns()
         .iter()
@@ -883,8 +874,6 @@ struct DataframeSelectionState {
     row: Option<usize>,
 }
 
-
-
 fn build_sql_query(raw: &str) -> String {
     raw.trim().to_string()
 }
@@ -1005,8 +994,7 @@ fn top_value_samples(series: &Series, limit: usize) -> Vec<(String, u32)> {
         let value_name = series.name().clone();
         let sort_options =
             SortMultipleOptions::default().with_order_descending_multi([true, false]);
-        if let Ok(sorted) = counts_df.sort([count_name.clone(), value_name.clone()], sort_options)
-        {
+        if let Ok(sorted) = counts_df.sort([count_name.clone(), value_name.clone()], sort_options) {
             counts_df = sorted;
         }
         let values = match counts_df.column(value_name.as_str()) {
@@ -1067,7 +1055,9 @@ fn top_value_samples(series: &Series, limit: usize) -> Vec<(String, u32)> {
 }
 
 fn format_float_option(value: Option<f64>) -> String {
-    value.map(format_float_compact).unwrap_or_else(|| "—".to_string())
+    value
+        .map(format_float_compact)
+        .unwrap_or_else(|| "—".to_string())
 }
 
 fn format_float_compact(value: f64) -> String {

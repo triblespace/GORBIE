@@ -15,12 +15,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use egui::{self};
 use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
 use triblespace::core::id::Id;
+use triblespace::core::inline::encodings::hash::{Blake3, Handle};
+use triblespace::core::inline::Inline;
 use triblespace::core::metadata;
 use triblespace::core::repo::pile::Pile;
 use triblespace::core::repo::{BlobStore, BlobStoreGet, BlobStoreMeta, PinStore, Repository};
 use triblespace::core::trible::TribleSet;
-use triblespace::core::inline::encodings::hash::{Blake3, Handle};
-use triblespace::core::inline::Inline;
 use triblespace::macros::{find, pattern};
 use triblespace::prelude::blobencodings::LongString;
 use triblespace::prelude::View;
@@ -53,10 +53,7 @@ struct BranchInfo {
     name: String,
 }
 
-fn scan_branches(
-    repo: &mut Repository<Pile>,
-    prefix: &str,
-) -> Result<Vec<BranchInfo>, String> {
+fn scan_branches(repo: &mut Repository<Pile>, prefix: &str) -> Result<Vec<BranchInfo>, String> {
     repo.storage_mut()
         .refresh()
         .map_err(|err| format!("refresh pile: {err:?}"))?;

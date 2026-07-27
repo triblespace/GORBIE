@@ -6,8 +6,8 @@ mod app;
 #[path = "../src/bin/telemetry-viewer/axis.rs"]
 mod axis;
 
-use GORBIE::NotebookCtx;
 use GORBIE::notebook;
+use GORBIE::NotebookCtx;
 
 #[notebook]
 fn main(nb: &mut NotebookCtx) {

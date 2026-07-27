@@ -599,8 +599,14 @@ impl<R: Runtime> AnnealRunnerState<R> {
                 &self.client,
                 CubeCount::new_1d(request.batch_size as u32),
                 CubeDim::new_1d(1),
-                ArrayArg::from_raw_parts(self.adj_offsets_handle.clone(), request.graph.adj_offsets.len()),
-                ArrayArg::from_raw_parts(self.adj_list_handle.clone(), request.graph.adj_list.len()),
+                ArrayArg::from_raw_parts(
+                    self.adj_offsets_handle.clone(),
+                    request.graph.adj_offsets.len(),
+                ),
+                ArrayArg::from_raw_parts(
+                    self.adj_list_handle.clone(),
+                    request.graph.adj_list.len(),
+                ),
                 self.node_count as u32,
                 steps,
                 cooling_adjust,
@@ -616,7 +622,10 @@ impl<R: Runtime> AnnealRunnerState<R> {
             );
         }
 
-        let best_orders_costs_bytes = self.client.read_one(best_orders_costs_handle.clone()).expect("gpu readback");
+        let best_orders_costs_bytes = self
+            .client
+            .read_one(best_orders_costs_handle.clone())
+            .expect("gpu readback");
         let best_orders_costs = u32::from_bytes(&best_orders_costs_bytes).to_vec();
         let mut batch_best_cost = u32::MAX;
         let mut batch_best_idx = 0usize;
@@ -664,7 +673,10 @@ impl<R: Runtime> AnnealRunnerState<R> {
             );
         }
 
-        let reseeded_bytes = self.client.read_one(reseeded_handle.clone()).expect("gpu readback");
+        let reseeded_bytes = self
+            .client
+            .read_one(reseeded_handle.clone())
+            .expect("gpu readback");
         let reseeded_flags = u32::from_bytes(&reseeded_bytes).to_vec();
         let reseeded = reseeded_flags.iter().filter(|&&value| value != 0).count() as u32;
 
@@ -690,7 +702,10 @@ impl<R: Runtime> AnnealRunnerState<R> {
             }
 
             if request.capture_touched {
-                let order_bytes = self.client.read_one(best_order_handle.clone()).expect("gpu readback");
+                let order_bytes = self
+                    .client
+                    .read_one(best_order_handle.clone())
+                    .expect("gpu readback");
                 let mut best_order = u32::from_bytes(&order_bytes).to_vec();
                 best_order.truncate(self.node_count);
                 if let Some(prev) = self.prev_best_order.as_ref() {
@@ -719,15 +734,24 @@ impl<R: Runtime> AnnealRunnerState<R> {
                     &self.client,
                     CubeCount::new_1d(self.node_count as u32),
                     CubeDim::new_1d(1),
-                    ArrayArg::from_raw_parts(self.adj_offsets_handle.clone(), request.graph.adj_offsets.len()),
-                    ArrayArg::from_raw_parts(self.adj_list_handle.clone(), request.graph.adj_list.len()),
+                    ArrayArg::from_raw_parts(
+                        self.adj_offsets_handle.clone(),
+                        request.graph.adj_offsets.len(),
+                    ),
+                    ArrayArg::from_raw_parts(
+                        self.adj_list_handle.clone(),
+                        request.graph.adj_list.len(),
+                    ),
                     self.node_count as u32,
                     ArrayArg::from_raw_parts(best_positions_handle.clone(), self.node_count),
                     1u32,
                     ArrayArg::from_raw_parts(stress_handle.clone(), self.node_count),
                 );
             }
-            let stress_bytes = self.client.read_one(stress_handle.clone()).expect("gpu readback");
+            let stress_bytes = self
+                .client
+                .read_one(stress_handle.clone())
+                .expect("gpu readback");
             let mut row = u32::from_bytes(&stress_bytes).to_vec();
             row.truncate(self.node_count);
             stress_row = Some(row);

@@ -17,14 +17,14 @@ use cubecl::wgpu::{WgpuDevice, WgpuRuntime};
 use egui::{self};
 use triblespace::core::blob::Blob;
 use triblespace::core::id::Id;
+use triblespace::core::inline::encodings::hash::{Blake3, Handle};
+use triblespace::core::inline::{Inline, TryToInline};
 use triblespace::core::metadata;
 use triblespace::core::repo::pile::Pile;
 use triblespace::core::repo::{BlobStore, BlobStoreGet, PinStore, Repository, Workspace};
 use triblespace::core::trible::TribleSet;
-use triblespace::core::inline::encodings::hash::{Blake3, Handle};
-use triblespace::core::inline::{TryToInline, Inline};
 use triblespace::macros::{find, pattern};
-use triblespace::prelude::blobencodings::{RawBytes, LongString};
+use triblespace::prelude::blobencodings::{LongString, RawBytes};
 use triblespace::prelude::View;
 
 use GORBIE::notebook;
@@ -165,7 +165,11 @@ impl WikiLive {
         }
         matches.sort();
         matches.dedup();
-        if matches.len() == 1 { Some(matches[0]) } else { None }
+        if matches.len() == 1 {
+            Some(matches[0])
+        } else {
+            None
+        }
     }
 
     fn to_fragment(&self, id: Id) -> Option<Id> {
@@ -412,7 +416,9 @@ fn force_step_kernel(
         for e in 0..edge_count {
             let ea = edges[(e * 2) as usize];
             let eb = edges[(e * 2 + 1) as usize];
-            if ea == i || eb == i { degree += 1.0f32; }
+            if ea == i || eb == i {
+                degree += 1.0f32;
+            }
         }
         let norm_attraction = attraction / degree;
 
@@ -651,7 +657,12 @@ impl WikiGraph {
         }
 
         let gpu = Self::init_gpu(&nodes, &edges);
-        WikiGraph { nodes, edges, gpu, polylines: None }
+        WikiGraph {
+            nodes,
+            edges,
+            gpu,
+            polylines: None,
+        }
     }
 
     fn init_gpu(nodes: &[GraphNode], edges: &[(usize, usize)]) -> Option<GpuForceState> {
@@ -705,7 +716,10 @@ impl WikiGraph {
                 CubeDim::new_1d(256),
                 ArrayArg::from_raw_parts(gpu.pos_handle.clone(), n * 2),
                 ArrayArg::from_raw_parts(gpu.vel_handle.clone(), n * 2),
-                ArrayArg::from_raw_parts(gpu.edges_handle.clone(), gpu.edge_count.max(1) as usize * 2),
+                ArrayArg::from_raw_parts(
+                    gpu.edges_handle.clone(),
+                    gpu.edge_count.max(1) as usize * 2,
+                ),
                 gpu.node_count,
                 gpu.edge_count,
                 ArrayArg::from_raw_parts(gpu.pos_out_handle.clone(), n * 2),
@@ -714,7 +728,10 @@ impl WikiGraph {
 
         std::mem::swap(&mut gpu.pos_handle, &mut gpu.pos_out_handle);
 
-        let bytes = gpu.client.read_one(gpu.pos_handle.clone()).expect("gpu readback");
+        let bytes = gpu
+            .client
+            .read_one(gpu.pos_handle.clone())
+            .expect("gpu readback");
         let positions: &[f32] = f32::from_bytes(&bytes);
 
         // Compute center of mass and average angular velocity,
@@ -742,7 +759,11 @@ impl WikiGraph {
             angular += dx * vy - dy * vx; // cross product = angular contribution
             inertia += r_sq;
         }
-        let omega = if inertia > 1.0 { angular / inertia } else { 0.0 };
+        let omega = if inertia > 1.0 {
+            angular / inertia
+        } else {
+            0.0
+        };
 
         for (i, node) in self.nodes.iter_mut().enumerate() {
             let px = positions[i * 2] - cx;
@@ -936,8 +957,7 @@ impl WikiGraph {
             }
             match &self.polylines {
                 Some(polys) => {
-                    let pts: Vec<egui::Pos2> =
-                        polys[e_idx].iter().map(|&p| to_screen(p)).collect();
+                    let pts: Vec<egui::Pos2> = polys[e_idx].iter().map(|&p| to_screen(p)).collect();
                     painter.add(egui::Shape::line(pts, edge_stroke));
                 }
                 None => {

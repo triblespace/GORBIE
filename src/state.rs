@@ -7,7 +7,6 @@ use eframe::egui;
 use parking_lot::RawRwLock;
 use parking_lot::RwLock;
 
-
 /// Shared read guard returned by [`StateStore::read`] and [`StateId::read`].
 pub type ArcReadGuard<T> = parking_lot::lock_api::ArcRwLockReadGuard<RawRwLock, T>;
 /// Shared write guard returned by [`StateStore::read_mut`] and [`StateId::read_mut`].

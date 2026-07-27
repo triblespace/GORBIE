@@ -73,7 +73,10 @@ pub struct Motor {
 
 impl Motor {
     fn identity() -> Self {
-        Motor { r: [1.0, 0.0, 0.0, 0.0], d: [0.0; 4] }
+        Motor {
+            r: [1.0, 0.0, 0.0, 0.0],
+            d: [0.0; 4],
+        }
     }
     /// Build from a rotation then a translation (applies R, then +t).
     fn from_rotation_translation(rot: Quat, t: Vec3) -> Self {
@@ -122,8 +125,8 @@ pub struct MotorEnc;
 
 impl MetaDescribe for MotorEnc {
     fn describe() -> Fragment {
-        use triblespace::macros::entity;
         use triblespace::core::id::{ExclusiveId, Id};
+        use triblespace::macros::entity;
         let id: Id = id_hex!("46C28F08205F0637CD28117B2A2B1B56");
         entity! {
             ExclusiveId::force_ref(&id) @
@@ -142,8 +145,14 @@ impl Encodes<Motor> for MotorEnc {
     fn encode(m: Motor) -> Inline<MotorEnc> {
         let mut raw: RawInline = [0u8; 32];
         let vals = [
-            m.r[0] as f32, m.r[1] as f32, m.r[2] as f32, m.r[3] as f32,
-            m.d[0] as f32, m.d[1] as f32, m.d[2] as f32, m.d[3] as f32,
+            m.r[0] as f32,
+            m.r[1] as f32,
+            m.r[2] as f32,
+            m.r[3] as f32,
+            m.d[0] as f32,
+            m.d[1] as f32,
+            m.d[2] as f32,
+            m.d[3] as f32,
         ];
         for (i, v) in vals.iter().enumerate() {
             raw[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
@@ -188,10 +197,10 @@ fn lon_deg(p: Vec3) -> f64 {
 // ── Tests + the keystone ground-track demo ───────────────────────────
 
 fn main() {
-    use triblespace::core::id::fucid;
-    use triblespace::macros::entity;
-    use triblespace::core::inline::IntoInline;
     use std::f64::consts::PI;
+    use triblespace::core::id::fucid;
+    use triblespace::core::inline::IntoInline;
+    use triblespace::macros::entity;
 
     let mut fails = 0usize;
     let mut check = |name: &str, ok: bool| {
@@ -205,15 +214,25 @@ fn main() {
 
     // 1. 90° about +z sends (1,0,0) → (0,1,0).
     let rz90 = Motor::from_rotation(q_axis_angle([0.0, 0.0, 1.0], PI / 2.0));
-    check("rotate +90° z: (1,0,0)→(0,1,0)", dist(rz90.transform_point([1.0, 0.0, 0.0]), [0.0, 1.0, 0.0]) < 1e-9);
+    check(
+        "rotate +90° z: (1,0,0)→(0,1,0)",
+        dist(rz90.transform_point([1.0, 0.0, 0.0]), [0.0, 1.0, 0.0]) < 1e-9,
+    );
 
     // 2. Pure translation.
     let tr = Motor::from_translation([3.0, -2.0, 5.0]);
-    check("translate (1,1,1)→(4,-1,6)", dist(tr.transform_point([1.0, 1.0, 1.0]), [4.0, -1.0, 6.0]) < 1e-9);
+    check(
+        "translate (1,1,1)→(4,-1,6)",
+        dist(tr.transform_point([1.0, 1.0, 1.0]), [4.0, -1.0, 6.0]) < 1e-9,
+    );
 
     // 3. Rotation-then-translation order (R applied, then +t).
-    let m = Motor::from_rotation_translation(q_axis_angle([0.0, 0.0, 1.0], PI / 2.0), [10.0, 0.0, 0.0]);
-    check("R then +t: (1,0,0)→(10,1,0)", dist(m.transform_point([1.0, 0.0, 0.0]), [10.0, 1.0, 0.0]) < 1e-9);
+    let m =
+        Motor::from_rotation_translation(q_axis_angle([0.0, 0.0, 1.0], PI / 2.0), [10.0, 0.0, 0.0]);
+    check(
+        "R then +t: (1,0,0)→(10,1,0)",
+        dist(m.transform_point([1.0, 0.0, 0.0]), [10.0, 1.0, 0.0]) < 1e-9,
+    );
 
     // 4. Composition == sequential application (the TF-chain property).
     let a = Motor::from_rotation_translation(q_axis_angle([1.0, 0.0, 0.0], 0.7), [1.0, 2.0, 3.0]);
@@ -221,10 +240,19 @@ fn main() {
     let p = [2.0, -1.0, 0.5];
     let composed = a.compose(&b).transform_point(p);
     let sequential = a.transform_point(b.transform_point(p));
-    check("compose(a,b)·p == a·(b·p)  [TF chain]", dist(composed, sequential) < 1e-9);
+    check(
+        "compose(a,b)·p == a·(b·p)  [TF chain]",
+        dist(composed, sequential) < 1e-9,
+    );
 
     // 5. Identity is neutral under composition.
-    check("identity ∘ a == a", dist(Motor::identity().compose(&a).transform_point(p), a.transform_point(p)) < 1e-12);
+    check(
+        "identity ∘ a == a",
+        dist(
+            Motor::identity().compose(&a).transform_point(p),
+            a.transform_point(p),
+        ) < 1e-12,
+    );
 
     // 6. Encode → store via entity! → query via pattern! → decode, then
     //    confirm the decoded f32 motor still transforms a point correctly
@@ -270,7 +298,13 @@ fn main() {
             }
             e
         };
-        println!("    {:7.1}   {:18.3}   {:13.1}   {:.2e}", theta.to_degrees(), lon, expected, err);
+        println!(
+            "    {:7.1}   {:18.3}   {:13.1}   {:.2e}",
+            theta.to_degrees(),
+            lon,
+            expected,
+            err
+        );
         if err > 1e-6 {
             track_ok = false;
         }
@@ -280,7 +314,10 @@ fn main() {
         }
     }
     println!();
-    check("ground-track longitude == −θ at every step (rigid, radius-preserving)", track_ok);
+    check(
+        "ground-track longitude == −θ at every step (rigid, radius-preserving)",
+        track_ok,
+    );
 
     println!();
     if fails == 0 {

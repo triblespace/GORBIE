@@ -1,4 +1,3 @@
-
 use eframe::egui;
 use egui::epaint;
 use typst::layout::{Frame, FrameItem, Transform};
@@ -67,12 +66,16 @@ pub fn render_frame_to_shapes(
     let mut shapes = Vec::new();
     let mut text_layout = TextLayout::default();
     let state = RenderState::identity();
-    render_frame_inner(&mut shapes, &mut text_layout, frame, state, text_color, feathering);
-
-    let size = egui::vec2(
-        frame.width().to_pt() as f32,
-        frame.height().to_pt() as f32,
+    render_frame_inner(
+        &mut shapes,
+        &mut text_layout,
+        frame,
+        state,
+        text_color,
+        feathering,
     );
+
+    let size = egui::vec2(frame.width().to_pt() as f32, frame.height().to_pt() as f32);
     (shapes, size, text_layout)
 }
 
@@ -150,10 +153,24 @@ fn render_frame_inner(
         match item {
             FrameItem::Group(group) => {
                 let child = local.pre_concat(&group.transform);
-                render_frame_inner(shapes, text_layout, &group.frame, child, text_color, feathering);
+                render_frame_inner(
+                    shapes,
+                    text_layout,
+                    &group.frame,
+                    child,
+                    text_color,
+                    feathering,
+                );
             }
             FrameItem::Text(text_item) => {
-                render_text(shapes, text_layout, text_item, local, text_color, feathering);
+                render_text(
+                    shapes,
+                    text_layout,
+                    text_item,
+                    local,
+                    text_color,
+                    feathering,
+                );
             }
             FrameItem::Shape(shape, span) => {
                 let shape_rect = shape_bounds(shape, local);
@@ -168,10 +185,7 @@ fn render_frame_inner(
             FrameItem::Link(dest, size) => {
                 if let Destination::Url(url) = dest {
                     let p0 = local.transform_point(0.0, 0.0);
-                    let p1 = local.transform_point(
-                        size.x.to_pt() as f32,
-                        size.y.to_pt() as f32,
-                    );
+                    let p1 = local.transform_point(size.x.to_pt() as f32, size.y.to_pt() as f32);
                     text_layout.links.push(PositionedLink {
                         rect: egui::Rect::from_two_pos(p0, p1),
                         url: url.to_string(),
@@ -352,9 +366,7 @@ fn render_shape(
                 if let Some(ref dash) = dash {
                     for seg in dash_polyline(&[p0, p1], dash) {
                         if seg.len() >= 2 {
-                            shapes.push(egui::Shape::Path(epaint::PathShape::line(
-                                seg, stroke,
-                            )));
+                            shapes.push(egui::Shape::Path(epaint::PathShape::line(seg, stroke)));
                         }
                     }
                 } else {
@@ -364,10 +376,7 @@ fn render_shape(
         }
         Geometry::Rect(size) => {
             let p0 = state.transform_point(0.0, 0.0);
-            let p1 = state.transform_point(
-                size.x.to_pt() as f32,
-                size.y.to_pt() as f32,
-            );
+            let p1 = state.transform_point(size.x.to_pt() as f32, size.y.to_pt() as f32);
             let rect = egui::Rect::from_two_pos(p0, p1);
             let fill_color = fill.unwrap_or(egui::Color32::TRANSPARENT);
             let stroke_val = stroke.unwrap_or(egui::Stroke::NONE);
@@ -382,7 +391,15 @@ fn render_shape(
             }
         }
         Geometry::Curve(curve) => {
-            render_curve(shapes, &curve.0, state, fill, stroke, dash.as_ref(), even_odd);
+            render_curve(
+                shapes,
+                &curve.0,
+                state,
+                fill,
+                stroke,
+                dash.as_ref(),
+                even_odd,
+            );
         }
     }
 }
@@ -451,10 +468,7 @@ fn render_curve(
 
     // ── Fill pass ──────────────────────────────────────────────────────
     if fill_color != egui::Color32::TRANSPARENT {
-        let closed: Vec<&Vec<egui::Pos2>> = subpaths
-            .iter()
-            .filter(|p| is_closed(p))
-            .collect();
+        let closed: Vec<&Vec<egui::Pos2>> = subpaths.iter().filter(|p| is_closed(p)).collect();
 
         if closed.len() == 1 && !even_odd {
             // Single closed subpath, non-zero fill — PathShape handles concave fills.
@@ -489,9 +503,7 @@ fn render_curve(
             if let Some(dash) = dash {
                 for seg in dash_polyline(path, dash) {
                     if seg.len() >= 2 {
-                        shapes.push(egui::Shape::Path(epaint::PathShape::line(
-                            seg, stroke_val,
-                        )));
+                        shapes.push(egui::Shape::Path(epaint::PathShape::line(seg, stroke_val)));
                     }
                 }
             } else {

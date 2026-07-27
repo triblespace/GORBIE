@@ -140,10 +140,7 @@ impl<'a> CardCtx<'a> {
     }
 
     /// GORBIE-styled number field (LCD-style drag/edit).
-    pub fn number<Num: egui::emath::Numeric>(
-        &mut self,
-        value: &mut Num,
-    ) -> egui::Response {
+    pub fn number<Num: egui::emath::Numeric>(&mut self, value: &mut Num) -> egui::Response {
         self.ui.add(crate::widgets::NumberField::new(value))
     }
 
@@ -221,11 +218,7 @@ impl<'a> CardCtx<'a> {
     ///     ctx.number(&mut value);
     /// });
     /// ```
-    pub fn section(
-        &mut self,
-        title: &str,
-        add_contents: impl FnOnce(&mut CardCtx<'_>),
-    ) {
+    pub fn section(&mut self, title: &str, add_contents: impl FnOnce(&mut CardCtx<'_>)) {
         let default_open = self
             .ui
             .ctx()
@@ -245,11 +238,7 @@ impl<'a> CardCtx<'a> {
     ///     ctx.label("Hidden until clicked.");
     /// });
     /// ```
-    pub fn section_collapsed(
-        &mut self,
-        title: &str,
-        add_contents: impl FnOnce(&mut CardCtx<'_>),
-    ) {
+    pub fn section_collapsed(&mut self, title: &str, add_contents: impl FnOnce(&mut CardCtx<'_>)) {
         self.section_inner(title, false, add_contents);
     }
 
@@ -270,9 +259,10 @@ impl<'a> CardCtx<'a> {
         let default_open = default_open || crate::is_headless(self.ui.ctx());
 
         let id = self.ui.make_persistent_id(title);
-        let mut open = self.ui.ctx().data_mut(|d| {
-            *d.get_persisted_mut_or(id, default_open)
-        });
+        let mut open = self
+            .ui
+            .ctx()
+            .data_mut(|d| *d.get_persisted_mut_or(id, default_open));
 
         let color = colorhash::ral_categorical(title.as_bytes());
         let text_color = colorhash::text_color_on(color);
@@ -312,7 +302,9 @@ impl<'a> CardCtx<'a> {
         );
 
         if header_response.hovered() {
-            self.ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            self.ui
+                .ctx()
+                .set_cursor_icon(egui::CursorIcon::PointingHand);
         }
 
         self.ui.spacing_mut().item_spacing.y = prev_spacing;
@@ -523,14 +515,12 @@ impl<'a> CardCtx<'a> {
     /// }
     /// ```
     #[track_caller]
-    pub fn float(
-        &mut self,
-        add_contents: impl FnOnce(&mut CardCtx<'_>),
-    ) -> FloatResponse {
+    pub fn float(&mut self, add_contents: impl FnOnce(&mut CardCtx<'_>)) -> FloatResponse {
         let float_id = self.ui.id().with("gorbie_float");
-        let initial_pos = self.ui.ctx().input(|i| {
-            i.pointer.hover_pos().unwrap_or(egui::pos2(100.0, 100.0))
-        });
+        let initial_pos = self
+            .ui
+            .ctx()
+            .input(|i| i.pointer.hover_pos().unwrap_or(egui::pos2(100.0, 100.0)));
 
         let card_width = crate::NOTEBOOK_COLUMN_WIDTH;
         let store = self.store;
@@ -551,7 +541,9 @@ impl<'a> CardCtx<'a> {
             },
         );
 
-        FloatResponse { closed: resp.handle_clicked }
+        FloatResponse {
+            closed: resp.handle_clicked,
+        }
     }
 }
 
@@ -613,33 +605,51 @@ impl<'ui, 'store> Grid<'ui, 'store> {
     // Use these instead of raw column counts to stay on the grid.
 
     /// Full-width cell (12 columns, 744px).
-    pub fn full(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) { self.place(12, f); }
+    pub fn full(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) {
+        self.place(12, f);
+    }
 
     /// Three-quarter cell (9 columns, 555px).
-    pub fn three_quarters(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) { self.place(9, f); }
+    pub fn three_quarters(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) {
+        self.place(9, f);
+    }
 
     /// Two-thirds cell (8 columns, 492px).
-    pub fn two_thirds(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) { self.place(8, f); }
+    pub fn two_thirds(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) {
+        self.place(8, f);
+    }
 
     /// Half-width cell (6 columns, 366px).
-    pub fn half(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) { self.place(6, f); }
+    pub fn half(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) {
+        self.place(6, f);
+    }
 
     /// One-third cell (4 columns, 240px).
-    pub fn third(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) { self.place(4, f); }
+    pub fn third(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) {
+        self.place(4, f);
+    }
 
     /// Quarter-width cell (3 columns, 177px).
-    pub fn quarter(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) { self.place(3, f); }
+    pub fn quarter(&mut self, f: impl FnOnce(&mut CardCtx<'_>)) {
+        self.place(3, f);
+    }
 
     // ── Named skips ─────────────────────────────────────────────────
 
     /// Skip a half-width gap (6 columns).
-    pub fn skip_half(&mut self) { self.skip(6); }
+    pub fn skip_half(&mut self) {
+        self.skip(6);
+    }
 
     /// Skip a third-width gap (4 columns).
-    pub fn skip_third(&mut self) { self.skip(4); }
+    pub fn skip_third(&mut self) {
+        self.skip(4);
+    }
 
     /// Skip a quarter-width gap (3 columns).
-    pub fn skip_quarter(&mut self) { self.skip(3); }
+    pub fn skip_quarter(&mut self) {
+        self.skip(3);
+    }
 
     // ── Low-level ──────────────────────────────────────────────────
 
@@ -649,11 +659,7 @@ impl<'ui, 'store> Grid<'ui, 'store> {
     /// [`third`](Self::third), [`quarter`](Self::quarter),
     /// [`two_thirds`](Self::two_thirds), [`three_quarters`](Self::three_quarters))
     /// to stay on the grid. This escape hatch exists for unusual layouts.
-    pub fn place(
-        &mut self,
-        span: u32,
-        add_contents: impl FnOnce(&mut CardCtx<'_>),
-    ) {
+    pub fn place(&mut self, span: u32, add_contents: impl FnOnce(&mut CardCtx<'_>)) {
         assert!(
             span > 0 && span <= GRID_COLUMNS,
             "span must be 1..={GRID_COLUMNS}, got {span}"
@@ -683,17 +689,15 @@ impl<'ui, 'store> Grid<'ui, 'store> {
             .ui
             .ctx()
             .data(|d| d.get_temp::<f32>(row_id).unwrap_or(0.0));
-        let cell_rect = egui::Rect::from_min_size(
-            egui::pos2(x, self.row_top),
-            egui::vec2(width, row_height),
-        );
+        let cell_rect =
+            egui::Rect::from_min_size(egui::pos2(x, self.row_top), egui::vec2(width, row_height));
 
         let store = self.store;
         // Use new_child (not scope_builder) so cells don't advance the
         // parent cursor — finish() handles that in one shot.
-        let mut child = self.ui.new_child(
-            egui::UiBuilder::new().max_rect(cell_rect),
-        );
+        let mut child = self
+            .ui
+            .new_child(egui::UiBuilder::new().max_rect(cell_rect));
         child.set_width(width);
         let mut ctx = CardCtx::new(&mut child, store);
         add_contents(&mut ctx);
@@ -765,9 +769,7 @@ impl<'ui, 'store> Grid<'ui, 'store> {
     fn persist_row_height(&mut self) {
         let height = (self.row_max_bottom - self.row_top).max(0.0);
         let row_id = self.row_state_id();
-        self.ui
-            .ctx()
-            .data_mut(|d| d.insert_temp(row_id, height));
+        self.ui.ctx().data_mut(|d| d.insert_temp(row_id, height));
     }
 
     /// Advance the parent Ui's cursor past all grid content.

@@ -647,14 +647,26 @@ fn lcd_text_edit(
         }
 
         if let Some(range) = &progress {
-            paint_progress_scanline(ui.painter(), outer_rect, ink, scanline_height, range.clone());
+            paint_progress_scanline(
+                ui.painter(),
+                outer_rect,
+                ink,
+                scanline_height,
+                range.clone(),
+            );
         } else {
             paint_scanline(ui.painter(), outer_rect, ink, scanline_height);
         }
     } else {
         text_painter.galley(galley_pos, galley.clone(), text_color);
         if let Some(range) = &progress {
-            paint_progress_scanline(ui.painter(), outer_rect, ink, scanline_height, range.clone());
+            paint_progress_scanline(
+                ui.painter(),
+                outer_rect,
+                ink,
+                scanline_height,
+                range.clone(),
+            );
         }
     }
 
@@ -686,8 +698,7 @@ pub fn lcd_readout(ui: &mut Ui, text: &str, ink: Option<Color32>) -> Response {
     let font_id = lcd_font_id(ui);
     let row_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
     let margin = singleline_margin(ui, row_height);
-    let galley =
-        ui.fonts_mut(|fonts| fonts.layout_no_wrap(text.to_owned(), font_id, text_color));
+    let galley = ui.fonts_mut(|fonts| fonts.layout_no_wrap(text.to_owned(), font_id, text_color));
 
     let row_mod = crate::card_ctx::GRID_ROW_MODULE;
     let min_size = vec2(ui.spacing().interact_size.x, 3.0 * row_mod);
@@ -945,7 +956,14 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
                 1,
                 None,
                 Align2::CENTER_CENTER,
-                &LcdStyle { fill, outline, rounding: gstyle.rounding, ink, text_color, scanline_height: gstyle.scanline_height },
+                &LcdStyle {
+                    fill,
+                    outline,
+                    rounding: gstyle.rounding,
+                    ink,
+                    text_color,
+                    scanline_height: gstyle.scanline_height,
+                },
                 None,
             );
             let mut response = output.response;
@@ -983,7 +1001,9 @@ impl<Num: egui::emath::Numeric> Widget for NumberField<'_, Num> {
 
             response
         } else {
-            let desired_inner_width = desired_width.max(display_galley.size().x).max(ui.available_width() - margin.sum().x);
+            let desired_inner_width = desired_width
+                .max(display_galley.size().x)
+                .max(ui.available_width() - margin.sum().x);
             let desired_inner_height = (ui.spacing().interact_size.y - margin.sum().y)
                 .max(row_height)
                 .max(display_galley.size().y);
@@ -1176,7 +1196,14 @@ impl Widget for TextField<'_> {
             min_rows,
             max_rows,
             align,
-            &LcdStyle { fill, outline, rounding: gstyle.rounding, ink, text_color, scanline_height: gstyle.scanline_height },
+            &LcdStyle {
+                fill,
+                outline,
+                rounding: gstyle.rounding,
+                ink,
+                text_color,
+                scanline_height: gstyle.scanline_height,
+            },
             progress,
         );
 

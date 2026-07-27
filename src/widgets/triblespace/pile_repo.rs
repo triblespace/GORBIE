@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use ed25519_dalek::SigningKey;
 use eframe::egui;
 use rand_core06::OsRng;
-use triblespace::core::repo::Repository;
 use triblespace::core::repo::pile::Pile;
+use triblespace::core::repo::Repository;
 use triblespace::core::trible::TribleSet;
 
 use crate::dataflow::ComputedState;
@@ -197,7 +197,11 @@ impl<'a> PileRepoWidget<'a> {
         }
 
         // Auto-open on first render.
-        if self.auto_open && !self.state.is_open() && !self.state.is_opening() && self.state.last_error.is_none() {
+        if self.auto_open
+            && !self.state.is_open()
+            && !self.state.is_opening()
+            && self.state.last_error.is_none()
+        {
             self.state.open();
         }
 
@@ -258,7 +262,11 @@ impl<'a> PileRepoWidget<'a> {
                     let label_text = "Pile:";
                     let label_color = ui.visuals().text_color();
                     let label_galley = ui.fonts_mut(|fonts| {
-                        fonts.layout_no_wrap(label_text.to_owned(), lcd_font_id.clone(), label_color)
+                        fonts.layout_no_wrap(
+                            label_text.to_owned(),
+                            lcd_font_id.clone(),
+                            label_color,
+                        )
                     });
                     let label_w = label_galley.size().x;
                     let field_w =
@@ -268,19 +276,19 @@ impl<'a> PileRepoWidget<'a> {
                         super::super::TextField::singleline(&mut self.state.pile_path),
                     );
 
-                    let (label_rect, _) = ui.allocate_exact_size(
-                        egui::vec2(label_w, target_h),
-                        egui::Sense::hover(),
-                    );
+                    let (label_rect, _) =
+                        ui.allocate_exact_size(egui::vec2(label_w, target_h), egui::Sense::hover());
                     if ui.is_rect_visible(label_rect) {
                         let anchor_pos =
                             egui::pos2(label_rect.left(), field_response.rect.center().y);
                         let rect =
                             egui::Align2::LEFT_CENTER.anchor_size(anchor_pos, label_galley.size());
                         let galley_pos = rect.min - label_galley.rect.min.to_vec2();
-                        ui.painter()
-                            .with_clip_rect(label_rect)
-                            .galley(galley_pos, label_galley, label_color);
+                        ui.painter().with_clip_rect(label_rect).galley(
+                            galley_pos,
+                            label_galley,
+                            label_color,
+                        );
                     }
                 });
             });

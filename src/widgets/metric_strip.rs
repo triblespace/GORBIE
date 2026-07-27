@@ -112,8 +112,8 @@ impl MetricStrip {
         }
         let mut values: Vec<f64> = self.samples.iter().map(|sample| sample[1]).collect();
         values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let rank = ((q.clamp(0.0, 1.0) * values.len() as f64).ceil() as usize)
-            .clamp(1, values.len());
+        let rank =
+            ((q.clamp(0.0, 1.0) * values.len() as f64).ceil() as usize).clamp(1, values.len());
         Some(values[rank - 1])
     }
 
@@ -138,8 +138,12 @@ impl MetricStrip {
         ui.horizontal(|ui| {
             lcd_readout(ui, &readout, None);
 
-            let points: PlotPoints =
-                self.samples.iter().copied().collect::<Vec<[f64; 2]>>().into();
+            let points: PlotPoints = self
+                .samples
+                .iter()
+                .copied()
+                .collect::<Vec<[f64; 2]>>()
+                .into();
             Plot::new(("gorbie_metric_strip", self.name.as_str()))
                 .height(self.height)
                 .show_axes([false, true])
@@ -157,9 +161,7 @@ impl MetricStrip {
                                 .border(Stroke::new(1.0, accent)),
                         );
                     }
-                    plot_ui.line(
-                        Line::new(self.name.clone(), points).color(ink).width(1.5),
-                    );
+                    plot_ui.line(Line::new(self.name.clone(), points).color(ink).width(1.5));
                 })
                 .response
         })

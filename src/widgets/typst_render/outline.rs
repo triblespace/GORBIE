@@ -43,22 +43,34 @@ pub fn glyph_mesh(font: typst::text::Font, glyph_id: u16) -> GlyphMesh {
 /// determines the "outer" winding; opposite-wound contours are holes.
 fn triangulate_contours(contours: &[Vec<egui::Pos2>]) -> GlyphMesh {
     if contours.is_empty() {
-        return GlyphMesh { vertices: Vec::new(), triangles: Vec::new(), boundary_loops: Vec::new(), contours: Vec::new() };
+        return GlyphMesh {
+            vertices: Vec::new(),
+            triangles: Vec::new(),
+            boundary_loops: Vec::new(),
+            contours: Vec::new(),
+        };
     }
 
     // Classify contours by winding direction.
-    let areas: Vec<(usize, f32)> = contours.iter()
+    let areas: Vec<(usize, f32)> = contours
+        .iter()
         .enumerate()
         .filter(|(_, c)| c.len() >= 3)
         .map(|(i, c)| (i, signed_area_2(c)))
         .collect();
 
     if areas.is_empty() {
-        return GlyphMesh { vertices: Vec::new(), triangles: Vec::new(), boundary_loops: Vec::new(), contours: Vec::new() };
+        return GlyphMesh {
+            vertices: Vec::new(),
+            triangles: Vec::new(),
+            boundary_loops: Vec::new(),
+            contours: Vec::new(),
+        };
     }
 
     // The largest absolute-area contour determines the "outer" winding.
-    let outer_sign = areas.iter()
+    let outer_sign = areas
+        .iter()
         .max_by(|a, b| a.1.abs().partial_cmp(&b.1.abs()).unwrap())
         .unwrap()
         .1;
@@ -87,7 +99,8 @@ fn triangulate_contours(contours: &[Vec<egui::Pos2>]) -> GlyphMesh {
         let outer = &contours[outer_idx];
 
         // Find holes that belong to this outer contour.
-        let matched_holes: Vec<usize> = holes.iter()
+        let matched_holes: Vec<usize> = holes
+            .iter()
             .filter(|&&h_idx| {
                 let hole = &contours[h_idx];
                 // Test if any vertex of the hole is inside the outer polygon.
@@ -143,8 +156,7 @@ fn triangulate_contours(contours: &[Vec<egui::Pos2>]) -> GlyphMesh {
         }
 
         // Triangulate.
-        let tri_indices = earcutr::earcut(&coords, &hole_indices, 2)
-            .unwrap_or_default();
+        let tri_indices = earcutr::earcut(&coords, &hole_indices, 2).unwrap_or_default();
 
         // Convert flat coords to vertices and triangle indices.
         let n_verts = coords.len() / 2;
@@ -162,9 +174,7 @@ fn triangulate_contours(contours: &[Vec<egui::Pos2>]) -> GlyphMesh {
 
         // Record boundary loops (vertex indices in contour order).
         for (start, count) in contour_ranges {
-            let loop_indices: Vec<u32> = (0..count)
-                .map(|i| base + start + i)
-                .collect();
+            let loop_indices: Vec<u32> = (0..count).map(|i| base + start + i).collect();
             all_boundary_loops.push(loop_indices);
         }
     }
@@ -213,13 +223,17 @@ fn point_in_polygon(p: egui::Pos2, polygon: &[egui::Pos2]) -> bool {
 /// Segment-segment intersection, strictly interior to both segments.
 /// Returns (t, u, point) where t ∈ (0,1) and u ∈ (0,1).
 fn seg_intersect(
-    a0: egui::Pos2, a1: egui::Pos2,
-    b0: egui::Pos2, b1: egui::Pos2,
+    a0: egui::Pos2,
+    a1: egui::Pos2,
+    b0: egui::Pos2,
+    b1: egui::Pos2,
 ) -> Option<(f32, f32, egui::Pos2)> {
     let d1 = a1 - a0;
     let d2 = b1 - b0;
     let cross = d1.x * d2.y - d1.y * d2.x;
-    if cross.abs() < 1e-8 { return None; }
+    if cross.abs() < 1e-8 {
+        return None;
+    }
     let d = b0 - a0;
     let t = (d.x * d2.y - d.y * d2.x) / cross;
     let u = (d.x * d1.y - d.y * d1.x) / cross;
@@ -240,7 +254,9 @@ fn seg_intersect(
 pub fn even_odd_single_path(polygon: &[egui::Pos2], color: egui::Color32) -> epaint::Mesh {
     let n = polygon.len();
     let mut mesh = epaint::Mesh::default();
-    if n < 3 { return mesh; }
+    if n < 3 {
+        return mesh;
+    }
 
     // Find all interior edge-edge intersections.
     let mut edge_splits: Vec<Vec<(f32, usize)>> = vec![Vec::new(); n];
@@ -250,7 +266,9 @@ pub fn even_odd_single_path(polygon: &[egui::Pos2], color: egui::Color32) -> epa
         let a0 = polygon[i];
         let a1 = polygon[(i + 1) % n];
         for j in (i + 2)..n {
-            if i == 0 && j == n - 1 { continue; } // adjacent
+            if i == 0 && j == n - 1 {
+                continue;
+            } // adjacent
             let b0 = polygon[j];
             let b1 = polygon[(j + 1) % n];
             if let Some((t, u, pt)) = seg_intersect(a0, a1, b0, b1) {
@@ -265,13 +283,16 @@ pub fn even_odd_single_path(polygon: &[egui::Pos2], color: egui::Color32) -> epa
     // No self-intersections: fill as simple polygon.
     if verts.len() == n {
         let base = mesh.vertices.len() as u32;
-        let coords: Vec<f64> = polygon.iter()
+        let coords: Vec<f64> = polygon
+            .iter()
             .flat_map(|p| [p.x as f64, p.y as f64])
             .collect();
         let tri = earcutr::earcut(&coords, &[], 2).unwrap_or_default();
         for p in polygon {
             mesh.vertices.push(epaint::Vertex {
-                pos: *p, uv: epaint::WHITE_UV, color,
+                pos: *p,
+                uv: epaint::WHITE_UV,
+                color,
             });
         }
         for chunk in tri.chunks_exact(3) {
@@ -291,16 +312,15 @@ pub fn even_odd_single_path(polygon: &[egui::Pos2], color: egui::Color32) -> epa
     let mut edges: Vec<[usize; 2]> = Vec::new(); // [from, to]
     let mut outgoing: Vec<Vec<usize>> = vec![Vec::new(); verts.len()];
 
-    let add_edge = |from: usize, to: usize,
-                        edges: &mut Vec<[usize; 2]>,
-                        outgoing: &mut Vec<Vec<usize>>| {
-        let fwd = edges.len();
-        edges.push([from, to]);
-        outgoing[from].push(fwd);
-        let rev = edges.len();
-        edges.push([to, from]);
-        outgoing[to].push(rev);
-    };
+    let add_edge =
+        |from: usize, to: usize, edges: &mut Vec<[usize; 2]>, outgoing: &mut Vec<Vec<usize>>| {
+            let fwd = edges.len();
+            edges.push([from, to]);
+            outgoing[from].push(fwd);
+            let rev = edges.len();
+            edges.push([to, from]);
+            outgoing[to].push(rev);
+        };
 
     for i in 0..n {
         let end = (i + 1) % n;
@@ -328,13 +348,17 @@ pub fn even_odd_single_path(polygon: &[egui::Pos2], color: egui::Color32) -> epa
     let mut faces: Vec<Vec<egui::Pos2>> = Vec::new();
 
     for start in 0..edges.len() {
-        if used[start] { continue; }
+        if used[start] {
+            continue;
+        }
         let mut face_verts = Vec::new();
         let mut cur = start;
         let max_steps = edges.len() + 1;
 
         for _ in 0..max_steps {
-            if used[cur] { break; }
+            if used[cur] {
+                break;
+            }
             used[cur] = true;
             face_verts.push(verts[edges[cur][0]]);
 
@@ -353,7 +377,9 @@ pub fn even_odd_single_path(polygon: &[egui::Pos2], color: egui::Color32) -> epa
                 let d = verts[edges[eidx][1]] - verts[to];
                 let a = d.y.atan2(d.x);
                 let mut delta = rev_a - a;
-                if delta < 1e-6 { delta += std::f32::consts::TAU; }
+                if delta < 1e-6 {
+                    delta += std::f32::consts::TAU;
+                }
                 if delta < best_delta {
                     best_delta = delta;
                     best = eidx;
@@ -361,7 +387,9 @@ pub fn even_odd_single_path(polygon: &[egui::Pos2], color: egui::Color32) -> epa
             }
 
             cur = best;
-            if cur == start { break; }
+            if cur == start {
+                break;
+            }
         }
 
         if face_verts.len() >= 3 {
@@ -375,13 +403,13 @@ pub fn even_odd_single_path(polygon: &[egui::Pos2], color: egui::Color32) -> epa
         let cy = face.iter().map(|p| p.y).sum::<f32>() / face.len() as f32;
         if point_in_polygon(egui::pos2(cx, cy), polygon) {
             let base = mesh.vertices.len() as u32;
-            let coords: Vec<f64> = face.iter()
-                .flat_map(|p| [p.x as f64, p.y as f64])
-                .collect();
+            let coords: Vec<f64> = face.iter().flat_map(|p| [p.x as f64, p.y as f64]).collect();
             let tri = earcutr::earcut(&coords, &[], 2).unwrap_or_default();
             for p in face {
                 mesh.vertices.push(epaint::Vertex {
-                    pos: *p, uv: epaint::WHITE_UV, color,
+                    pos: *p,
+                    uv: epaint::WHITE_UV,
+                    color,
                 });
             }
             for chunk in tri.chunks_exact(3) {
@@ -458,12 +486,9 @@ pub fn triangulate_subpaths(
             });
         }
         for chunk in tri.chunks_exact(3) {
-            mesh.indices
-                .push(base + chunk[0] as u32);
-            mesh.indices
-                .push(base + chunk[1] as u32);
-            mesh.indices
-                .push(base + chunk[2] as u32);
+            mesh.indices.push(base + chunk[0] as u32);
+            mesh.indices.push(base + chunk[1] as u32);
+            mesh.indices.push(base + chunk[2] as u32);
         }
     }
 
@@ -539,7 +564,8 @@ pub fn render_glyph_mesh(
 
     // Reserve: original verts + outer feathering verts, triangles + feathering quads.
     mesh.vertices.reserve(n_verts + n_boundary);
-    mesh.indices.reserve(glyph.triangles.len() * 3 + n_boundary * 6);
+    mesh.indices
+        .reserve(glyph.triangles.len() * 3 + n_boundary * 6);
 
     // Compute per-vertex outward normals (in screen coords) from boundary loops.
     // Interior vertices get zero normal (no shifting).
@@ -574,7 +600,11 @@ pub fn render_glyph_mesh(
             // Average and normalize for miter join.
             let avg = n0 + n1;
             let len = avg.length();
-            normals[vi] = if len > 1e-6 { avg / len } else { egui::Vec2::ZERO };
+            normals[vi] = if len > 1e-6 {
+                avg / len
+            } else {
+                egui::Vec2::ZERO
+            };
         }
     }
 
@@ -672,10 +702,7 @@ impl ContourBuilder {
     }
 
     fn last_point(&self) -> egui::Pos2 {
-        self.current
-            .last()
-            .copied()
-            .unwrap_or(egui::pos2(0.0, 0.0))
+        self.current.last().copied().unwrap_or(egui::pos2(0.0, 0.0))
     }
 }
 

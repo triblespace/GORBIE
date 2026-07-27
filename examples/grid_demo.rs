@@ -42,17 +42,23 @@ Same spans → same pixel widths, every time, in every card."
 
     // State reads at depth — works inside grid, horizontal, collapsing.
     nb.view(move |ctx| {
-        ctx.grid(|g| g.full(|ctx| {
-            ctx.label(egui::RichText::new("STATE ACCESS AT DEPTH").monospace().strong());
-            ctx.horizontal(|ctx| {
-                let count = *counter.read(ctx);
-                ctx.label(format!("Reading counter from inside horizontal: {count}"));
-            });
-            ctx.collapsing("And inside collapsing too", |ctx| {
-                let count = *counter.read(ctx);
-                ctx.label(format!("Counter is: {count}"));
-            });
-        }));
+        ctx.grid(|g| {
+            g.full(|ctx| {
+                ctx.label(
+                    egui::RichText::new("STATE ACCESS AT DEPTH")
+                        .monospace()
+                        .strong(),
+                );
+                ctx.horizontal(|ctx| {
+                    let count = *counter.read(ctx);
+                    ctx.label(format!("Reading counter from inside horizontal: {count}"));
+                });
+                ctx.collapsing("And inside collapsing too", |ctx| {
+                    let count = *counter.read(ctx);
+                    ctx.label(format!("Counter is: {count}"));
+                });
+            })
+        });
     });
 
     // Grid-aligned typography showcase.
@@ -132,40 +138,43 @@ subtle visual tension that keeps the layout from feeling sterile."
     // Typst math rendering — direct vector glyphs on the Painter.
     #[cfg(feature = "typst")]
     nb.view(move |ctx| {
-        ctx.grid(|g| g.full(|ctx| {
-            ctx.label(egui::RichText::new("TYPST MATH").monospace().strong());
-            ctx.add_space(4.0);
+        ctx.grid(|g| {
+            g.full(|ctx| {
+                ctx.label(egui::RichText::new("TYPST MATH").monospace().strong());
+                ctx.add_space(4.0);
 
-            ctx.label("Inline math:");
-            ctx.horizontal(|ctx| {
-                ctx.label("The Euler identity ");
-                ctx.typst_math_inline("e^(i pi) + 1 = 0");
-                ctx.label(" is beautiful.");
-            });
-            ctx.add_space(4.0);
+                ctx.label("Inline math:");
+                ctx.horizontal(|ctx| {
+                    ctx.label("The Euler identity ");
+                    ctx.typst_math_inline("e^(i pi) + 1 = 0");
+                    ctx.label(" is beautiful.");
+                });
+                ctx.add_space(4.0);
 
-            ctx.label("Display math — the Gaussian integral:");
-            ctx.typst_math_display("integral_(-infinity)^(infinity) e^(-x^2) dif x = sqrt(pi)");
-            ctx.add_space(4.0);
+                ctx.label("Display math — the Gaussian integral:");
+                ctx.typst_math_display("integral_(-infinity)^(infinity) e^(-x^2) dif x = sqrt(pi)");
+                ctx.add_space(4.0);
 
-            ctx.label("Quadratic formula:");
-            ctx.typst_math_display("x = (-b plus.minus sqrt(b^2 - 4a c)) / (2a)");
-            ctx.add_space(4.0);
+                ctx.label("Quadratic formula:");
+                ctx.typst_math_display("x = (-b plus.minus sqrt(b^2 - 4a c)) / (2a)");
+                ctx.add_space(4.0);
 
-            ctx.label("Maxwell's equations:");
-            ctx.typst_math_display(
-                "nabla dot bold(E) = rho / epsilon_0 \\\n\
+                ctx.label("Maxwell's equations:");
+                ctx.typst_math_display(
+                    "nabla dot bold(E) = rho / epsilon_0 \\\n\
                  nabla dot bold(B) = 0 \\\n\
                  nabla times bold(E) = -frac(diff bold(B), diff t) \\\n\
-                 nabla times bold(B) = mu_0 bold(J) + mu_0 epsilon_0 frac(diff bold(E), diff t)"
-            );
-        }));
+                 nabla times bold(B) = mu_0 bold(J) + mu_0 epsilon_0 frac(diff bold(E), diff t)",
+                );
+            })
+        });
     });
 
     // Typst rich text — headings, lists, emphasis, tables.
     #[cfg(feature = "typst")]
     nb.view(move |ctx| {
-        typst!(ctx,
+        typst!(
+            ctx,
             "= Typst Document Rendering\n\
              \n\
              This is a *full Typst document* rendered as vector geometry \
@@ -226,7 +235,8 @@ subtle visual tension that keeps the layout from feeling sterile."
     // Typst RAL color palette — theme-aware colors from the preamble.
     #[cfg(feature = "typst")]
     nb.view(move |ctx| {
-        typst!(ctx,
+        typst!(
+            ctx,
             "= RAL Color Palette\n\
              \n\
              The preamble injects the GORBIE RAL palette as named Typst variables.\n\
@@ -481,25 +491,40 @@ subtle visual tension that keeps the layout from feeling sterile."
             }
 
             // Quarter + half + quarter — wide center
-            g.quarter(|ctx| { ctx.label("Narrow (quarter)"); });
-            g.half(|ctx| { ctx.label("Wide center (half)"); });
-            g.quarter(|ctx| { ctx.label("Narrow (quarter)"); });
+            g.quarter(|ctx| {
+                ctx.label("Narrow (quarter)");
+            });
+            g.half(|ctx| {
+                ctx.label("Wide center (half)");
+            });
+            g.quarter(|ctx| {
+                ctx.label("Narrow (quarter)");
+            });
 
             // Three-quarters + quarter — content + aside
-            g.three_quarters(|ctx| { ctx.label("Main content area (¾)"); });
-            g.quarter(|ctx| { ctx.label("Aside (¼)"); });
+            g.three_quarters(|ctx| {
+                ctx.label("Main content area (¾)");
+            });
+            g.quarter(|ctx| {
+                ctx.label("Aside (¼)");
+            });
 
             // Furniture demo: third, skip third, third
-            g.third(|ctx| { ctx.label("Left (third)"); });
+            g.third(|ctx| {
+                ctx.label("Left (third)");
+            });
             g.skip_third();
-            g.third(|ctx| { ctx.label("Right (third)"); });
+            g.third(|ctx| {
+                ctx.label("Right (third)");
+            });
         });
     });
 
     // Links — clickable URL links rendered by Typst.
     #[cfg(feature = "typst")]
     nb.view(move |ctx| {
-        typst!(ctx,
+        typst!(
+            ctx,
             "= Links\n\
              \n\
              Typst links are clickable:\n\
@@ -517,9 +542,7 @@ subtle visual tension that keeps the layout from feeling sterile."
     });
     #[cfg(feature = "typst")]
     nb.view(move |ctx| {
-        typst!(ctx,
-            "This line renders fine, but #unknown-func() does not."
-        );
+        typst!(ctx, "This line renders fine, but #unknown-func() does not.");
     });
 
     // Collapsible sections.

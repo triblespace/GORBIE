@@ -291,7 +291,11 @@ mod tests {
         writer.push(&mut ws).expect("push second");
 
         let delta = tail.poll().expect("poll delta");
-        assert_eq!(delta.len(), second.len(), "second poll returns only the delta");
+        assert_eq!(
+            delta.len(),
+            second.len(),
+            "second poll returns only the delta"
+        );
         assert!(
             second.iter().all(|t| delta.contains(t)),
             "delta contains exactly the new facts"

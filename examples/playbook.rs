@@ -531,32 +531,33 @@ fn main(nb: &mut NotebookCtx) {
                     ui.end_row();
                 });
 
-            ctx.ui_mut().collapsing(egui::RichText::new("DERIVED").monospace(), |ui| {
-                egui::Grid::new("palette_derived")
-                    .num_columns(3)
-                    .spacing(egui::vec2(16.0, 6.0))
-                    .show(ui, |ui| {
-                        ui.label("");
-                        ui.monospace("LIGHT");
-                        ui.monospace("DARK");
-                        ui.end_row();
+            ctx.ui_mut()
+                .collapsing(egui::RichText::new("DERIVED").monospace(), |ui| {
+                    egui::Grid::new("palette_derived")
+                        .num_columns(3)
+                        .spacing(egui::vec2(16.0, 6.0))
+                        .show(ui, |ui| {
+                            ui.label("");
+                            ui.monospace("LIGHT");
+                            ui.monospace("DARK");
+                            ui.end_row();
 
-                        ui.monospace("BORDER (FG/BG 0.4)");
-                        hex_cell(ui, light_border);
-                        hex_cell(ui, dark_border);
-                        ui.end_row();
+                            ui.monospace("BORDER (FG/BG 0.4)");
+                            hex_cell(ui, light_border);
+                            hex_cell(ui, dark_border);
+                            ui.end_row();
 
-                        ui.monospace("MUTED SURFACE (S/BG 0.2)");
-                        hex_cell(ui, light_surface_muted);
-                        hex_cell(ui, dark_surface_muted);
-                        ui.end_row();
+                            ui.monospace("MUTED SURFACE (S/BG 0.2)");
+                            hex_cell(ui, light_surface_muted);
+                            hex_cell(ui, dark_surface_muted);
+                            ui.end_row();
 
-                        ui.monospace("HOVER (BG/FG 0.05)");
-                        hex_cell(ui, light_control_fill_hover);
-                        hex_cell(ui, dark_control_fill_hover);
-                        ui.end_row();
-                    });
-            });
+                            ui.monospace("HOVER (BG/FG 0.05)");
+                            hex_cell(ui, light_control_fill_hover);
+                            hex_cell(ui, dark_control_fill_hover);
+                            ui.end_row();
+                        });
+                });
 
             ctx.add_space(12.0);
             ctx.label(egui::RichText::new("SUBWAY LINES").monospace().strong());
@@ -739,8 +740,7 @@ fn main(nb: &mut NotebookCtx) {
                             .choice(FocusTarget::None, "NONE")
                             .choice(FocusTarget::NumberField, "NUMBER")
                             .choice(FocusTarget::SingleLine, "LINE")
-                            .choice(FocusTarget::Multiline, "MULTI")
-                            ,
+                            .choice(FocusTarget::Multiline, "MULTI"),
                     );
                 });
 

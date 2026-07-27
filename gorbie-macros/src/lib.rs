@@ -218,7 +218,11 @@ pub fn __gorbie_web_export(input: TokenStream) -> TokenStream {
     TokenStream::from(build_wasm_export(&bin_name, &crate_name, &out_dir_ident))
 }
 
-fn build_wasm_export(bin_name: &str, crate_name: &str, out_dir_ident: &Ident) -> proc_macro2::TokenStream {
+fn build_wasm_export(
+    bin_name: &str,
+    crate_name: &str,
+    out_dir_ident: &Ident,
+) -> proc_macro2::TokenStream {
     let manifest_dir = match std::env::var("CARGO_MANIFEST_DIR") {
         Ok(d) => d,
         Err(_) => {
@@ -271,14 +275,10 @@ fn build_wasm_export(bin_name: &str, crate_name: &str, out_dir_ident: &Ident) ->
         }
     };
 
-    let wasm_input = format!(
-        "{target_dir}/wasm32-unknown-unknown/release/{bin_name}.wasm"
-    );
+    let wasm_input = format!("{target_dir}/wasm32-unknown-unknown/release/{bin_name}.wasm");
 
     if !std::path::Path::new(&wasm_input).exists() {
-        let msg = format!(
-            "gorbie web export: wasm file not found at {wasm_input}"
-        );
+        let msg = format!("gorbie web export: wasm file not found at {wasm_input}");
         return quote! { compile_error!(#msg); };
     }
 
@@ -312,9 +312,7 @@ fn build_wasm_export(bin_name: &str, crate_name: &str, out_dir_ident: &Ident) ->
         return quote! { compile_error!(#msg); };
     }
 
-    let wasm_size = std::fs::metadata(&wasm_path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let wasm_size = std::fs::metadata(&wasm_path).map(|m| m.len()).unwrap_or(0);
     eprintln!(
         "gorbie: web export built ({:.1} MB wasm)",
         wasm_size as f64 / (1024.0 * 1024.0)

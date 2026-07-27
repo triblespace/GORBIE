@@ -22,6 +22,11 @@ use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
 use triblespace::core::blob::encodings::wasmcode::WasmCode;
 use triblespace::core::blob::BlobCache;
 use triblespace::core::id::Id;
+use triblespace::core::inline::encodings::ed25519 as ed;
+use triblespace::core::inline::encodings::hash::{Blake3, Handle};
+use triblespace::core::inline::encodings::time::NsTAIInterval;
+use triblespace::core::inline::Inline;
+use triblespace::core::inline::RawInline;
 use triblespace::core::metadata;
 use triblespace::core::repo::pile::{Pile, PileReader};
 use triblespace::core::repo::{
@@ -31,11 +36,6 @@ use triblespace::core::repo::{
     BranchStore, Repository,
 };
 use triblespace::core::trible::TribleSet;
-use triblespace::core::inline::encodings::ed25519 as ed;
-use triblespace::core::inline::encodings::hash::{Blake3, Handle};
-use triblespace::core::inline::encodings::time::NsTAIInterval;
-use triblespace::core::inline::RawInline;
-use triblespace::core::inline::Inline;
 use triblespace::core::value_formatter::WasmValueFormatter;
 use triblespace::macros::{find, id_hex, pattern};
 use triblespace::prelude::View;

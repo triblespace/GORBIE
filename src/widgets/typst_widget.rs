@@ -6,10 +6,10 @@ use std::sync::LazyLock;
 use eframe::egui;
 use typst::syntax::Span;
 
-use crate::themes::colorhash::RAL_CATEGORICAL;
-use crate::themes::ral::RAL_COLORS;
 use super::typst_render::painter;
 use super::typst_render::world::GorbieWorld;
+use crate::themes::colorhash::RAL_CATEGORICAL;
+use crate::themes::ral::RAL_COLORS;
 
 /// Persistent state for Typst compilation and rendering.
 ///
@@ -45,7 +45,8 @@ pub fn typst(ui: &mut egui::Ui, source: &str) {
 /// Render an inline math expression: `$<expr>$`.
 pub fn typst_math_inline(ui: &mut egui::Ui, expr: &str) {
     let fg = typst_rgb(ui.visuals().text_color());
-    let size = ui.style()
+    let size = ui
+        .style()
         .text_styles
         .get(&egui::TextStyle::Body)
         .map_or(15.0, |d| d.size);
@@ -64,7 +65,8 @@ pub fn typst_math_inline(ui: &mut egui::Ui, expr: &str) {
 /// `$ <expr> $` (with spaces for display mode in Typst).
 pub fn typst_math_display(ui: &mut egui::Ui, expr: &str) {
     let fg = typst_rgb(ui.visuals().text_color());
-    let size = ui.style()
+    let size = ui
+        .style()
         .text_styles
         .get(&egui::TextStyle::Body)
         .map_or(15.0, |d| d.size);
@@ -102,7 +104,8 @@ pub fn typst_math_fn() -> impl Fn(&mut egui::Ui, &str, bool) {
 pub fn typst_with_preamble(ui: &mut egui::Ui, content: &str) {
     let width = ui.available_width();
     let pad = crate::card_ctx::GRID_EDGE_PAD;
-    let body_size = ui.style()
+    let body_size = ui
+        .style()
         .text_styles
         .get(&egui::TextStyle::Body)
         .map_or(15.0, |d| d.size);
@@ -156,14 +159,14 @@ fn typst_rgb(c: egui::Color32) -> String {
 
 /// RAL color names for the categorical palette, matching `RAL_CATEGORICAL` order.
 const RAL_CAT_NAMES: &[&str] = &[
-    "yellow", "orange", "pink", "red", "violet", "blue",
-    "sky", "water", "lime", "mint", "green", "teal",
+    "yellow", "orange", "pink", "red", "violet", "blue", "sky", "water", "lime", "mint", "green",
+    "teal",
 ];
 
 /// The static part of the GORBIE Typst preamble: grid constants, full 272-color
 /// RAL lookup dictionary, and semantic named aliases. Generated once, reused.
 static RAL_TYPST_STATIC: LazyLock<String> = LazyLock::new(|| {
-    use crate::card_ctx::{GRID_COL_WIDTH, GRID_GUTTER, GRID_COLUMNS, GRID_ROW_MODULE};
+    use crate::card_ctx::{GRID_COLUMNS, GRID_COL_WIDTH, GRID_GUTTER, GRID_ROW_MODULE};
 
     let mut s = String::with_capacity(16384);
 
@@ -172,7 +175,10 @@ static RAL_TYPST_STATIC: LazyLock<String> = LazyLock::new(|| {
     let _ = writeln!(s, "#let grid-gutter = {GRID_GUTTER}pt");
     let _ = writeln!(s, "#let grid-columns = {GRID_COLUMNS}");
     let _ = writeln!(s, "#let grid-row = {GRID_ROW_MODULE}pt");
-    let _ = writeln!(s, "#let grid-span(n) = n * {GRID_COL_WIDTH}pt + (n - 1) * {GRID_GUTTER}pt");
+    let _ = writeln!(
+        s,
+        "#let grid-span(n) = n * {GRID_COL_WIDTH}pt + (n - 1) * {GRID_GUTTER}pt"
+    );
 
     // Full RAL dictionary: ral(1003) → rgb("#F9A800")
     let _ = writeln!(s, "#let ral-table = (");
@@ -255,11 +261,15 @@ impl TypstSelection {
 
 /// Find the glyph whose center is nearest to `pos`.
 fn nearest_glyph(chars: &[painter::PositionedChar], pos: egui::Pos2) -> Option<usize> {
-    chars.iter().enumerate().min_by(|(_, a), (_, b)| {
-        let da = a.rect.center().distance_sq(pos);
-        let db = b.rect.center().distance_sq(pos);
-        da.partial_cmp(&db).unwrap()
-    }).map(|(i, _)| i)
+    chars
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| {
+            let da = a.rect.center().distance_sq(pos);
+            let db = b.rect.center().distance_sq(pos);
+            da.partial_cmp(&db).unwrap()
+        })
+        .map(|(i, _)| i)
 }
 
 /// Double-click: AST-aware selection at the clicked position.
@@ -282,24 +292,35 @@ fn double_click_range(
     // Walk up to the first structural node.
     let mut current = &node;
     loop {
-        let dominated_by = |k: SyntaxKind| matches!(
-            k,
-            SyntaxKind::Strong | SyntaxKind::Emph | SyntaxKind::Equation
-                | SyntaxKind::Heading | SyntaxKind::ListItem | SyntaxKind::EnumItem
-                | SyntaxKind::TermItem | SyntaxKind::FuncCall
-                | SyntaxKind::Markup
-        );
+        let dominated_by = |k: SyntaxKind| {
+            matches!(
+                k,
+                SyntaxKind::Strong
+                    | SyntaxKind::Emph
+                    | SyntaxKind::Equation
+                    | SyntaxKind::Heading
+                    | SyntaxKind::ListItem
+                    | SyntaxKind::EnumItem
+                    | SyntaxKind::TermItem
+                    | SyntaxKind::FuncCall
+                    | SyntaxKind::Markup
+            )
+        };
         if dominated_by(current.kind()) {
             // Found a structural node — select glyphs whose source
             // positions fall within this node's range.
             let nr = current.range();
             let lo = chars.iter().position(|ch| {
                 let (s, off) = ch.span;
-                source.range(s).map_or(false, |r| r.start + (off as usize) >= nr.start)
+                source
+                    .range(s)
+                    .map_or(false, |r| r.start + (off as usize) >= nr.start)
             })?;
             let hi = chars.iter().rposition(|ch| {
                 let (s, off) = ch.span;
-                source.range(s).map_or(false, |r| r.start + (off as usize) < nr.end)
+                source
+                    .range(s)
+                    .map_or(false, |r| r.start + (off as usize) < nr.end)
             })?;
             return Some(lo..hi + 1);
         }
@@ -315,9 +336,13 @@ fn double_click_range(
         ch.is_alphanumeric() || ch == '_' || ch == '-'
     };
     let mut lo = idx;
-    while lo > 0 && is_word(lo - 1) { lo -= 1; }
+    while lo > 0 && is_word(lo - 1) {
+        lo -= 1;
+    }
     let mut hi = idx;
-    while hi + 1 < chars.len() && is_word(hi + 1) { hi += 1; }
+    while hi + 1 < chars.len() && is_word(hi + 1) {
+        hi += 1;
+    }
     Some(lo..hi + 1)
 }
 
@@ -344,7 +369,10 @@ fn compute_selection(
     glyph_range: &Option<Range<usize>>,
 ) -> SelectionResult {
     let Some(ref range) = glyph_range else {
-        return SelectionResult { sel_set: Vec::new(), copy_range: None };
+        return SelectionResult {
+            sel_set: Vec::new(),
+            copy_range: None,
+        };
     };
 
     let mut min_byte = usize::MAX;
@@ -352,7 +380,9 @@ fn compute_selection(
 
     // Step 1: Geometric selection → source byte range.
     for i in range.clone() {
-        if i >= chars.len() { continue; }
+        if i >= chars.len() {
+            continue;
+        }
         let (span, offset) = chars[i].span;
         if let Some(node_range) = source.range(span) {
             let glyph_start = node_range.start + offset as usize;
@@ -363,7 +393,14 @@ fn compute_selection(
     }
 
     // Step 2: AST walk — expand to structural boundaries.
-    expand_copy_from_ast(source, chars, min_byte, max_byte, &mut min_byte, &mut max_byte);
+    expand_copy_from_ast(
+        source,
+        chars,
+        min_byte,
+        max_byte,
+        &mut min_byte,
+        &mut max_byte,
+    );
 
     // Step 3: Highlight glyphs whose source position falls within copy_range.
     let mut sel_set = vec![false; chars.len()];
@@ -382,7 +419,11 @@ fn compute_selection(
 
     SelectionResult {
         sel_set,
-        copy_range: if min_byte < max_byte { Some(min_byte..max_byte) } else { None },
+        copy_range: if min_byte < max_byte {
+            Some(min_byte..max_byte)
+        } else {
+            None
+        },
     }
 }
 
@@ -400,13 +441,16 @@ fn expand_copy_from_ast(
     min_byte: &mut usize,
     max_byte: &mut usize,
 ) {
-    if in_min >= in_max { return; }
+    if in_min >= in_max {
+        return;
+    }
     *min_byte = in_min;
     *max_byte = in_max;
 
     // Find spans near min and max byte positions.
     let find_span_near = |target: usize| -> Option<Span> {
-        chars.iter()
+        chars
+            .iter()
             .filter_map(|ch| {
                 let (span, offset) = ch.span;
                 let nr = source.range(span)?;
@@ -418,25 +462,34 @@ fn expand_copy_from_ast(
             .map(|(span, _)| span)
     };
 
-    let Some(lo_span) = find_span_near(in_min) else { return };
-    let Some(hi_span) = find_span_near(in_max.saturating_sub(1)) else { return };
+    let Some(lo_span) = find_span_near(in_min) else {
+        return;
+    };
+    let Some(hi_span) = find_span_near(in_max.saturating_sub(1)) else {
+        return;
+    };
 
     // Collapse upward from EACH endpoint: walk up from the leaf node,
     // expanding whenever all source glyphs within the parent's range
     // are already covered. This captures structural markup at each end
     // independently (`- ` for each list item, `*` for bold, etc.).
     let collapse_endpoint = |source: &typst::syntax::Source,
-                              chars: &[painter::PositionedChar],
-                              span: Span,
-                              min_byte: &mut usize,
-                              max_byte: &mut usize| {
-        let Some(node) = source.find(span) else { return };
+                             chars: &[painter::PositionedChar],
+                             span: Span,
+                             min_byte: &mut usize,
+                             max_byte: &mut usize| {
+        let Some(node) = source.find(span) else {
+            return;
+        };
         let mut current = &node;
         loop {
-            let Some(parent) = current.parent() else { break };
+            let Some(parent) = current.parent() else {
+                break;
+            };
             let pr = parent.range();
 
-            let all_covered = chars.iter()
+            let all_covered = chars
+                .iter()
                 .filter_map(|ch| {
                     let (span, offset) = ch.span;
                     let nr = source.range(span)?;
@@ -459,9 +512,7 @@ fn expand_copy_from_ast(
     collapse_endpoint(source, chars, hi_span, min_byte, max_byte);
 
     // Trim trailing whitespace.
-    while *max_byte > *min_byte
-        && source.text().as_bytes()[*max_byte - 1].is_ascii_whitespace()
-    {
+    while *max_byte > *min_byte && source.text().as_bytes()[*max_byte - 1].is_ascii_whitespace() {
         *max_byte -= 1;
     }
 
@@ -483,7 +534,7 @@ fn render_typst_errors(
     let pad = crate::card_ctx::GRID_EDGE_PAD;
     let frame = egui::Frame::NONE.inner_margin(egui::Margin::symmetric(pad as i8, pad as i8));
     frame.show(ui, |ui| {
-    render_typst_errors_inner(ui, source, preamble_len, diags);
+        render_typst_errors_inner(ui, source, preamble_len, diags);
     });
 }
 
@@ -500,7 +551,9 @@ fn render_typst_errors_inner(
         .chain(user_source.match_indices('\n').map(|(i, _)| i + 1))
         .collect();
     let byte_to_line = |byte: usize| -> usize {
-        line_starts.partition_point(|&start| start <= byte).saturating_sub(1)
+        line_starts
+            .partition_point(|&start| start <= byte)
+            .saturating_sub(1)
     };
     let line_text = |line: usize| -> &str {
         let start = line_starts[line];
@@ -540,15 +593,20 @@ fn render_typst_errors_inner(
 
     // Deduplicate: keep only the first diagnostic per source line.
     let mut seen_lines = std::collections::HashSet::new();
-    let diags: Vec<_> = diags.iter().filter(|d| {
-        let line = d.span_range.as_ref()
-            .filter(|r| r.start >= preamble_len)
-            .map(|r| byte_to_line(r.start - preamble_len));
-        match line {
-            Some(l) => seen_lines.insert(l),
-            None => true,
-        }
-    }).collect();
+    let diags: Vec<_> = diags
+        .iter()
+        .filter(|d| {
+            let line = d
+                .span_range
+                .as_ref()
+                .filter(|r| r.start >= preamble_len)
+                .map(|r| byte_to_line(r.start - preamble_len));
+            match line {
+                Some(l) => seen_lines.insert(l),
+                None => true,
+            }
+        })
+        .collect();
 
     for diag in diags {
         let color = match diag.severity {
@@ -576,21 +634,32 @@ fn render_typst_errors_inner(
                 let text = line_text(err_line);
 
                 let mut bar_job = egui::text::LayoutJob::default();
-                bar_job.append(&format!("{:>gutter_width$} ┃", ""), 0.0, fmt(line_num_color));
+                bar_job.append(
+                    &format!("{:>gutter_width$} ┃", ""),
+                    0.0,
+                    fmt(line_num_color),
+                );
                 label_no_wrap(ui, bar_job);
 
                 let mut line_job = egui::text::LayoutJob::default();
-                line_job.append(&format!("{line_num:>gutter_width$} ┃ "), 0.0, fmt(line_num_color));
+                line_job.append(
+                    &format!("{line_num:>gutter_width$} ┃ "),
+                    0.0,
+                    fmt(line_num_color),
+                );
                 line_job.append(text, 0.0, fmt(source_color));
                 label_no_wrap(ui, line_job);
 
                 let line_start = line_starts[err_line];
                 let col_start = user_start - line_start;
                 let col_end = (user_end - line_start).max(col_start + 1);
-                let underline: String = " ".repeat(col_start)
-                    + &"─".repeat(col_end - col_start);
+                let underline: String = " ".repeat(col_start) + &"─".repeat(col_end - col_start);
                 let mut ul_job = egui::text::LayoutJob::default();
-                ul_job.append(&format!("{:>gutter_width$} ┃ ", ""), 0.0, fmt(line_num_color));
+                ul_job.append(
+                    &format!("{:>gutter_width$} ┃ ", ""),
+                    0.0,
+                    fmt(line_num_color),
+                );
                 ul_job.append(&underline, 0.0, fmt(color));
                 label_no_wrap(ui, ul_job);
             }
@@ -660,14 +729,10 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
     let pixels_per_point = ui.ctx().pixels_per_point();
 
     for (page_idx, page) in doc.pages.iter().enumerate() {
-        let (shapes, size, text_layout) = painter::render_frame_to_shapes(
-            &page.frame,
-            text_color,
-            pixels_per_point.to_bits(),
-        );
+        let (shapes, size, text_layout) =
+            painter::render_frame_to_shapes(&page.frame, text_color, pixels_per_point.to_bits());
 
-        let (rect, response) =
-            ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
 
         let offset = rect.min.to_vec2();
         let chars = &text_layout.chars;
@@ -714,11 +779,7 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
                 for &ci in overlapping {
                     let r = chars[ci].rect.translate(offset);
                     if visible {
-                        crate::search::paint_match_underline(
-                            ui.painter(),
-                            r,
-                            info.is_focused,
-                        );
+                        crate::search::paint_match_underline(ui.painter(), r, info.is_focused);
                     }
                     union = union.union(r);
                 }
@@ -757,7 +818,9 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
             if response.double_clicked() {
                 if let Some(pos) = response.interact_pointer_pos() {
                     let frame_pos = pos - offset;
-                    if let Some(range) = double_click_range(state.world.main_source(), chars, frame_pos) {
+                    if let Some(range) =
+                        double_click_range(state.world.main_source(), chars, frame_pos)
+                    {
                         sel.glyph_override = Some(range);
                     }
                 }
@@ -774,7 +837,8 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
                     let clamped = glyphs_rect.clamp(frame_pos);
                     sel.cursor = Some(clamped);
                 }
-                ui.ctx().input_mut(|i| i.smooth_scroll_delta = egui::Vec2::ZERO);
+                ui.ctx()
+                    .input_mut(|i| i.smooth_scroll_delta = egui::Vec2::ZERO);
             }
 
             if response.clicked() && !response.double_clicked() && !response.dragged() {
@@ -798,13 +862,15 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
                 cached_result
             } else {
                 let result = compute_selection(source, chars, &glyph_range);
-                ui.ctx().data_mut(|d| d.insert_temp(sel_cache_id, (sel_key, result.clone())));
+                ui.ctx()
+                    .data_mut(|d| d.insert_temp(sel_cache_id, (sel_key, result.clone())));
                 result
             }
         } else {
             let result = compute_selection(source, chars, &glyph_range);
             if glyph_range.is_some() {
-                ui.ctx().data_mut(|d| d.insert_temp(sel_cache_id, (sel_key, result.clone())));
+                ui.ctx()
+                    .data_mut(|d| d.insert_temp(sel_cache_id, (sel_key, result.clone())));
             }
             result
         };
@@ -816,9 +882,8 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
             let highlight_color = ui.visuals().selection.bg_fill;
             for (i, ch) in chars.iter().enumerate() {
                 if *selected.get(i).unwrap_or(&false) {
-                    ui.painter().rect_filled(
-                        ch.rect.translate(offset), 0.0, highlight_color,
-                    );
+                    ui.painter()
+                        .rect_filled(ch.rect.translate(offset), 0.0, highlight_color);
                 }
             }
         }
@@ -850,9 +915,7 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
             response.request_focus();
 
             let wants_copy = ui.input(|i| {
-                i.events
-                    .iter()
-                    .any(|e| matches!(e, egui::Event::Copy))
+                i.events.iter().any(|e| matches!(e, egui::Event::Copy))
                     || (i.modifiers.command && i.key_pressed(egui::Key::C))
             });
 
@@ -861,7 +924,9 @@ fn render_typst(ui: &mut egui::Ui, state: &mut TypstState, source: &str, preambl
                     source.text()[r.clone()].to_string()
                 } else {
                     // Fallback: rendered text.
-                    selected.iter().enumerate()
+                    selected
+                        .iter()
+                        .enumerate()
                         .filter(|(_, &s)| s)
                         .filter_map(|(i, _)| chars.get(i).map(|c| c.text.as_str()))
                         .collect()

@@ -20,11 +20,11 @@ use triblespace::core::blob::encodings::longstring::LongString;
 use triblespace::core::blob::encodings::wasmcode::WasmCode;
 use triblespace::core::blob::BlobCache;
 use triblespace::core::id::Id;
-use triblespace::core::query::TriblePattern;
-use triblespace::core::repo::BlobStoreGet;
 use triblespace::core::inline::encodings::hash::Handle;
 use triblespace::core::inline::encodings::UnknownInline;
 use triblespace::core::inline::Inline;
+use triblespace::core::query::TriblePattern;
+use triblespace::core::repo::BlobStoreGet;
 use triblespace::core::value_formatter::{WasmLimits, WasmValueFormatter};
 use triblespace::prelude::inlineencodings::GenId;
 use triblespace::prelude::{find, pattern, TribleSet, TribleSetFingerprint, View};
@@ -1216,7 +1216,10 @@ impl<R: Runtime> GpuSaRunnerState<R> {
             );
         }
 
-        let costs_bytes = self.client.read_one(self.best_orders_costs_handle.clone()).expect("gpu readback");
+        let costs_bytes = self
+            .client
+            .read_one(self.best_orders_costs_handle.clone())
+            .expect("gpu readback");
         let costs = u32::from_bytes(&costs_bytes);
         let mut best_cost = u32::MAX;
         let mut best_index = 0usize;

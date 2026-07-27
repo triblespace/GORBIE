@@ -159,8 +159,7 @@ impl Widget for ProgressBar {
             0.0
         };
         let row_mod = crate::card_ctx::GRID_ROW_MODULE;
-        let raw_height = desired_height
-            .unwrap_or(2.0 * row_mod + scale_row_height);
+        let raw_height = desired_height.unwrap_or(2.0 * row_mod + scale_row_height);
         // Snap to the vertical module so progress bars are field-aligned.
         let height = (raw_height / row_mod).ceil() * row_mod;
         let enabled = ui.is_enabled();

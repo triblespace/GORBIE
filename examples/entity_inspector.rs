@@ -13,11 +13,11 @@ use triblespace::core::blob::BlobCache;
 use triblespace::core::examples::literature;
 use triblespace::core::id::ExclusiveId;
 use triblespace::core::id::Id;
+use triblespace::core::inline::encodings::hash::Blake3;
+use triblespace::core::inline::encodings::hash::Handle;
 use triblespace::core::repo::memoryrepo::MemoryRepo;
 use triblespace::core::repo::BlobStore;
 use triblespace::core::repo::BlobStorePut;
-use triblespace::core::inline::encodings::hash::Blake3;
-use triblespace::core::inline::encodings::hash::Handle;
 use triblespace::core::value_formatter::WasmValueFormatter;
 use triblespace::prelude::blobencodings::LongString;
 use triblespace::prelude::inlineencodings::{GenId, ShortString, R256};
@@ -272,9 +272,7 @@ fn build_demo_space() -> (TribleSet, TribleSet, MemoryRepo, Id) {
     for (idx, (title, author_idx, quote, pages)) in books.iter().enumerate() {
         let id = demo_id(0xB000 + idx as u16);
         let author_id = author_ids.get(*author_idx).copied().expect("author index");
-        let quote_handle = storage
-            .put::<LongString, _>(*quote)
-            .expect("quote handle");
+        let quote_handle = storage.put::<LongString, _>(*quote).expect("quote handle");
         data += entity! { ExclusiveId::force_ref(&id) @
             demo::name: *title,
             demo::isa: e_book_kind,

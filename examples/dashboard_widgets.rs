@@ -130,7 +130,13 @@ fn main(nb: &mut NotebookCtx) {
             while state.emitted < due {
                 let n = state.emitted;
                 let tag = LANE_TAGS[n % LANE_TAGS.len()];
-                state.lane.push(tag, format!("[{tag}] event {n}: value={:.2}\n", synthetic_ms(n as f64 * 0.25)));
+                state.lane.push(
+                    tag,
+                    format!(
+                        "[{tag}] event {n}: value={:.2}\n",
+                        synthetic_ms(n as f64 * 0.25)
+                    ),
+                );
                 state.emitted += 1;
             }
             state.lane.show(ctx);
@@ -235,9 +241,10 @@ fn main(nb: &mut NotebookCtx) {
                                     (label: String),
                                     pattern!(&delta, [{ dashboard::tick_label: ?label }])
                                 ) {
-                                    state
-                                        .lane
-                                        .push("delta", format!("{label} ({} tribles)\n", delta.len()));
+                                    state.lane.push(
+                                        "delta",
+                                        format!("{label} ({} tribles)\n", delta.len()),
+                                    );
                                 }
                             }
                         }

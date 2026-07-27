@@ -151,13 +151,11 @@ impl<'l> StripLayout<'l> {
         } else if flags.hovered && self.sense.interactive() {
             let line_color = self.ui.visuals().text_color();
             let stroke = egui::Stroke::new(underline_width, line_color);
-            self.ui
-                .painter()
-                .hline(
-                    gapless_rect.x_range(),
-                    (gapless_rect.bottom() - underline_width * 0.5).max(gapless_rect.top()),
-                    stroke,
-                );
+            self.ui.painter().hline(
+                gapless_rect.x_range(),
+                (gapless_rect.bottom() - underline_width * 0.5).max(gapless_rect.top()),
+                stroke,
+            );
         }
 
         let mut child_ui = self.cell(flags, max_rect, child_ui_id_salt, add_cell_contents);

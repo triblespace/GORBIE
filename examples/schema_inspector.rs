@@ -13,11 +13,6 @@ use triblespace::core::blob::encodings::wasmcode::WasmCode;
 use triblespace::core::blob::MemoryBlobStore;
 use triblespace::core::id::Id;
 use triblespace::core::id::RawId;
-use triblespace::core::metadata;
-use triblespace::core::metadata::MetaDescribe;
-use triblespace::core::repo::BlobStore;
-use triblespace::core::repo::BlobStoreGet;
-use triblespace::core::trible::TribleSet;
 use triblespace::core::inline::encodings::boolean::Boolean;
 use triblespace::core::inline::encodings::ed25519::{
     ED25519PublicKey, ED25519RComponent, ED25519SComponent,
@@ -33,6 +28,11 @@ use triblespace::core::inline::encodings::range::{RangeInclusiveU128, RangeU128}
 use triblespace::core::inline::encodings::shortstring::ShortString;
 use triblespace::core::inline::encodings::time::NsTAIInterval;
 use triblespace::core::inline::Inline;
+use triblespace::core::metadata;
+use triblespace::core::metadata::MetaDescribe;
+use triblespace::core::repo::BlobStore;
+use triblespace::core::repo::BlobStoreGet;
+use triblespace::core::trible::TribleSet;
 use triblespace::macros::{find, pattern};
 use triblespace::prelude::View;
 
@@ -63,8 +63,7 @@ fn build_schema_metadata(blobs: &mut MemoryBlobStore) -> TribleSet {
     metadata_set += Blake3::describe();
     metadata_set += Handle::<LongString>::describe();
     metadata_set += Handle::<SimpleArchive>::describe();
-    metadata_set +=
-        Handle::<SuccinctArchiveBlob>::describe();
+    metadata_set += Handle::<SuccinctArchiveBlob>::describe();
     metadata_set += Handle::<WasmCode>::describe();
 
     metadata_set += LongString::describe();

@@ -3,9 +3,7 @@ use eframe::egui::{
     Widget, WidgetInfo, WidgetText, WidgetType,
 };
 
-use crate::themes::{
-    GorbieButtonStyle, GorbieChoiceToggleStyle, GorbieRadioStyle,
-};
+use crate::themes::{GorbieButtonStyle, GorbieChoiceToggleStyle, GorbieRadioStyle};
 
 /// A momentary or toggle button with optional LED indicator.
 ///
@@ -78,17 +76,29 @@ impl<'a> Button<'a> {
     }
 
     /// Match the width of a full grid row (12 columns = 744px).
-    pub fn full(self) -> Self { self.columns(12) }
+    pub fn full(self) -> Self {
+        self.columns(12)
+    }
     /// Match the width of a three-quarter grid cell (9 columns = 555px).
-    pub fn three_quarters(self) -> Self { self.columns(9) }
+    pub fn three_quarters(self) -> Self {
+        self.columns(9)
+    }
     /// Match the width of a two-thirds grid cell (8 columns = 492px).
-    pub fn two_thirds(self) -> Self { self.columns(8) }
+    pub fn two_thirds(self) -> Self {
+        self.columns(8)
+    }
     /// Match the width of a half grid cell (6 columns = 366px).
-    pub fn half(self) -> Self { self.columns(6) }
+    pub fn half(self) -> Self {
+        self.columns(6)
+    }
     /// Match the width of a one-third grid cell (4 columns = 240px).
-    pub fn third(self) -> Self { self.columns(4) }
+    pub fn third(self) -> Self {
+        self.columns(4)
+    }
     /// Match the width of a quarter grid cell (3 columns = 177px).
-    pub fn quarter(self) -> Self { self.columns(3) }
+    pub fn quarter(self) -> Self {
+        self.columns(3)
+    }
 
     /// Match the width of an arbitrary grid column span (`n` columns plus
     /// `n-1` gutters). Escape hatch for spans that don't divide 12 cleanly;
@@ -171,8 +181,7 @@ impl Widget for Button<'_> {
             && ui.input(|input| input.key_down(Key::Space) || input.key_down(Key::Enter));
         let is_down = enabled
             && (response.is_pointer_button_down_on() || keyboard_down || latched || toggled_on);
-        let prepress =
-            enabled && !is_down && (response.hovered() || response.has_focus());
+        let prepress = enabled && !is_down && (response.hovered() || response.has_focus());
 
         let stroke_color = if enabled && selected { accent } else { outline };
 
@@ -223,7 +232,10 @@ impl Widget for Button<'_> {
             let led_inset_x = 2.0;
             let led_inset_y = 2.0;
             let led_rect = Rect::from_min_max(
-                pos2(body_rect.left() + led_inset_x, body_rect.top() + led_inset_y),
+                pos2(
+                    body_rect.left() + led_inset_x,
+                    body_rect.top() + led_inset_y,
+                ),
                 pos2(
                     body_rect.right() - led_inset_x,
                     (body_rect.top() + led_inset_y + led_height).min(body_rect.bottom()),
@@ -252,7 +264,6 @@ impl crate::themes::Styled for Button<'_> {
         self.gorbie_style = style;
     }
 }
-
 
 /// A radio button that selects one value from a group.
 ///
@@ -291,17 +302,29 @@ impl<'a, T> RadioButton<'a, T> {
     }
 
     /// Match the width of a full grid row (12 columns = 744px).
-    pub fn full(self) -> Self { self.columns(12) }
+    pub fn full(self) -> Self {
+        self.columns(12)
+    }
     /// Match the width of a three-quarter grid cell (9 columns = 555px).
-    pub fn three_quarters(self) -> Self { self.columns(9) }
+    pub fn three_quarters(self) -> Self {
+        self.columns(9)
+    }
     /// Match the width of a two-thirds grid cell (8 columns = 492px).
-    pub fn two_thirds(self) -> Self { self.columns(8) }
+    pub fn two_thirds(self) -> Self {
+        self.columns(8)
+    }
     /// Match the width of a half grid cell (6 columns = 366px).
-    pub fn half(self) -> Self { self.columns(6) }
+    pub fn half(self) -> Self {
+        self.columns(6)
+    }
     /// Match the width of a one-third grid cell (4 columns = 240px).
-    pub fn third(self) -> Self { self.columns(4) }
+    pub fn third(self) -> Self {
+        self.columns(4)
+    }
     /// Match the width of a quarter grid cell (3 columns = 177px).
-    pub fn quarter(self) -> Self { self.columns(3) }
+    pub fn quarter(self) -> Self {
+        self.columns(3)
+    }
 
     /// Match the width of an arbitrary grid column span (`n` columns plus
     /// `n-1` gutters). Escape hatch for spans that don't divide 12 cleanly;
@@ -352,8 +375,7 @@ where
         let gap = (padding.x * 0.8).at_least(6.0);
         let label_text = text.text().to_string();
         let max_text_width = match width_px {
-            Some(w) => (w - padding.x * 2.0 - indicator_size - gap - shadow_inset.x)
-                .at_least(0.0),
+            Some(w) => (w - padding.x * 2.0 - indicator_size - gap - shadow_inset.x).at_least(0.0),
             None => f32::INFINITY,
         };
         let galley = text.into_galley(
@@ -530,17 +552,29 @@ impl<'a, T> ChoiceToggle<'a, T> {
     }
 
     /// Match the width of a full grid row (12 columns = 744px).
-    pub fn full(self) -> Self { self.columns(12) }
+    pub fn full(self) -> Self {
+        self.columns(12)
+    }
     /// Match the width of a three-quarter grid cell (9 columns = 555px).
-    pub fn three_quarters(self) -> Self { self.columns(9) }
+    pub fn three_quarters(self) -> Self {
+        self.columns(9)
+    }
     /// Match the width of a two-thirds grid cell (8 columns = 492px).
-    pub fn two_thirds(self) -> Self { self.columns(8) }
+    pub fn two_thirds(self) -> Self {
+        self.columns(8)
+    }
     /// Match the width of a half grid cell (6 columns = 366px).
-    pub fn half(self) -> Self { self.columns(6) }
+    pub fn half(self) -> Self {
+        self.columns(6)
+    }
     /// Match the width of a one-third grid cell (4 columns = 240px).
-    pub fn third(self) -> Self { self.columns(4) }
+    pub fn third(self) -> Self {
+        self.columns(4)
+    }
     /// Match the width of a quarter grid cell (3 columns = 177px).
-    pub fn quarter(self) -> Self { self.columns(3) }
+    pub fn quarter(self) -> Self {
+        self.columns(3)
+    }
 
     /// Match the width of an arbitrary grid column span (`n` columns plus
     /// `n-1` gutters). Escape hatch for spans that don't divide 12 cleanly;

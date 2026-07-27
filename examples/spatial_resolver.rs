@@ -123,7 +123,10 @@ struct Motor {
 }
 impl Motor {
     fn identity() -> Self {
-        Motor { r: [1.0, 0.0, 0.0, 0.0], d: [0.0; 4] }
+        Motor {
+            r: [1.0, 0.0, 0.0, 0.0],
+            d: [0.0; 4],
+        }
     }
     fn from_rotation_translation(rot: Quat, t: Vec3) -> Self {
         let d = q_mul([0.0, t[0], t[1], t[2]], rot).map(|x| 0.5 * x);
@@ -141,7 +144,10 @@ impl Motor {
         let r = q_mul(self.r, other.r);
         let a = q_mul(self.r, other.d);
         let b = q_mul(self.d, other.r);
-        Motor { r, d: [a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]] }
+        Motor {
+            r,
+            d: [a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]],
+        }
     }
     /// Inverse of a unit dual quaternion: (r*, d*) reversed appropriately.
     fn inverse(&self) -> Motor {
@@ -166,7 +172,10 @@ fn sclerp(m0: &Motor, m1: &Motor, s: f64) -> Motor {
     let rel = m0.inverse().compose(m1);
     // Sign-normalize to the short way round.
     let rel = if rel.r[0] < 0.0 {
-        Motor { r: rel.r.map(|x| -x), d: rel.d.map(|x| -x) }
+        Motor {
+            r: rel.r.map(|x| -x),
+            d: rel.d.map(|x| -x),
+        }
     } else {
         rel
     };
@@ -178,7 +187,11 @@ fn sclerp(m0: &Motor, m1: &Motor, s: f64) -> Motor {
         let t = rel.translation();
         Motor::from_rotation_translation([1.0, 0.0, 0.0, 0.0], [t[0] * s, t[1] * s, t[2] * s])
     } else {
-        let axis = [rel.r[1] / sin_half, rel.r[2] / sin_half, rel.r[3] / sin_half];
+        let axis = [
+            rel.r[1] / sin_half,
+            rel.r[2] / sin_half,
+            rel.r[3] / sin_half,
+        ];
         let new_half = half * s;
         let (sn, cn) = new_half.sin_cos();
         let r_s = [cn, axis[0] * sn, axis[1] * sn, axis[2] * sn];
@@ -324,14 +337,35 @@ fn main() {
     let mut samples = Vec::new();
     let mut ts = 0.0;
     while ts <= 3.0 * 3600.0 + 1.0 {
-        samples.push((ts, Motor::from_rotation(q_axis_angle([0.0, 0.0, 1.0], theta(ts)))));
+        samples.push((
+            ts,
+            Motor::from_rotation(q_axis_angle([0.0, 0.0, 1.0], theta(ts))),
+        ));
         ts += 1800.0;
     }
 
     let mut frames = HashMap::new();
-    frames.insert("ECI", Frame { parent: None, edge: Edge::Static(Motor::identity()) });
-    frames.insert("ECEF", Frame { parent: Some("ECI"), edge: Edge::Dynamic(samples) });
-    frames.insert("ENU", Frame { parent: Some("ECEF"), edge: Edge::Static(enu_to_ecef) });
+    frames.insert(
+        "ECI",
+        Frame {
+            parent: None,
+            edge: Edge::Static(Motor::identity()),
+        },
+    );
+    frames.insert(
+        "ECEF",
+        Frame {
+            parent: Some("ECI"),
+            edge: Edge::Dynamic(samples),
+        },
+    );
+    frames.insert(
+        "ENU",
+        Frame {
+            parent: Some("ECEF"),
+            edge: Edge::Static(enu_to_ecef),
+        },
+    );
     let tree = Tree { frames };
 
     // A satellite, given as a fixed position in ECI (a 20 000 km-radius
@@ -379,26 +413,43 @@ fn main() {
         let edge = tree.edge_at("ECEF", t);
         let analytic = Motor::from_rotation(q_axis_angle([0.0, 0.0, 1.0], th));
         let probe = [A_WGS84, 0.0, 0.0];
-        interp_max_err = interp_max_err.max(norm3(sub3(edge.transform_point(probe), analytic.transform_point(probe))));
+        interp_max_err = interp_max_err.max(norm3(sub3(
+            edge.transform_point(probe),
+            analytic.transform_point(probe),
+        )));
 
         let derr = ((az_r - az_d + 540.0).rem_euclid(360.0) - 180.0).abs() + (el_r - el_d).abs();
         max_err = max_err.max(derr);
         println!(
             "    {:6.0}    az={:7.2}  el={:6.2}      az={:7.2}  el={:6.2}     {:.2e}",
-            t / 60.0, az_r, el_r, az_d, el_d, derr
+            t / 60.0,
+            az_r,
+            el_r,
+            az_d,
+            el_d,
+            derr
         );
     }
     println!();
 
-    check("resolver az/el matches direct geometry at every step (< 1e-6°)", max_err < 1e-6);
-    check("interpolated Earth-spin edge matches analytic Rz(θ) off-grid (< 1 m)", interp_max_err < 1.0);
+    check(
+        "resolver az/el matches direct geometry at every step (< 1e-6°)",
+        max_err < 1e-6,
+    );
+    check(
+        "interpolated Earth-spin edge matches analytic Rz(θ) off-grid (< 1 m)",
+        interp_max_err < 1.0,
+    );
 
     // The satellite must actually rise above the horizon during the pass
     // (elevation goes positive) — a sanity check that the geometry is real,
     // not a coordinate artifact.
     let el0 = az_el(tree.resolve_point(sat_eci, "ECI", "ENU", 0.0)).1;
     let el_mid = az_el(tree.resolve_point(sat_eci, "ECI", "ENU", 5400.0)).1;
-    check("satellite elevation changes over the pass (a real ground track)", (el_mid - el0).abs() > 1.0);
+    check(
+        "satellite elevation changes over the pass (a real ground track)",
+        (el_mid - el0).abs() > 1.0,
+    );
 
     println!();
     if fails == 0 {

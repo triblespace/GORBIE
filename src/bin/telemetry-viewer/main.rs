@@ -14,9 +14,9 @@ mod app;
 mod axis;
 
 #[cfg(feature = "telemetry")]
-use GORBIE::NotebookCtx;
-#[cfg(feature = "telemetry")]
 use GORBIE::notebook;
+#[cfg(feature = "telemetry")]
+use GORBIE::NotebookCtx;
 
 #[cfg(feature = "telemetry")]
 #[notebook(name = "Tracing telemetry viewer")]

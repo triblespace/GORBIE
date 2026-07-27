@@ -190,11 +190,7 @@ pub(crate) fn order_sessions(sessions: &mut [AxisSessionData], now_prefix: u32) 
 /// for off). Returns `(value, observation_count)` where `value` is in
 /// nanoseconds for duration aggregates and the count itself for
 /// [`AxisAgg::Count`]; `None` when no observation survives the floor.
-pub(crate) fn aggregate(
-    observations: &[u64],
-    agg: AxisAgg,
-    floor_ns: u64,
-) -> Option<(f64, usize)> {
+pub(crate) fn aggregate(observations: &[u64], agg: AxisAgg, floor_ns: u64) -> Option<(f64, usize)> {
     let mut passing: Vec<u64> = observations
         .iter()
         .copied()
@@ -717,9 +713,7 @@ pub(crate) fn show_axis(ui: &mut egui::Ui, state: &mut AxisViewState, snapshot: 
         .max_height(140.0)
         .show(ui, |ui| {
             for name in &snapshot.span_names {
-                if !needle.is_empty()
-                    && !contains_case_insensitive_ascii(name, needle.as_bytes())
-                {
+                if !needle.is_empty() && !contains_case_insensitive_ascii(name, needle.as_bytes()) {
                     continue;
                 }
                 let selected = state.selected_series.contains(name);
@@ -798,7 +792,11 @@ pub(crate) fn show_axis(ui: &mut egui::Ui, state: &mut AxisViewState, snapshot: 
                                 .small()
                                 .strong(),
                         )
-                        .on_hover_text(format!("{} ({})", name, state.agg.label()));
+                        .on_hover_text(format!(
+                            "{} ({})",
+                            name,
+                            state.agg.label()
+                        ));
                     }
                     ui.end_row();
 
@@ -850,7 +848,11 @@ fn show_axis_plot(
     let session_count = labels.len();
 
     // Duration aggregates plot in milliseconds; count plots raw.
-    let y_scale = if agg.is_duration() { 1.0 / 1_000_000.0 } else { 1.0 };
+    let y_scale = if agg.is_duration() {
+        1.0 / 1_000_000.0
+    } else {
+        1.0
+    };
     let y_unit = if agg.is_duration() { "ms" } else { "obs" };
     ui.label(
         egui::RichText::new(format!("Y: {} ({y_unit})", agg.label()))
@@ -1061,7 +1063,8 @@ mod tests {
             .insert("query/total".to_owned(), vec![100_000, 300_000]);
         let b = session_data(2000, 2); // no observations at all
         let mut c = session_data(3000, 3);
-        c.observations.insert("query/total".to_owned(), vec![50_000]);
+        c.observations
+            .insert("query/total".to_owned(), vec![50_000]);
 
         let mut sessions = vec![a, b, c];
         order_sessions(&mut sessions, 5000);
@@ -1101,17 +1104,27 @@ mod tests {
             metadata::value_encoding: <U256BE as MetaDescribe>::id(),
         };
 
-        let discovered: HashMap<Id, String> =
-            discover_session_attrs(&space, &meta, &session).into_iter().collect();
+        let discovered: HashMap<Id, String> = discover_session_attrs(&space, &meta, &session)
+            .into_iter()
+            .collect();
 
         // Declared ShortString: offered with its value.
-        assert_eq!(discovered.get(&engine_id).map(String::as_str), Some("baseline"));
+        assert_eq!(
+            discovered.get(&engine_id).map(String::as_str),
+            Some("baseline")
+        );
         // Undeclared but ShortString-shaped: offered via the heuristic.
         let adhoc_id = fixture_undeclared::adhoc_note.id();
-        assert_eq!(discovered.get(&adhoc_id).map(String::as_str), Some("warm-run"));
+        assert_eq!(
+            discovered.get(&adhoc_id).map(String::as_str),
+            Some("warm-run")
+        );
         // Canonical ShortString attribute of the schema itself: offered.
         let category_id = t::category.id();
-        assert_eq!(discovered.get(&category_id).map(String::as_str), Some("session"));
+        assert_eq!(
+            discovered.get(&category_id).map(String::as_str),
+            Some("session")
+        );
         // Declared non-ShortString whose bytes would pass the heuristic: vetoed.
         assert!(!discovered.contains_key(&weird_id));
         // Numeric/id-valued attributes self-exclude (leading NUL byte).
@@ -1259,8 +1272,8 @@ mod tests {
         }
 
         let mut cache = RepoCache::default();
-        let index = load_axis(&mut cache, pile_path.clone(), branch_id, None)
-            .expect("load axis index");
+        let index =
+            load_axis(&mut cache, pile_path.clone(), branch_id, None).expect("load axis index");
         let snapshot = index.snapshot(5000);
 
         // Session ordering: chronological by begin (ufoid prefix).
@@ -1297,13 +1310,19 @@ mod tests {
             .map(|(id, name)| (name.as_str(), *id))
             .collect();
         assert_eq!(by_name.get("engine_label"), Some(&engine_id));
-        assert_eq!(by_name.get("commit_label"), Some(&fixture::commit_label.id()));
+        assert_eq!(
+            by_name.get("commit_label"),
+            Some(&fixture::commit_label.id())
+        );
         // The undeclared attribute (no metadata in the pile) is offered
         // heuristically; only run-b carries it.
         let adhoc_id = fixture_undeclared::adhoc_note.id();
         assert!(snapshot.label_attrs.iter().any(|(id, _)| *id == adhoc_id));
         assert_eq!(
-            snapshot.sessions[1].attrs.get(&adhoc_id).map(String::as_str),
+            snapshot.sessions[1]
+                .attrs
+                .get(&adhoc_id)
+                .map(String::as_str),
             Some("warm-run")
         );
         assert!(!snapshot.sessions[0].attrs.contains_key(&adhoc_id));
@@ -1314,7 +1333,10 @@ mod tests {
         assert_eq!(aggregate(obs_a, AxisAgg::Min, 0), Some((100_000.0, 3)));
         assert_eq!(aggregate(obs_a, AxisAgg::Max, 0), Some((300_000.0, 3)));
         assert_eq!(aggregate(obs_a, AxisAgg::Total, 0), Some((600_000.0, 3)));
-        assert_eq!(aggregate(obs_a, AxisAgg::Min, 150_000), Some((200_000.0, 2)));
+        assert_eq!(
+            aggregate(obs_a, AxisAgg::Min, 150_000),
+            Some((200_000.0, 2))
+        );
 
         let series = series_points(&snapshot.sessions, "load/total", AxisAgg::Total, 0);
         assert_eq!(series, vec![(0, 50_000.0, 1), (1, 100_000.0, 2)]);

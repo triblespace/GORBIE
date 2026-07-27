@@ -39,8 +39,8 @@ pub mod themes;
 /// Built-in widgets: buttons, fields, sliders, progress bars, and more.
 pub mod widgets;
 
-pub use gorbie_macros::notebook;
 pub use gorbie_macros::__gorbie_web_export;
+pub use gorbie_macros::notebook;
 
 use crate::themes::industrial_dark;
 use crate::themes::industrial_fonts;
@@ -53,12 +53,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[cfg(not(target_arch = "wasm32"))]
+use dark_light::Mode;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 #[cfg(not(target_arch = "wasm32"))]
 use std::process::Command;
-#[cfg(not(target_arch = "wasm32"))]
-use dark_light::Mode;
-
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct SourceLocation {
@@ -272,8 +271,8 @@ pub struct NotebookCtx {
 
 pub use card_ctx::CardCtx;
 pub use card_ctx::Grid;
-pub use card_ctx::GRID_COL_WIDTH;
 pub use card_ctx::GRID_COLUMNS;
+pub use card_ctx::GRID_COL_WIDTH;
 pub use card_ctx::GRID_GUTTER;
 
 /// Context-data key for the headless-capture marker.
@@ -505,7 +504,10 @@ impl NotebookConfig {
     /// Looks for a `<canvas id="gorbie_canvas">` element and starts the eframe
     /// web runner on it.
     #[cfg(target_arch = "wasm32")]
-    pub fn run(self, body: impl FnMut(&mut NotebookCtx) + 'static) -> Result<(), wasm_bindgen::JsValue> {
+    pub fn run(
+        self,
+        body: impl FnMut(&mut NotebookCtx) + 'static,
+    ) -> Result<(), wasm_bindgen::JsValue> {
         use wasm_bindgen::JsCast;
 
         eframe::WebLogger::init(log::LevelFilter::Debug).ok();
@@ -597,7 +599,11 @@ impl state::StateAccess for NotebookCtx {
 }
 
 impl NotebookCtx {
-    fn new(config: &NotebookConfig, state_store: Arc<state::StateStore>, settled: Arc<AtomicBool>) -> Self {
+    fn new(
+        config: &NotebookConfig,
+        state_store: Arc<state::StateStore>,
+        settled: Arc<AtomicBool>,
+    ) -> Self {
         Self {
             state_id: config.state_id(),
             cards: Vec::new(),
@@ -699,7 +705,8 @@ impl NotebookCore {
     }
 
     fn build_notebook(&mut self) -> NotebookCtx {
-        let mut notebook = NotebookCtx::new(&self.config, self.state_store.clone(), self.settled.clone());
+        let mut notebook =
+            NotebookCtx::new(&self.config, self.state_store.clone(), self.settled.clone());
         (self.body)(&mut notebook);
         notebook
     }
@@ -792,23 +799,23 @@ impl eframe::App for Notebook {
         // Frame so the notebook draws on the theme's panel fill instead
         // of transparent/black.
         egui::Frame::central_panel(&ctx.global_style()).show(ui, |ui| {
-        egui::ScrollArea::vertical()
-            .auto_shrink([false; 2])
-            // Disable drag-to-scroll on the main notebook scroller. egui's
-            // hit-test panics (`hit_test.rs:365`) when a big drag-sensing
-            // ScrollArea coexists with nearby click-sensing widgets —
-            // which is every interactive card in a notebook. Users still
-            // scroll via scroll bars + mouse wheel; touch-style drag-pan
-            // is lost.
-            .scroll_source(egui::scroll_area::ScrollSource {
-                scroll_bar: true,
-                drag: false,
-                mouse_wheel: true,
-            })
-            .show_viewport(ui, |ui, viewport| {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                // Disable drag-to-scroll on the main notebook scroller. egui's
+                // hit-test panics (`hit_test.rs:365`) when a big drag-sensing
+                // ScrollArea coexists with nearby click-sensing widgets —
+                // which is every interactive card in a notebook. Users still
+                // scroll via scroll bars + mouse wheel; touch-style drag-pan
+                // is lost.
+                .scroll_source(egui::scroll_area::ScrollSource {
+                    scroll_bar: true,
+                    drag: false,
+                    mouse_wheel: true,
+                })
+                .show_viewport(ui, |ui, viewport| {
                     let rect = ui.max_rect();
                     let clip_rect = ui.clip_rect();
-                        let scroll_y = viewport.min.y;
+                    let scroll_y = viewport.min.y;
 
                     // Publish scroll info so floating cards can do anchor switching.
                     floating::store_scroll_info(
@@ -870,16 +877,8 @@ impl eframe::App for Notebook {
 
                         let fill = ui.visuals().window_fill;
 
-                        let card_gap = ui
-                            .visuals()
-                            .widgets
-                            .noninteractive
-                            .bg_stroke
-                            .width
-                            .max(1.0);
-                        let card_gap_i8 = card_gap
-                            .round()
-                            .clamp(0.0, i8::MAX as f32) as i8;
+                        let card_gap = ui.visuals().widgets.noninteractive.bg_stroke.width.max(1.0);
+                        let card_gap_i8 = card_gap.round().clamp(0.0, i8::MAX as f32) as i8;
                         let column_inner_margin = egui::Margin {
                             left: 0,
                             right: 0,
@@ -945,10 +944,12 @@ impl eframe::App for Notebook {
                                 for (i, entry) in notebook.cards.iter_mut().enumerate() {
                                     let card_identity = entry.identity;
                                     runtime.ensure_card_identity(i, card_identity);
-                                    let card_detached = runtime.card_detached
+                                    let card_detached = runtime
+                                        .card_detached
                                         .get_mut(i)
                                         .expect("card_detached synced to cards");
-                                    let card_placeholder_size = runtime.card_placeholder_sizes
+                                    let card_placeholder_size = runtime
+                                        .card_placeholder_sizes
                                         .get_mut(i)
                                         .expect("card_placeholder_sizes synced to cards");
                                     ui.push_id((i, card_identity), |ui| {
@@ -992,10 +993,9 @@ impl eframe::App for Notebook {
                                                     "Dock card",
                                                     &mut |ctx| {
                                                         #[cfg(feature = "telemetry")]
-                                                        let _detached_span = tracing::info_span!(
-                                                            "detached_draw"
-                                                        )
-                                                        .entered();
+                                                        let _detached_span =
+                                                            tracing::info_span!("detached_draw")
+                                                                .entered();
                                                         card.draw(ctx);
                                                     },
                                                 );
@@ -1007,14 +1007,8 @@ impl eframe::App for Notebook {
                                         } else {
                                             let clip_rect = ui.clip_rect();
                                             let card_clip_rect = egui::Rect::from_min_max(
-                                                egui::pos2(
-                                                    column_rect.min.x,
-                                                    clip_rect.min.y,
-                                                ),
-                                                egui::pos2(
-                                                    column_rect.max.x,
-                                                    clip_rect.max.y,
-                                                ),
+                                                egui::pos2(column_rect.min.x, clip_rect.min.y),
+                                                egui::pos2(column_rect.max.x, clip_rect.max.y),
                                             );
                                             #[cfg(feature = "telemetry")]
                                             let _card_span = {
@@ -1053,13 +1047,9 @@ impl eframe::App for Notebook {
                                                 egui::vec2(card_width, card_gap),
                                                 egui::Sense::hover(),
                                             );
-                                            let stroke = ui
-                                                .visuals()
-                                                .widgets
-                                                .noninteractive
-                                                .bg_stroke;
-                                            ui.painter()
-                                                .rect_filled(gap_rect, 0.0, stroke.color);
+                                            let stroke =
+                                                ui.visuals().widgets.noninteractive.bg_stroke;
+                                            ui.painter().rect_filled(gap_rect, 0.0, stroke.color);
                                         }
 
                                         let show_detach_button = !*card_detached;
@@ -1070,7 +1060,10 @@ impl eframe::App for Notebook {
                                         #[cfg(target_arch = "wasm32")]
                                         let show_open_button = false;
                                         if show_detach_button {
-                                            let tab_size = egui::vec2(20.0, 2.0 * crate::card_ctx::GRID_ROW_MODULE);
+                                            let tab_size = egui::vec2(
+                                                20.0,
+                                                2.0 * crate::card_ctx::GRID_ROW_MODULE,
+                                            );
                                             let tab_pull = 4.0;
                                             let base_tab_gap = 4.0;
                                             let base_top_offset = 8.0;
@@ -1098,18 +1091,15 @@ impl eframe::App for Notebook {
                                                 let remaining = extra - top_reduce;
 
                                                 if remaining > 0.0 && tab_count > 1 {
-                                                    let min_gap =
-                                                        -(tab_size.y - min_visible);
-                                                    let max_gap_reduce =
-                                                        (gap - min_gap).max(0.0);
+                                                    let min_gap = -(tab_size.y - min_visible);
+                                                    let max_gap_reduce = (gap - min_gap).max(0.0);
                                                     let gap_reduce = remaining.min(max_gap_reduce);
                                                     gap -= gap_reduce;
                                                 }
                                             }
 
                                             let tab_x = card_rect.right().round();
-                                            let top_y =
-                                                (card_rect.top() + top_offset).round();
+                                            let top_y = (card_rect.top() + top_offset).round();
                                             let detach_pos = egui::pos2(tab_x, top_y);
                                             #[allow(unused_variables)]
                                             let open_pos = show_open_button.then(|| {
@@ -1122,8 +1112,7 @@ impl eframe::App for Notebook {
                                             ui.push_id((i, card_identity), |ui| {
                                                 #[cfg(not(target_arch = "wasm32"))]
                                                 if let Some(open_pos) = open_pos {
-                                                    let open_id =
-                                                        ui.id().with("open_button");
+                                                    let open_id = ui.id().with("open_button");
                                                     let open_area = egui::Area::new(open_id)
                                                         .order(egui::Order::Middle)
                                                         .fixed_pos(open_pos)
@@ -1131,8 +1120,8 @@ impl eframe::App for Notebook {
                                                         .constrain_to(egui::Rect::EVERYTHING);
                                                     let open_resp =
                                                         open_area.show(ui.ctx(), |ui| {
-                                                            let (rect, resp) =
-                                                                ui.allocate_exact_size(
+                                                            let (rect, resp) = ui
+                                                                .allocate_exact_size(
                                                                     egui::vec2(
                                                                         tab_size.x + tab_pull,
                                                                         tab_size.y,
@@ -1141,16 +1130,11 @@ impl eframe::App for Notebook {
                                                                 );
                                                             let tab_rect =
                                                                 egui::Rect::from_min_size(
-                                                                    rect.min,
-                                                                    tab_size,
+                                                                    rect.min, tab_size,
                                                                 );
                                                             paint_card_tab_button(
-                                                                ui,
-                                                                &resp,
-                                                                tab_rect,
-                                                                "<>",
-                                                                tab_fill,
-                                                                tab_pull,
+                                                                ui, &resp, tab_rect, "<>",
+                                                                tab_fill, tab_pull,
                                                             );
 
                                                             if let Some(source) =
@@ -1162,9 +1146,7 @@ impl eframe::App for Notebook {
                                                                     "Open in editor\n{file}:{line}"
                                                                 );
                                                                 show_postit_tooltip(
-                                                                    ui,
-                                                                    &resp,
-                                                                    &tooltip,
+                                                                    ui, &resp, &tooltip,
                                                                 );
                                                             } else {
                                                                 show_postit_tooltip(
@@ -1178,12 +1160,10 @@ impl eframe::App for Notebook {
 
                                                     #[cfg(not(target_arch = "wasm32"))]
                                                     if open_resp.inner.clicked() {
-                                                        if let (Some(source), Some(editor)) =
-                                                            (
-                                                                entry.source.as_ref(),
-                                                                config.editor.as_ref(),
-                                                            )
-                                                        {
+                                                        if let (Some(source), Some(editor)) = (
+                                                            entry.source.as_ref(),
+                                                            config.editor.as_ref(),
+                                                        ) {
                                                             if let Err(err) = editor.open(source) {
                                                                 log::warn!(
                                                                     "failed to open editor: {err}"
@@ -1201,25 +1181,18 @@ impl eframe::App for Notebook {
                                                     .constrain_to(egui::Rect::EVERYTHING);
                                                 let detach_resp =
                                                     detach_area.show(ui.ctx(), |ui| {
-                                                        let (rect, resp) =
-                                                            ui.allocate_exact_size(
-                                                                egui::vec2(
-                                                                    tab_size.x + tab_pull,
-                                                                    tab_size.y,
-                                                                ),
-                                                                egui::Sense::click(),
-                                                            );
-                                                        let tab_rect =
-                                                            egui::Rect::from_min_size(
-                                                                rect.min,
-                                                                tab_size,
-                                                            );
+                                                        let (rect, resp) = ui.allocate_exact_size(
+                                                            egui::vec2(
+                                                                tab_size.x + tab_pull,
+                                                                tab_size.y,
+                                                            ),
+                                                            egui::Sense::click(),
+                                                        );
+                                                        let tab_rect = egui::Rect::from_min_size(
+                                                            rect.min, tab_size,
+                                                        );
                                                         paint_card_tab_button(
-                                                            ui,
-                                                            &resp,
-                                                            tab_rect,
-                                                            "[]",
-                                                            tab_fill,
+                                                            ui, &resp, tab_rect, "[]", tab_fill,
                                                             tab_pull,
                                                         );
 
@@ -1237,12 +1210,10 @@ impl eframe::App for Notebook {
                                                 }
                                             });
                                         }
-
                                     });
                                 }
 
                                 ui.style_mut().spacing.item_spacing = default_item_spacing;
-
                             });
                         ui.set_clip_rect(restore_clip_rect);
                         let frame_rect = column_frame.response.rect;

@@ -194,8 +194,7 @@ impl<T: Hash + Eq> StreamLane<T> {
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
                         let wrap_width = ui.available_width().max(24.0);
-                        if (wrap_width - self.cached_width).abs() > 0.5
-                            || dark != self.cached_dark
+                        if (wrap_width - self.cached_width).abs() > 0.5 || dark != self.cached_dark
                         {
                             self.cached_width = wrap_width;
                             self.cached_dark = dark;

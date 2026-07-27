@@ -20,9 +20,7 @@
 //! ```
 
 use triblespace::core::id::{ExclusiveId, Id};
-use triblespace::core::inline::{
-    Encodes, Inline, InlineEncoding, RawInline, TryFromInline,
-};
+use triblespace::core::inline::{Encodes, Inline, InlineEncoding, RawInline, TryFromInline};
 use triblespace::core::metadata::{self, MetaDescribe};
 use triblespace::core::trible::{Fragment, TribleSet};
 use triblespace::macros::{find, id_hex, pattern};
@@ -127,8 +125,8 @@ fn geodetic_to_ecef(lat_deg: f64, lon_deg: f64, alt_m: f64) -> [f64; 3] {
 // ── Round-trip proof ─────────────────────────────────────────────────
 
 fn main() {
-    use triblespace::macros::entity;
     use triblespace::core::inline::IntoInline;
+    use triblespace::macros::entity;
 
     // A handful of cities (name, lat, lon).
     let cities = [
@@ -170,10 +168,9 @@ fn main() {
             .find(|(id, _, _)| id == e)
             .map(|(_, n, ec)| (n.clone(), *ec))
             .expect("queried id not in expected set");
-        let err = ((xyz[0] - want[0]).powi(2)
-            + (xyz[1] - want[1]).powi(2)
-            + (xyz[2] - want[2]).powi(2))
-        .sqrt();
+        let err =
+            ((xyz[0] - want[0]).powi(2) + (xyz[1] - want[1]).powi(2) + (xyz[2] - want[2]).powi(2))
+                .sqrt();
         let r = (xyz[0] * xyz[0] + xyz[1] * xyz[1] + xyz[2] * xyz[2]).sqrt();
         println!(
             "  {name:<14} ECEF = [{:>12.1}, {:>12.1}, {:>12.1}]  |r|={:.1} km  roundtrip_err={err:.3e} m",
@@ -238,23 +235,27 @@ fn external_reality_check() {
     };
 
     check(
-        &format!(
-            "first eccentricity² matches published 6.694379990141e-3 (got {e2:.15e})"
-        ),
+        &format!("first eccentricity² matches published 6.694379990141e-3 (got {e2:.15e})"),
         (e2 - E2_PUB).abs() < 1e-15,
     );
 
     // Prime-meridian equator → published (a, 0, 0).
     let eq0 = geodetic_to_ecef(0.0, 0.0, 0.0);
     check(
-        &format!("equator/prime-meridian ECEF = (a,0,0) = ({A_PUB:.1}, 0, 0)  [got {:.4}, {:.4}, {:.4}]", eq0[0], eq0[1], eq0[2]),
+        &format!(
+            "equator/prime-meridian ECEF = (a,0,0) = ({A_PUB:.1}, 0, 0)  [got {:.4}, {:.4}, {:.4}]",
+            eq0[0], eq0[1], eq0[2]
+        ),
         (eq0[0] - A_PUB).abs() < 1e-6 && eq0[1].abs() < 1e-6 && eq0[2].abs() < 1e-6,
     );
 
     // Equator, 90° east → published (0, a, 0).
     let eq90 = geodetic_to_ecef(0.0, 90.0, 0.0);
     check(
-        &format!("equator/90°E ECEF = (0,a,0) = (0, {A_PUB:.1}, 0)  [got {:.4}, {:.4}, {:.4}]", eq90[0], eq90[1], eq90[2]),
+        &format!(
+            "equator/90°E ECEF = (0,a,0) = (0, {A_PUB:.1}, 0)  [got {:.4}, {:.4}, {:.4}]",
+            eq90[0], eq90[1], eq90[2]
+        ),
         eq90[0].abs() < 1e-6 && (eq90[1] - A_PUB).abs() < 1e-6 && eq90[2].abs() < 1e-6,
     );
 
@@ -262,7 +263,10 @@ fn external_reality_check() {
     // axis. Tolerance 1e-3 m because B_PUB is quoted to 4 decimal places.
     let pole = geodetic_to_ecef(90.0, 0.0, 0.0);
     check(
-        &format!("north-pole ECEF Z = semi-minor axis b = {B_PUB:.4} m  [got {:.4} m]", pole[2]),
+        &format!(
+            "north-pole ECEF Z = semi-minor axis b = {B_PUB:.4} m  [got {:.4} m]",
+            pole[2]
+        ),
         pole[0].abs() < 1e-6 && pole[1].abs() < 1e-6 && (pole[2] - B_PUB).abs() < 1e-3,
     );
 

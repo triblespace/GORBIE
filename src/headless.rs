@@ -158,8 +158,7 @@ impl HeadlessWgpuRunner {
             };
 
             output.textures_delta = textures_delta;
-            let tiles =
-                self.render_output(output, egui::vec2(self.card_width, final_height))?;
+            let tiles = self.render_output(output, egui::vec2(self.card_width, final_height))?;
             for (tile_idx, image) in tiles.iter().enumerate() {
                 self.save_capture(index, tile_idx, tiles.len(), image)?;
             }

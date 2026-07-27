@@ -33,12 +33,17 @@ const FLOAT_MAX_BOTTOM_ID: &str = "gorbie_float_max_content_bottom";
 
 /// Returns the maximum content-space bottom Y across all floating cards this frame.
 pub(crate) fn max_float_content_bottom(ctx: &egui::Context) -> f32 {
-    ctx.data(|d| d.get_temp(egui::Id::new(FLOAT_MAX_BOTTOM_ID)).unwrap_or(0.0))
+    ctx.data(|d| {
+        d.get_temp(egui::Id::new(FLOAT_MAX_BOTTOM_ID))
+            .unwrap_or(0.0)
+    })
 }
 
 fn record_float_extent(ctx: &egui::Context, content_bottom: f32) {
     ctx.data_mut(|d| {
-        let current: f32 = d.get_temp(egui::Id::new(FLOAT_MAX_BOTTOM_ID)).unwrap_or(0.0);
+        let current: f32 = d
+            .get_temp(egui::Id::new(FLOAT_MAX_BOTTOM_ID))
+            .unwrap_or(0.0);
         if content_bottom > current {
             d.insert_temp(egui::Id::new(FLOAT_MAX_BOTTOM_ID), content_bottom);
         }
@@ -160,14 +165,7 @@ pub fn show_floating_card(
     let mut handle_clicked = false;
 
     area.show(egui_ctx, |ui| {
-        let resp = draw_card_chrome(
-            ui,
-            card_width,
-            min_height,
-            store,
-            tooltip,
-            draw_body,
-        );
+        let resp = draw_card_chrome(ui, card_width, min_height, store, tooltip, draw_body);
 
         if resp.dragged {
             ui.ctx().move_to_top(resp.layer_id);
@@ -314,7 +312,10 @@ fn draw_card_chrome(
         let screen = ui.ctx().content_rect();
         let card_clip = egui::Rect::from_min_max(
             egui::pos2(ui.min_rect().left(), restore_clip.min.y.max(screen.min.y)),
-            egui::pos2(ui.min_rect().left() + card_width, restore_clip.max.y.min(screen.max.y)),
+            egui::pos2(
+                ui.min_rect().left() + card_width,
+                restore_clip.max.y.min(screen.max.y),
+            ),
         );
         ui.set_clip_rect(card_clip);
         let mut ctx = CardCtx::new(ui, store);
@@ -328,8 +329,7 @@ fn draw_card_chrome(
         egui::vec2(card_width, inner.response.rect.height()),
     );
     let content_rect = card_rect.shrink(frame.stroke.width);
-    ui.painter()
-        .set(background_idx, frame.paint(content_rect));
+    ui.painter().set(background_idx, frame.paint(content_rect));
 
     // ── drag handle ──────────────────────────────────────────────────
     let handle_height = GRID_ROW_MODULE;

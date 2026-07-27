@@ -24,11 +24,7 @@ use crate::widgets::{Button, TextField};
 /// stroke; the currently-focused match (the one the bar's prev/next
 /// nav has selected) renders as a double parallel stroke for a more
 /// "GORBIE-themed" emphasis.
-pub fn paint_match_underline(
-    painter: &egui::Painter,
-    char_rect: egui::Rect,
-    focused: bool,
-) {
+pub fn paint_match_underline(painter: &egui::Painter, char_rect: egui::Rect, focused: bool) {
     let yellow = crate::themes::ral(1003);
     let b = char_rect.bottom();
     if focused {
@@ -58,11 +54,7 @@ pub fn paint_match_underline(
 ///
 /// Assumes Latin-ish text — uses byte-indexed `to_lowercase().find`
 /// which is correct for ASCII and works for most Latin extended.
-pub fn highlight_match(
-    text: &str,
-    needle: &str,
-    base: egui::TextFormat,
-) -> egui::text::LayoutJob {
+pub fn highlight_match(text: &str, needle: &str, base: egui::TextFormat) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
     if needle.is_empty() {
         job.append(text, 0.0, base);
@@ -111,9 +103,7 @@ pub fn highlight_label(
         // No search active — just a plain wrapping label.
         let mut job = egui::text::LayoutJob::default();
         job.append(text, 0.0, base);
-        return ui.add(
-            egui::Label::new(job).wrap_mode(egui::TextWrapMode::Wrap),
-        );
+        return ui.add(egui::Label::new(job).wrap_mode(egui::TextWrapMode::Wrap));
     }
 
     // Build the job once; reuse it for both the laid-out galley (which
@@ -123,8 +113,7 @@ pub fn highlight_label(
     // Label.
     job.wrap.max_width = ui.available_width();
     let galley = ui.ctx().fonts_mut(|f| f.layout_job(job));
-    let (rect, response) =
-        ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
     let painter = ui.painter().clone();
     painter.galley(rect.min, galley.clone(), base.color);
 
@@ -162,12 +151,9 @@ fn paint_focused_overlay(
         let start_char = text[..start_byte].chars().count();
         let end_char = text[..end_byte].chars().count();
 
-        let start_rect = galley.pos_from_cursor(
-            egui::epaint::text::cursor::CCursor::new(start_char),
-        );
-        let end_rect = galley.pos_from_cursor(
-            egui::epaint::text::cursor::CCursor::new(end_char),
-        );
+        let start_rect =
+            galley.pos_from_cursor(egui::epaint::text::cursor::CCursor::new(start_char));
+        let end_rect = galley.pos_from_cursor(egui::epaint::text::cursor::CCursor::new(end_char));
 
         if (start_rect.top() - end_rect.top()).abs() < 0.5 {
             // Single-row match — paint one extra underline.
@@ -354,7 +340,11 @@ pub(crate) fn render_bar(ctx: &egui::Context) {
     }
     let total = matches.len();
     // Keep focus_index in range; reset on empty.
-    let focus_index = if total == 0 { 0 } else { focus_index.min(total - 1) };
+    let focus_index = if total == 0 {
+        0
+    } else {
+        focus_index.min(total - 1)
+    };
 
     Area::new(Id::new("gorbie_search_bar"))
         .anchor(Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
@@ -405,12 +395,11 @@ pub(crate) fn render_bar(ctx: &egui::Context) {
                         } else {
                             None
                         };
-                        let response =
-                            ui.add(TextField::singleline(&mut query).progress(progress));
+                        let response = ui.add(TextField::singleline(&mut query).progress(progress));
                         // Enter while the field has focus = explicit
                         // "go to match" action, same as clicking ▶.
-                        let enter_pressed = response.has_focus()
-                            && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        let enter_pressed =
+                            response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                         let mut new_focus: Option<usize> = None;
                         if response.changed() {
                             // Typing only updates the highlight set —
@@ -433,10 +422,7 @@ pub(crate) fn render_bar(ctx: &egui::Context) {
                         let nav_enabled = !query.is_empty() && total > 0;
                         let clear_enabled = !query.is_empty();
                         let prev = ui
-                            .add_enabled(
-                                nav_enabled,
-                                Button::new("\u{25C0}").modules(2),
-                            )
+                            .add_enabled(nav_enabled, Button::new("\u{25C0}").modules(2))
                             .on_hover_text("Previous match");
                         if prev.clicked() {
                             let next = if !engaged {
@@ -449,10 +435,7 @@ pub(crate) fn render_bar(ctx: &egui::Context) {
                             new_focus = Some(next);
                         }
                         let nxt = ui
-                            .add_enabled(
-                                nav_enabled,
-                                Button::new("\u{25B6}").modules(2),
-                            )
+                            .add_enabled(nav_enabled, Button::new("\u{25B6}").modules(2))
                             .on_hover_text("Next match");
                         if nxt.clicked() {
                             let next = if !engaged {
@@ -471,10 +454,7 @@ pub(crate) fn render_bar(ctx: &egui::Context) {
                             new_focus = Some(next);
                         }
                         if ui
-                            .add_enabled(
-                                clear_enabled,
-                                Button::new("\u{2715}").modules(2),
-                            )
+                            .add_enabled(clear_enabled, Button::new("\u{2715}").modules(2))
                             .on_hover_text("Clear")
                             .clicked()
                         {

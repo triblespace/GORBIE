@@ -148,7 +148,10 @@ struct Motor {
 }
 impl Motor {
     fn identity() -> Self {
-        Motor { r: [1.0, 0.0, 0.0, 0.0], d: [0.0; 4] }
+        Motor {
+            r: [1.0, 0.0, 0.0, 0.0],
+            d: [0.0; 4],
+        }
     }
     fn from_rotation_translation(rot: Quat, t: Vec3) -> Self {
         let d = q_mul([0.0, t[0], t[1], t[2]], rot).map(|x| 0.5 * x);
@@ -166,7 +169,10 @@ impl Motor {
         let r = q_mul(self.r, other.r);
         let a = q_mul(self.r, other.d);
         let b = q_mul(self.d, other.r);
-        Motor { r, d: [a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]] }
+        Motor {
+            r,
+            d: [a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]],
+        }
     }
     fn inverse(&self) -> Motor {
         let r_inv = q_conj(self.r);
@@ -186,7 +192,10 @@ impl Motor {
 fn sclerp(m0: &Motor, m1: &Motor, s: f64) -> Motor {
     let rel = m0.inverse().compose(m1);
     let rel = if rel.r[0] < 0.0 {
-        Motor { r: rel.r.map(|x| -x), d: rel.d.map(|x| -x) }
+        Motor {
+            r: rel.r.map(|x| -x),
+            d: rel.d.map(|x| -x),
+        }
     } else {
         rel
     };
@@ -197,7 +206,11 @@ fn sclerp(m0: &Motor, m1: &Motor, s: f64) -> Motor {
         let t = rel.translation();
         Motor::from_rotation_translation([1.0, 0.0, 0.0, 0.0], [t[0] * s, t[1] * s, t[2] * s])
     } else {
-        let axis = [rel.r[1] / sin_half, rel.r[2] / sin_half, rel.r[3] / sin_half];
+        let axis = [
+            rel.r[1] / sin_half,
+            rel.r[2] / sin_half,
+            rel.r[3] / sin_half,
+        ];
         let new_half = half * s;
         let (sn, cn) = new_half.sin_cos();
         let r_s = [cn, axis[0] * sn, axis[1] * sn, axis[2] * sn];
@@ -232,8 +245,14 @@ impl Encodes<Motor> for MotorEnc {
     fn encode(m: Motor) -> Inline<MotorEnc> {
         let mut raw: RawInline = [0u8; 32];
         let vals = [
-            m.r[0] as f32, m.r[1] as f32, m.r[2] as f32, m.r[3] as f32,
-            m.d[0] as f32, m.d[1] as f32, m.d[2] as f32, m.d[3] as f32,
+            m.r[0] as f32,
+            m.r[1] as f32,
+            m.r[2] as f32,
+            m.r[3] as f32,
+            m.d[0] as f32,
+            m.d[1] as f32,
+            m.d[2] as f32,
+            m.d[3] as f32,
         ];
         for (i, v) in vals.iter().enumerate() {
             raw[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
@@ -423,7 +442,10 @@ fn to_root(set: &TribleSet, frame: Id, t: f64) -> Motor {
 fn resolve_point(set: &TribleSet, p: Vec3, src: Id, dst: Id, t: f64) -> Vec3 {
     let src_to_root = to_root(set, src, t);
     let dst_to_root = to_root(set, dst, t);
-    dst_to_root.inverse().compose(&src_to_root).transform_point(p)
+    dst_to_root
+        .inverse()
+        .compose(&src_to_root)
+        .transform_point(p)
 }
 
 /// Look up a frame entity by its `metadata::name` handle.
@@ -571,7 +593,10 @@ fn main() {
             };
         }
 
-        ws.commit(world, "spatial TF tree: frames, static + dynamic edges, one satellite");
+        ws.commit(
+            world,
+            "spatial TF tree: frames, static + dynamic edges, one satellite",
+        );
         repo.push(&mut ws).expect("push");
         repo.into_storage().close().expect("flush + close pile");
         branch_id
@@ -616,7 +641,11 @@ fn main() {
         )
         .into_iter()
         .collect();
-        assert_eq!(rows.len(), 1, "expected exactly one positioned entity (the satellite)");
+        assert_eq!(
+            rows.len(),
+            1,
+            "expected exactly one positioned entity (the satellite)"
+        );
         (<[f64; 3]>::try_from_inline(&rows[0].0).unwrap(), rows[0].1)
     };
 
@@ -628,7 +657,10 @@ fn main() {
     let dst_frame = frame_by_name(&facts, enu_handle).expect("ENU frame present in pile");
 
     check("satellite frame read from pile == ECI", src_frame == eci_id);
-    check("ENU frame resolvable by name from pile", dst_frame == enu_id);
+    check(
+        "ENU frame resolvable by name from pile",
+        dst_frame == enu_id,
+    );
     check(
         "satellite ECI position round-trips through the pile (< 1e-6 m)",
         norm3(sub3(sat_from_pile, sat_eci)) < 1e-6,
@@ -664,8 +696,10 @@ fn main() {
         let (edge, _parent) = edge_at(&facts, ecef_id, t).expect("ECEF has a to-parent edge");
         let analytic = Motor::from_rotation(q_axis_angle([0.0, 0.0, 1.0], th));
         let probe = [A_WGS84, 0.0, 0.0];
-        interp_max_err = interp_max_err
-            .max(norm3(sub3(edge.transform_point(probe), analytic.transform_point(probe))));
+        interp_max_err = interp_max_err.max(norm3(sub3(
+            edge.transform_point(probe),
+            analytic.transform_point(probe),
+        )));
 
         let derr = ((az_r - az_d + 540.0).rem_euclid(360.0) - 180.0).abs() + (el_r - el_d).abs();
         max_err = max_err.max(derr);
@@ -708,8 +742,22 @@ fn main() {
     );
 
     // The satellite must actually rise/change over the pass.
-    let el0 = az_el(resolve_point(&facts, sat_from_pile, src_frame, dst_frame, 0.0)).1;
-    let el_mid = az_el(resolve_point(&facts, sat_from_pile, src_frame, dst_frame, 5400.0)).1;
+    let el0 = az_el(resolve_point(
+        &facts,
+        sat_from_pile,
+        src_frame,
+        dst_frame,
+        0.0,
+    ))
+    .1;
+    let el_mid = az_el(resolve_point(
+        &facts,
+        sat_from_pile,
+        src_frame,
+        dst_frame,
+        5400.0,
+    ))
+    .1;
     check(
         "satellite elevation changes over the pass (a real ground track)",
         (el_mid - el0).abs() > 1.0,

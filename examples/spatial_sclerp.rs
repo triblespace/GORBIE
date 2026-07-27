@@ -211,10 +211,7 @@ fn screw_power(m: Motor, s: f64) -> Motor {
     let axial_translation = -2.0 * m.d.w / sin_half;
     let dual_vec = m.d.vector();
     let moment = vec_scale(
-        vec_sub(
-            dual_vec,
-            vec_scale(axis, 0.5 * axial_translation * m.r.w),
-        ),
+        vec_sub(dual_vec, vec_scale(axis, 0.5 * axial_translation * m.r.w)),
         1.0 / sin_half,
     );
 
@@ -295,13 +292,8 @@ fn report(ok: &mut bool, name: &str, passed: bool) {
 fn main() {
     let mut ok = true;
 
-    let m0 =
-        Motor::from_axis_angle_translation([0.3, 0.4, 0.5], 0.7, [1.0, -2.0, 0.3]);
-    let m1 = Motor::from_axis_angle_translation(
-        [-0.2, 0.9, 0.1],
-        -1.2,
-        [-0.4, 0.8, 1.5],
-    );
+    let m0 = Motor::from_axis_angle_translation([0.3, 0.4, 0.5], 0.7, [1.0, -2.0, 0.3]);
+    let m1 = Motor::from_axis_angle_translation([-0.2, 0.9, 0.1], -1.2, [-0.4, 0.8, 1.5]);
     let probe = [0.25, -0.5, 2.0];
     report(
         &mut ok,
@@ -366,11 +358,8 @@ fn main() {
         close(mid.r.norm(), 1.0, CHECK_EPS),
     );
 
-    let screw_target = Motor::from_axis_angle_translation(
-        [0.0, 0.0, 1.0],
-        std::f64::consts::PI,
-        [0.0, 0.0, 4.0],
-    );
+    let screw_target =
+        Motor::from_axis_angle_translation([0.0, 0.0, 1.0], std::f64::consts::PI, [0.0, 0.0, 4.0]);
     let screw_mid = sclerp(Motor::identity(), screw_target, 0.5);
     let screw_mid_angle = rotation_angle(screw_mid.r);
     let screw_mid_translation = screw_mid.translation();

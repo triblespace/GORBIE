@@ -7,13 +7,15 @@
 //! parking_lot = "0.12.3"
 //! ```
 
+use egui::Margin;
 use polars::prelude::*;
 use GORBIE::dataflow::ComputedState;
 use GORBIE::md;
 use GORBIE::notebook;
-use GORBIE::widgets::{data_export_tiny, data_summary_tiny, dataframe, dataframe_summary, load_auto};
+use GORBIE::widgets::{
+    data_export_tiny, data_summary_tiny, dataframe, dataframe_summary, load_auto,
+};
 use GORBIE::NotebookCtx;
-use egui::Margin;
 
 #[notebook]
 fn main(nb: &mut NotebookCtx) {
