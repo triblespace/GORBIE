@@ -147,6 +147,19 @@ impl Column {
         self
     }
 
+    /// Won't shrink below a span of `n` grid columns (`n` columns plus `n-1`
+    /// gutters), matching [`Button::columns`](crate::widgets::Button::columns).
+    ///
+    /// Prefer this over a hand-picked `at_least(220.0)`: a raw pixel minimum is
+    /// a guess against one font size, and it silently starts wrapping cell text
+    /// the moment the type scale moves. A span is defined by the same grid the
+    /// page is laid out on, so it tracks the layout instead of drifting from it.
+    #[inline]
+    pub fn columns(mut self, n: u32) -> Self {
+        self.width_range.min = crate::card_ctx::span_width(n);
+        self
+    }
+
     /// Allowed range of movement (in points), if in a resizable [`Table`].
     #[inline]
     pub fn range(mut self, range: impl Into<Rangef>) -> Self {

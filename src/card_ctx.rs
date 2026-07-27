@@ -37,6 +37,16 @@ pub const fn span_width(n: u32) -> f32 {
     n as f32 * GRID_COL_WIDTH + n.saturating_sub(1) as f32 * GRID_GUTTER
 }
 
+/// Pixel height of `n` vertical grid modules.
+///
+/// The vertical twin of [`span_width`]. Use it instead of a hand-picked pixel
+/// height: a row pinned to `20.0` was sized against one body size and starts
+/// clipping the moment the type scale moves, whereas a module count tracks the
+/// grid the page is built on.
+pub const fn module_height(n: u32) -> f32 {
+    n as f32 * GRID_ROW_MODULE
+}
+
 /// Context-data key for the notebook-wide section default set by
 /// [`set_default_section_open`].
 fn section_default_open_id() -> egui::Id {

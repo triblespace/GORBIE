@@ -2,6 +2,7 @@
 pub use crate::widgets;
 
 // Re-export macros and helpers
+pub use crate::card_ctx::module_height;
 pub use crate::card_ctx::span_width;
 pub use crate::card_ctx::Grid;
 pub use crate::card_ctx::GRID_COL_WIDTH;
