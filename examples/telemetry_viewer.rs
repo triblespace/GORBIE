@@ -3,6 +3,9 @@
 #[path = "../src/bin/telemetry-viewer/app.rs"]
 mod app;
 
+#[path = "../src/bin/telemetry-viewer/axis.rs"]
+mod axis;
+
 use GORBIE::NotebookCtx;
 use GORBIE::notebook;
 

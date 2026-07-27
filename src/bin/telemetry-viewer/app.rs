@@ -12,7 +12,7 @@ use triblespace::core::blob::encodings::longstring::LongString;
 use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
 use triblespace::core::metadata;
 use triblespace::core::repo::pile::Pile;
-use triblespace::core::repo::{BlobStore, BlobStoreGet, BlobStoreMeta, BranchStore, Repository};
+use triblespace::core::repo::{BlobStore, BlobStoreGet, BlobStoreMeta, PinStore, Repository};
 use triblespace::core::trible::TribleSet;
 use triblespace::core::inline::encodings::hash::{Blake3, Handle};
 use triblespace::core::inline::encodings::iu256::U256BE;
@@ -28,9 +28,9 @@ use GORBIE::NotebookCtx;
 
 use GORBIE::telemetry::schema as t;
 
-type CommitHandle = Inline<Handle<SimpleArchive>>;
+pub(crate) type CommitHandle = Inline<Handle<SimpleArchive>>;
 
-struct RepoGuard {
+pub(crate) struct RepoGuard {
     repo: Option<Repository<Pile>>,
 }
 
@@ -39,7 +39,7 @@ impl RepoGuard {
         Self { repo: Some(repo) }
     }
 
-    fn as_mut(&mut self) -> Option<&mut Repository<Pile>> {
+    pub(crate) fn as_mut(&mut self) -> Option<&mut Repository<Pile>> {
         self.repo.as_mut()
     }
 }
@@ -61,9 +61,9 @@ impl Drop for RepoGuard {
     }
 }
 
-struct RepoCache {
+pub(crate) struct RepoCache {
     open_path: Option<PathBuf>,
-    repo: Option<RepoGuard>,
+    pub(crate) repo: Option<RepoGuard>,
     signing_key: SigningKey,
 }
 
@@ -87,7 +87,7 @@ impl std::fmt::Debug for RepoCache {
 }
 
 impl RepoCache {
-    fn ensure_open(&mut self, pile_path: &Path) -> Result<(), String> {
+    pub(crate) fn ensure_open(&mut self, pile_path: &Path) -> Result<(), String> {
         let open_path = pile_path.to_path_buf();
         let path_changed = self
             .open_path
@@ -118,14 +118,14 @@ impl RepoCache {
     }
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
 }
 
-fn fmt_duration_ns(ns: u64) -> String {
+pub(crate) fn fmt_duration_ns(ns: u64) -> String {
     const US: u64 = 1_000;
     const MS: u64 = 1_000_000;
     const S: u64 = 1_000_000_000;
@@ -158,7 +158,7 @@ fn nice_time_step_ns(target_ns: u64) -> u64 {
     (nice * base).round().max(1.0) as u64
 }
 
-fn contains_case_insensitive_ascii(haystack: &str, needle_lc: &[u8]) -> bool {
+pub(crate) fn contains_case_insensitive_ascii(haystack: &str, needle_lc: &[u8]) -> bool {
     if needle_lc.is_empty() {
         return true;
     }
@@ -181,7 +181,7 @@ fn contains_case_insensitive_ascii(haystack: &str, needle_lc: &[u8]) -> bool {
     false
 }
 
-fn u256be_to_u64(value: Inline<U256BE>) -> Option<u64> {
+pub(crate) fn u256be_to_u64(value: Inline<U256BE>) -> Option<u64> {
     let raw = value.raw;
     if raw[..24].iter().any(|byte| *byte != 0) {
         return None;
@@ -190,7 +190,7 @@ fn u256be_to_u64(value: Inline<U256BE>) -> Option<u64> {
     Some(u64::from_be_bytes(bytes))
 }
 
-fn load_longstring(
+pub(crate) fn load_longstring(
     ws: &mut triblespace::core::repo::Workspace<Pile>,
     handle: Inline<Handle<LongString>>,
     cache: &mut HashMap<[u8; 32], String>,
@@ -225,7 +225,7 @@ fn scan_branches(
 
     let iter = repo
         .storage_mut()
-        .branches()
+        .pins()
         .map_err(|err| format!("list branches: {err:?}"))?;
 
     let mut reader = None;
@@ -1005,6 +1005,26 @@ impl Default for FlameMode {
     }
 }
 
+/// Top-level tab: the per-session views (flamegraph, open/slowest
+/// spans, hotspots) or the cross-session Axis pivot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ViewMode {
+    Session,
+    Axis,
+}
+
+impl Default for ViewMode {
+    fn default() -> Self {
+        // TELEMETRY_VIEW=axis starts on the cross-session pivot —
+        // handy for bench scripts (and headless captures) that
+        // deep-link the comparison view.
+        match std::env::var("TELEMETRY_VIEW") {
+            Ok(view) if view.trim().eq_ignore_ascii_case("axis") => Self::Axis,
+            _ => Self::Session,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct ViewerState {
     branch_prefix: String,
@@ -1026,6 +1046,13 @@ struct ViewerState {
     flame_zoom: f32,
     selected_span: Option<triblespace::core::id::Id>,
     selected_collapsed: Option<u64>,
+    view_mode: ViewMode,
+    axis: ComputedState<crate::axis::AxisLoader>,
+    axis_view: crate::axis::AxisViewState,
+    last_axis_snapshot: Option<crate::axis::AxisSnapshot>,
+    last_axis_head: Option<CommitHandle>,
+    last_axis_branch: Option<triblespace::core::id::Id>,
+    last_axis_meta: Option<CommitHandle>,
 }
 
 impl Default for ViewerState {
@@ -1050,6 +1077,13 @@ impl Default for ViewerState {
             flame_zoom: 1.0,
             selected_span: None,
             selected_collapsed: None,
+            view_mode: ViewMode::default(),
+            axis: ComputedState::default(),
+            axis_view: crate::axis::AxisViewState::default(),
+            last_axis_snapshot: None,
+            last_axis_head: None,
+            last_axis_branch: None,
+            last_axis_meta: None,
         }
     }
 }
@@ -1066,6 +1100,9 @@ pub fn notebook(nb: &mut NotebookCtx) {
 
     let pile_path = std::env::args()
         .nth(1)
+        // Flags (e.g. the notebook harness's `--headless`) are not a
+        // pile path; fall through to the environment for those.
+        .filter(|arg| !arg.starts_with('-'))
         .or_else(|| std::env::var("TELEMETRY_PILE").ok())
         .or_else(|| std::env::var("PILE").ok())
         .unwrap_or_else(|| "./telemetry.pile".to_owned());
@@ -1077,7 +1114,10 @@ pub fn notebook(nb: &mut NotebookCtx) {
     let repo_state = nb.state("repo", PileRepoState::new(pile_path), move |ui, repo| {
         ui.with_padding(padding, |ctx| {
             ctx.heading("Pile");
-            PileRepoWidget::new(repo).show(ctx);
+            // The pile path came from CLI/env — viewing it is the whole
+            // point, so open it without requiring a click (headless
+            // captures included). Close/reopen stays available.
+            PileRepoWidget::new(repo).auto_open().show(ctx);
         });
     });
 
@@ -1085,6 +1125,7 @@ pub fn notebook(nb: &mut NotebookCtx) {
         let mut repo_state_guard = repo_state.read_mut(ui);
         ui.with_padding(padding, |ctx| {
             state.session.poll();
+            state.axis.poll();
 
             {
                 let open_path = repo_state_guard.open_path().map(|p| p.to_path_buf());
@@ -1104,6 +1145,11 @@ pub fn notebook(nb: &mut NotebookCtx) {
                     state.selected_span = None;
                     state.selected_collapsed = None;
                     state.session.set(SessionLoader::default());
+                    state.last_axis_snapshot = None;
+                    state.last_axis_head = None;
+                    state.last_axis_branch = None;
+                    state.last_axis_meta = None;
+                    state.axis.set(crate::axis::AxisLoader::default());
                 }
             }
 
@@ -1182,11 +1228,39 @@ pub fn notebook(nb: &mut NotebookCtx) {
                     state.last_session_filter = None;
                 }
 
-                if state.session.is_running() {
+                if state.session.is_running() || state.axis.is_running() {
                     ui.add(egui::Spinner::new());
                     ui.label("Loading…");
                 }
             });
+
+            ctx.add_space(6.0);
+            ctx.horizontal_wrapped(|ui| {
+                widgets::row_label(ui, "View:");
+                ui.add(
+                    widgets::ChoiceToggle::new(&mut state.view_mode)
+                        .choice(ViewMode::Session, "Session")
+                        .choice(ViewMode::Axis, "Axis"),
+                )
+                .on_hover_text(
+                    "Session: one session's spans in depth. \
+                     Axis: compare span aggregates across all sessions of the branch.",
+                );
+            });
+
+            if state.view_mode == ViewMode::Axis {
+                show_axis_mode(ctx, state, &mut repo_state_guard);
+                if repo_state_guard.is_open() {
+                    let poll_ms = std::env::var("TELEMETRY_FLUSH_MS")
+                        .ok()
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .unwrap_or(250)
+                        .max(10);
+                    ctx.ctx()
+                        .request_repaint_after(Duration::from_millis(poll_ms));
+                }
+                return;
+            }
 
             // Session dropdown (populated from loaded index).
             if let Some(Ok(index)) = state.session.value().result.as_ref() {
@@ -1380,6 +1454,87 @@ pub fn notebook(nb: &mut NotebookCtx) {
             }
         });
     });
+}
+
+/// The Axis tab: kick an incremental cross-session load when the
+/// branch head moved, then render the pivot from the cached snapshot.
+/// The axis keeps its own loader (and pile handle) so switching the
+/// per-session view never resets it; it only refreshes while the Axis
+/// tab is visible.
+fn show_axis_mode(ctx: &mut egui::Ui, state: &mut ViewerState, repo_state: &mut PileRepoState) {
+    if repo_state.is_open() && !state.axis.is_running() {
+        let selected = state
+            .selected
+            .and_then(|idx| state.branches.get(idx))
+            .map(|b| (b.id, b.meta));
+
+        if let Some((branch_id, branch_meta)) = selected {
+            let needs_refresh = match state.axis.value().result.as_ref() {
+                Some(Ok(_)) => {
+                    state.last_axis_branch != Some(branch_id)
+                        || state.last_axis_meta != Some(branch_meta)
+                }
+                Some(Err(_)) | None => true,
+            };
+
+            if needs_refresh {
+                if state.last_axis_branch != Some(branch_id) {
+                    // Avoid showing another branch's pivot while switching.
+                    state.last_axis_snapshot = None;
+                    state.last_axis_head = None;
+                }
+
+                state.last_axis_branch = Some(branch_id);
+                state.last_axis_meta = Some(branch_meta);
+
+                let pile_path = PathBuf::from(repo_state.pile_path().trim());
+                let mut loader = std::mem::take(state.axis.value_mut());
+                state.axis.spawn(move || {
+                    loader.refresh(pile_path, branch_id);
+                    loader
+                });
+                ctx.ctx().request_repaint_after(Duration::from_millis(50));
+            }
+        }
+    }
+
+    ctx.add_space(10.0);
+
+    match state.axis.value().result.as_ref() {
+        None => {
+            if state.axis.is_running() {
+                if let Some(snapshot) = state.last_axis_snapshot.as_ref() {
+                    crate::axis::show_axis(ctx, &mut state.axis_view, snapshot);
+                } else {
+                    ctx.label(egui::RichText::new("Loading…").italics().small());
+                }
+            } else {
+                ctx.label(
+                    egui::RichText::new("No axis data loaded (open pile and select a branch).")
+                        .italics()
+                        .small(),
+                );
+            }
+        }
+        Some(Err(err)) => {
+            let error_color = ctx.visuals().error_fg_color;
+            ctx.label(egui::RichText::new(err).color(error_color).monospace());
+        }
+        Some(Ok(index)) => {
+            if state.last_axis_head != index.head || state.last_axis_snapshot.is_none() {
+                state.last_axis_snapshot = Some(index.snapshot(crate::axis::now_prefix()));
+                state.last_axis_head = index.head;
+            }
+            let ViewerState {
+                axis_view,
+                last_axis_snapshot,
+                ..
+            } = state;
+            if let Some(snapshot) = last_axis_snapshot.as_ref() {
+                crate::axis::show_axis(ctx, axis_view, snapshot);
+            }
+        }
+    }
 }
 
 fn show_snapshot(
