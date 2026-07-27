@@ -7,7 +7,6 @@ use eframe::egui;
 
 use crate::card_ctx::{CardCtx, GRID_ROW_MODULE};
 use crate::state;
-use crate::themes;
 
 // ── scroll info (written by the notebook, read by floats) ────────────
 
@@ -245,7 +244,25 @@ fn draw_card_chrome(
     draw_body: &mut dyn FnMut(&mut CardCtx<'_>),
 ) -> CardChromeResponse {
     let outline = ui.visuals().widgets.noninteractive.bg_stroke.color;
-    let shadow_color = themes::ral(9004);
+    // The page's own ink, so the offset block INVERTS with the theme: dark under
+    // a bone card, light under a graphite one. Strictly it stops being a shadow
+    // on the dark pole and becomes a lift — but "occluded light" was never the
+    // real idea here anyway; this is a hard [6,6] offset with zero blur, a
+    // printer's drop-block, and a drop-block only has to read as *displaced
+    // card*.
+    //
+    // Why ink rather than black. The measured contrast against its own page:
+    //     black       19.75 bone / 1.23 graphite   — asymmetric, and 1.23 is the
+    //                                                hard ceiling, not a choice:
+    //                                                nothing is darker than black
+    //     foreground  16.03 bone / 16.03 graphite  — identical at both poles
+    // So ink is softer on bone and it is the only option that works at all on
+    // graphite. It also makes the drop-block the same token as the drag grip,
+    // so the whole float chrome is one idea instead of three.
+    //
+    // (The original hardcoded `ral(9004)`, L=0.0293, was *lighter* than the
+    // graphite page at L=0.0116 — not a weak shadow but an inverted one.)
+    let shadow_color = ui.visuals().widgets.noninteractive.fg_stroke.color;
     let shadow = egui::epaint::Shadow {
         offset: [6, 6],
         blur: 0,
@@ -339,7 +356,14 @@ fn draw_card_chrome(
 
     let show_stripes = handle_resp.hovered() || is_dragging;
     if show_stripes {
-        let stripe_color = themes::ral(9004);
+        // The grip is the card's own ink, not a custom dark tone. `ral(9004)`
+        // was hardcoded here and only ever worked because the page used to be
+        // light; on the graphite pole it painted a dark grip on a dark card and
+        // the handle vanished at exactly the moment you reached for it. Taking
+        // the foreground makes it a dark grip on bone and a light grip on
+        // graphite, which is the same *relationship* at both poles rather than
+        // the same colour at one.
+        let stripe_color = ui.visuals().widgets.noninteractive.fg_stroke.color;
         let stripe_stroke = egui::Stroke::new(1.0, stripe_color);
         let stripe_x = handle_rect.x_range();
         let stripe_spacing = 3.0;

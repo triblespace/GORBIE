@@ -71,9 +71,51 @@ pub fn palette_index(hash: u64, palette_len: usize) -> usize {
     }
 }
 
+/// The chart series ramp: four slots that clear 3:1 on **both** theme surfaces.
+///
+/// Unlike [`RAL_CATEGORICAL`] and [`RAL_CVD_SAFE`], which predate the move to the
+/// RAL 9010 / RAL 9011 poles, every entry here is legible on the bone page *and* the
+/// graphite one, so one ramp serves both themes:
+///
+/// | Slot | RAL  | Name             | Light | Dark |
+/// |------|------|------------------|-------|------|
+/// | 1    | 2005 | Luminous orange  | 3.60  | 4.46 |
+/// | 2    | 5012 | Light blue       | 3.97  | 4.04 |
+/// | 3    | 4010 | Telemagenta      | 4.70  | 3.41 |
+/// | 4    | 1027 | Curry            | 3.47  | 4.61 |
+///
+/// The signature orange leads and the orange/blue axis takes slots 1-2, because that
+/// axis is the one a red-green deficiency keeps (CVD ΔE 22.2 for that pair). **There is
+/// no green in the ramp at all** — green is reserved for status, and is never allowed to
+/// encode series identity opposite a red. Worst adjacent pair is ΔE 11.5 under deutan
+/// and 22.8 under normal vision, against floors of 8 and 15.
+///
+/// Two limits worth knowing, both established exhaustively rather than by taste:
+///
+/// * **Series cap.** Four slots is the *adjacent-pair* limit (bars, lines, stacks). For
+///   marks that can land next to any other — scatter, bubble, choropleth, small
+///   multiples — only the first **three** slots are safe; the full four fail all-pairs
+///   at 2005 vs 1027, ΔE 3.5. Past the cap, fold to "Other" or facet; do not extend.
+/// * **No luminance ladder.** Clearing 3:1 on both poles confines every admissible
+///   colour to rel-lum 0.139..0.279, so adjacent slots cannot carry large lightness
+///   steps (worst adjacent OKLCH ΔL here is 0.013) and hue/chroma do the separating.
+///   Luminance stays the primary channel everywhere it is available — ink, chrome,
+///   status, widget state — it simply is not available inside a both-surface ramp.
+pub const RAL_SERIES: &[u16] = &[
+    2005, // luminous orange (the signature; leads)
+    5012, // light blue
+    4010, // telemagenta
+    1027, // curry
+];
+
 /// A small, visually distinct RAL palette meant for categorical coloring.
 ///
 /// Note: Avoids `RAL 2009` (the UI accent) so selection outlines stay legible.
+///
+/// **Predates the RAL 9010 / RAL 9011 surfaces**: 11 of these 24 fall below 3:1 on one
+/// pole or the other (the yellows and pale greens on bone, RAL 5005/3004/3020 on
+/// graphite). It remains fine where colour is decorative or always sits next to
+/// readable text; use [`RAL_SERIES`] where the colour itself must carry meaning.
 pub const RAL_CATEGORICAL: &[u16] = &[
     1003, // signal yellow
     1028, // melon yellow
@@ -111,6 +153,12 @@ pub const RAL_CATEGORICAL: &[u16] = &[
 /// text label to disambiguate (stream tags, feed pills, chart series);
 /// [`RAL_CATEGORICAL`] is fine where color is decorative or always
 /// paired with readable text.
+///
+/// **Predates the RAL 9010 / RAL 9011 surfaces**, and 3 of its 8 entries no longer
+/// clear 3:1 on one of them: RAL 1003 (1.86 on bone), RAL 1028 (1.99 on bone) and
+/// RAL 5005 (1.88 on graphite). Its CVD reasoning still holds; its contrast no longer
+/// does. Prefer [`RAL_SERIES`] for chart series, and treat replacing this palette's
+/// membership as an open decision rather than a settled one.
 pub const RAL_CVD_SAFE: &[u16] = &[
     2009, // traffic orange (mid, warm)
     5012, // light blue (mid, cool)

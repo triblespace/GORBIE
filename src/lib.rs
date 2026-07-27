@@ -803,8 +803,8 @@ impl eframe::App for Notebook {
                         rect.max,
                     );
 
-                    paint_dot_grid(ui, left_margin_paint, scroll_y);
-                    paint_dot_grid(ui, right_margin_paint, scroll_y);
+                    paint_reseau_grid(ui, left_margin_paint, scroll_y);
+                    paint_reseau_grid(ui, right_margin_paint, scroll_y);
 
                     ui.scope_builder(egui::UiBuilder::new().max_rect(column_rect), |ui| {
                         // Keep column/background fills from painting into the margins when
@@ -1277,30 +1277,53 @@ fn draw_card_body(
     inner.response.rect
 }
 
-fn paint_dot_grid(ui: &egui::Ui, rect: egui::Rect, scroll_y: f32) {
+/// Réseau fiducials in the page margin.
+///
+/// An Apollo Hasselblad carried a glass réseau plate in front of the film,
+/// etched with a sparse grid of crosses. Every frame came back marked, so the
+/// photograph could be measured and the measurement trusted. A dot field says
+/// "graph paper — you may draw here"; a réseau says "this has been measured",
+/// which is the truer thing for a notebook whose whole argument is receipts.
+///
+/// Sparser than the dot grid it replaces, and on the layout's column pitch
+/// (`GRID_COL_WIDTH + GRID_GUTTER`) rather than a pitch of its own, so the
+/// workspace shares the page's rhythm. Note the pitch is shared but the phase
+/// is not: the lattice is anchored to a global multiple of `pitch_x` plus a
+/// half-pitch, not to the column origin, so a mark is not guaranteed to sit on
+/// a column boundary. Rhythm, not registration.
+fn paint_reseau_grid(ui: &egui::Ui, rect: egui::Rect, scroll_y: f32) {
     if rect.width() <= 0.0 || rect.height() <= 0.0 {
         return;
     }
 
     let painter = ui.painter_at(rect);
 
-    let spacing = 18.0;
-    let radius = 1.2;
+    // Two column pitches across, twelve modules down — half the density of the
+    // first pass, so the marks read as landmarks rather than texture. The arm is
+    // half a row module, making each cross exactly one module wide.
+    let pitch_x = 2.0 * (crate::card_ctx::GRID_COL_WIDTH + crate::card_ctx::GRID_GUTTER);
+    let pitch_y = crate::card_ctx::GRID_ROW_MODULE * 12.0;
+    let arm = crate::card_ctx::GRID_ROW_MODULE / 2.0;
+
     let background = ui.visuals().window_fill;
     let outline = ui.visuals().widgets.noninteractive.bg_stroke.color;
-    let color = crate::themes::blend(background, outline, 0.35);
+    // A cross carries more ink than a dot, so it sits further back than the
+    // 0.35 the dot field used or it stops being quiet.
+    let color = crate::themes::blend(background, outline, 0.28);
+    let stroke = egui::Stroke::new(1.0, color);
 
-    let start_x = (rect.left() / spacing).floor() * spacing + spacing / 2.0;
-    let start_y = rect.top() - scroll_y.rem_euclid(spacing) + spacing / 2.0;
+    let start_x = (rect.left() / pitch_x).floor() * pitch_x + pitch_x / 2.0;
+    let start_y = rect.top() - scroll_y.rem_euclid(pitch_y) + pitch_y / 2.0;
 
     let mut y = start_y;
-    while y < rect.bottom() {
+    while y < rect.bottom() + arm {
         let mut x = start_x;
-        while x < rect.right() {
-            painter.circle_filled(egui::pos2(x, y), radius, color);
-            x += spacing;
+        while x < rect.right() + arm {
+            painter.line_segment([egui::pos2(x - arm, y), egui::pos2(x + arm, y)], stroke);
+            painter.line_segment([egui::pos2(x, y - arm), egui::pos2(x, y + arm)], stroke);
+            x += pitch_x;
         }
-        y += spacing;
+        y += pitch_y;
     }
 }
 
