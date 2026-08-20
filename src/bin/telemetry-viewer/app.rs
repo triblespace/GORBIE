@@ -1360,7 +1360,7 @@ pub fn notebook(nb: &mut NotebookCtx) {
 
                         let pile_path = PathBuf::from(repo_state_guard.pile_path().trim());
                         let mut loader = std::mem::take(state.session.value_mut());
-                        state.session.spawn(move || {
+                        state.session.spawn(ctx.ctx(), move || {
                             loader.refresh(pile_path, branch_id, session_filter);
                             loader
                         });
@@ -1488,7 +1488,7 @@ fn show_axis_mode(ctx: &mut egui::Ui, state: &mut ViewerState, repo_state: &mut 
 
                 let pile_path = PathBuf::from(repo_state.pile_path().trim());
                 let mut loader = std::mem::take(state.axis.value_mut());
-                state.axis.spawn(move || {
+                state.axis.spawn(ctx.ctx(), move || {
                     loader.refresh(pile_path, branch_id);
                     loader
                 });

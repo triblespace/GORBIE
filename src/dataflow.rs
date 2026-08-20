@@ -1,3 +1,5 @@
+use eframe::egui;
+
 /// Holds a value that can be recomputed asynchronously in a background thread.
 ///
 /// Use [`spawn`](Self::spawn) to kick off a computation and [`poll`](Self::poll)
@@ -78,21 +80,47 @@ impl<T> ComputedState<T> {
     /// Spawns `action` on a background thread if no computation is already running.
     /// Returns a mutable reference to the current (potentially stale) value.
     ///
-    /// On wasm, runs `action` synchronously and updates the value immediately.
+    /// The worker wakes the page itself: it holds a clone of `ctx` and calls
+    /// [`request_repaint`](egui::Context::request_repaint) the moment the value
+    /// lands, rather than leaving the notebook to discover it on whatever
+    /// repaint happens to come next. A context is an `Arc` behind a lock, so
+    /// the clone is a refcount bump and is `Send + Sync`; `request_repaint` is
+    /// idempotent, so waking unconditionally is safe.
+    ///
+    /// **The wake and the slow poll a waiting page keeps up are a pair, not
+    /// alternatives — do not delete either one.** If `action` panics the wake
+    /// never fires: the thread dies, [`is_running`](Self::is_running) goes
+    /// false, and nothing has asked for a repaint, so a page relying on the
+    /// wake alone sits there looking busy for the rest of the session. With the
+    /// heartbeat underneath (see [`load_auto`](crate::widgets::load_auto)) a
+    /// lost wake costs one poll interval instead.
+    ///
+    /// On wasm `action` runs synchronously and `ctx` is unused: there is no
+    /// latency to close and no thread to wake. That arm is also why a bare
+    /// `std::thread::spawn` is the wrong thing to reach for in a card body.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn spawn(&mut self, action: impl FnOnce() -> T + Send + 'static) -> &mut T
+    pub fn spawn(
+        &mut self,
+        ctx: &egui::Context,
+        action: impl FnOnce() -> T + Send + 'static,
+    ) -> &mut T
     where
         T: Send + 'static,
     {
         self.poll();
         if !self.is_running() {
-            self.in_flight = Some(std::thread::spawn(action));
+            let ctx = ctx.clone();
+            self.in_flight = Some(std::thread::spawn(move || {
+                let value = action();
+                ctx.request_repaint();
+                value
+            }));
         }
         &mut self.value
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn spawn(&mut self, action: impl FnOnce() -> T) -> &mut T {
+    pub fn spawn(&mut self, _ctx: &egui::Context, action: impl FnOnce() -> T) -> &mut T {
         self.value = action();
         &mut self.value
     }
@@ -210,8 +238,45 @@ impl<K: std::fmt::Debug, T> std::fmt::Debug for DerivedState<K, T> {
 
 #[cfg(test)]
 mod tests {
-    use super::DerivedState;
+    use super::{ComputedState, DerivedState};
+    use eframe::egui;
     use std::cell::Cell;
+
+    /// The wake, not the poll: a finished task must have asked for a repaint
+    /// by the time its value is collectable.
+    ///
+    /// Without this the only thing standing between a landed value and a page
+    /// that shows it is the caller's heartbeat, and a test that merely compiled
+    /// the call would not tell the difference.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn a_finished_task_wakes_the_page() {
+        let ctx = egui::Context::default();
+        // A fresh context wants its first passes; run until it stops asking, so
+        // the assertion below is about the worker and not about start-up.
+        for _ in 0..8 {
+            if !ctx.has_requested_repaint() {
+                break;
+            }
+            let _ = ctx.run(egui::RawInput::default(), |_| {});
+        }
+        assert!(
+            !ctx.has_requested_repaint(),
+            "the context should be quiet before the task is spawned"
+        );
+
+        let mut state = ComputedState::new(0u32);
+        state.spawn(&ctx, || 7u32);
+        while !state.poll() {
+            std::thread::yield_now();
+        }
+
+        assert_eq!(*state.value(), 7);
+        assert!(
+            ctx.has_requested_repaint(),
+            "a task that finished without waking the page leaves it looking busy"
+        );
+    }
 
     /// The whole contract in one test: compute on a new key, and only then.
     ///

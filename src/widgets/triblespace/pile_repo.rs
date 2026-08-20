@@ -126,13 +126,17 @@ impl PileRepoState {
     }
 
     /// Start opening the pile on a background thread.
-    pub fn open(&mut self) {
+    ///
+    /// `ctx` is what the worker wakes when the open lands, so the widget stops
+    /// showing a spinner at the moment the repository is there rather than at
+    /// the next repaint the desktop happens to send.
+    pub fn open(&mut self, ctx: &egui::Context) {
         if self.opener.is_running() {
             return;
         }
         let path = PathBuf::from(self.pile_path.trim());
         let signing_key = self.signing_key.clone();
-        self.opener.spawn(move || {
+        self.opener.spawn(ctx, move || {
             let result = (|| -> Result<OpenResult, String> {
                 let mut pile =
                     Pile::open(&path).map_err(|err| format!("open pile: {err:?}"))?;
@@ -202,11 +206,16 @@ impl<'a> PileRepoWidget<'a> {
             && !self.state.is_opening()
             && self.state.last_error.is_none()
         {
-            self.state.open();
+            self.state.open(ui.ctx());
         }
 
         if self.state.is_opening() {
-            ui.ctx().request_repaint();
+            // A fallback under the worker's own wake, and capped for the same
+            // reason `load_auto`'s is: an uncapped request spins this thread
+            // flat out against the open it is waiting for. Fast enough that the
+            // button's pulse below reads as a pulse.
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(33));
         }
 
         ui.horizontal(|ui| {
@@ -255,8 +264,7 @@ impl<'a> PileRepoWidget<'a> {
                     let mut active = opening;
                     let button = Button::new("Open").on(&mut active).light(light);
                     if ui.add(button).clicked() && open_enabled {
-                        self.state.open();
-                        ui.ctx().request_repaint();
+                        self.state.open(ui.ctx());
                     }
 
                     let label_text = "Pile:";

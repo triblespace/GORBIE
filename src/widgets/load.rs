@@ -6,6 +6,13 @@ use std::time::Duration;
 
 /// How often to wake the notebook while a background task runs.
 ///
+/// A fallback, not the mechanism: [`ComputedState::spawn`] hands the worker a
+/// context and the worker wakes the page the moment it finishes, so in the
+/// normal case this heartbeat never fires. It is here for the case where that
+/// wake is lost — an action that panics dies without sending it — where it
+/// turns a session spent looking busy into one poll interval of latency. Both
+/// are needed; neither replaces the other.
+///
 /// Deliberately not "as fast as the machine will go". A repaint request with no
 /// delay spins the UI thread flat out against the very worker it is waiting
 /// for; measured on a notebook whose load takes about seventeen seconds, that
@@ -46,8 +53,7 @@ pub fn load_button<'a, T: Send + 'static>(
     let button = Button::new(label).on(&mut active).light(light);
     let clicked = ui.add(button).clicked();
     if clicked && !running {
-        value.spawn(action);
-        ui.ctx().request_repaint();
+        value.spawn(ui.ctx(), action);
     }
     if running {
         ui.ctx().request_repaint_after(RUNNING_POLL_ANIMATED);
@@ -67,8 +73,7 @@ pub fn load_auto<'a, T: Send + 'static>(
 ) -> &'a mut T {
     value.poll();
     if should_spawn(value.value()) {
-        value.spawn(action);
-        ui.ctx().request_repaint();
+        value.spawn(ui.ctx(), action);
     }
     if value.is_running() {
         ui.ctx().request_repaint_after(RUNNING_POLL);
