@@ -158,9 +158,30 @@ impl<T: std::fmt::Debug> std::fmt::Debug for ComputedState<T> {
 /// it is read. Prefer a key that recomputes too often to one that might not
 /// recompute at all.
 ///
+/// [`get`](Self::get) hands the key back to the closure, and the closure should
+/// read its inputs from *there* rather than from the owner it happens to be
+/// written inside. Be precise about what that buys. It does **not** make an
+/// incomplete key impossible: only a genuinely non-capturing `fn(&K) -> T`
+/// would do that, and one cannot be used here, because the key is compared on
+/// every frame and so must be cheap to compare — which forces it to hold
+/// *representatives*, a snapshot revision standing for twenty-three million
+/// facts, rather than the inputs themselves. Requiring the key to contain every
+/// input would cost the cheap comparison that is the memo's whole purpose. It
+/// is a tradeoff, not an impossibility.
+///
+/// What it does kill is divergence: the key says `filter` is A while the
+/// closure reads `self.filter`, which is B. A card body has `self` in scope
+/// with every field on it, so that trap is a real one. With `&key` in hand the
+/// natural thing to write is `key.filter`, and the two cannot disagree.
+///
 /// ```ignore
-/// // In a card body, where `self` is the viewer holding the state:
-/// let rows = self.by_customer.get((revision, filter.clone()), || book.revenue(&filter));
+/// // In a card body, where `self` is the viewer holding the state. `book` is
+/// // pulled out first so the closure borrows one field rather than all of
+/// // `self`; it is not in the key because the revision stands for it.
+/// let book = &self.book;
+/// let rows = self
+///     .by_customer
+///     .get((revision, filter.clone()), |key| book.revenue(&key.1));
 /// for row in rows.iter() { /* ... */ }
 /// ```
 ///
@@ -189,17 +210,22 @@ impl<K: PartialEq, T> DerivedState<K, T> {
 
     /// The value for `key`, computing it only when the key has moved.
     ///
+    /// `compute` is handed the key it is computing under. Read the inputs from
+    /// it — `key.filter`, not `self.filter` — so the figure cannot be computed
+    /// from one thing while being filed under another. See the type docs for
+    /// what that does and does not guarantee.
+    ///
     /// Returns an [`Arc`](std::sync::Arc) rather than a borrow so the caller is
     /// free to touch the rest of its state while it draws. A `&T` out of
     /// `&mut self` pins the whole owner for the length of a card body, which is
     /// exactly the span in which a card also wants its filter row and its
     /// controls; the allocation is nothing beside the computation it replaces.
-    pub fn get(&mut self, key: K, compute: impl FnOnce() -> T) -> std::sync::Arc<T> {
+    pub fn get(&mut self, key: K, compute: impl FnOnce(&K) -> T) -> std::sync::Arc<T> {
         if self.key.as_ref() != Some(&key) {
             // Order matters if `compute` panics: leave the key unset so a later
             // call retries rather than serving a value that was never produced.
             self.key = None;
-            self.value = Some(std::sync::Arc::new(compute()));
+            self.value = Some(std::sync::Arc::new(compute(&key)));
             self.key = Some(key);
         }
         self.value
@@ -292,7 +318,7 @@ mod tests {
             computed: &Cell<u32>,
             key: (u32, char),
         ) -> std::sync::Arc<String> {
-            state.get(key, || {
+            state.get(key, |key| {
                 computed.set(computed.get() + 1);
                 format!("{}-{}", key.0, key.1)
             })
