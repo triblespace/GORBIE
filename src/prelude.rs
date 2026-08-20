@@ -12,6 +12,7 @@ pub use crate::card_ctx::GRID_EDGE_PAD;
 pub use crate::card_ctx::GRID_GUTTER;
 pub use crate::card_ctx::GRID_ROW_MODULE;
 pub use crate::dataflow::ComputedState;
+pub use crate::dataflow::DerivedState;
 #[cfg(feature = "markdown")]
 pub use crate::md;
 #[cfg(feature = "markdown")]

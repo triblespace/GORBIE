@@ -112,3 +112,141 @@ impl<T: std::fmt::Debug> std::fmt::Debug for ComputedState<T> {
             .finish()
     }
 }
+
+/// Holds a value derived from a key, recomputed only when the key moves.
+///
+/// The synchronous sibling of [`ComputedState`]. A notebook re-runs every card
+/// body on every repaint — a hover, a scroll, a window focus — so a derivation
+/// written inline in a card is a derivation performed at frame rate. For work
+/// measured in seconds that is what `ComputedState` is for; for work measured
+/// in milliseconds a background thread is the wrong answer, because a card that
+/// shows last frame's figures for a derivation costing one millisecond is worse
+/// than one that simply computes it. This is the middle case, and in practice
+/// it is the common one.
+///
+/// The key is the whole of the contract. It must name *every* input the
+/// computation reads, because nothing here can detect an input it was not told
+/// about, and a stale figure is indistinguishable from a fresh one at the point
+/// it is read. Prefer a key that recomputes too often to one that might not
+/// recompute at all.
+///
+/// ```ignore
+/// // In a card body, where `self` is the viewer holding the state:
+/// let rows = self.by_customer.get((revision, filter.clone()), || book.revenue(&filter));
+/// for row in rows.iter() { /* ... */ }
+/// ```
+///
+/// One slot, always the current key: returning to a previous key is a
+/// recomputation, not a hit. A map would keep figures alive against a model
+/// that can run to gigabytes, for keys nobody is looking at.
+pub struct DerivedState<K, T> {
+    key: Option<K>,
+    value: Option<std::sync::Arc<T>>,
+}
+
+impl<K, T> Default for DerivedState<K, T> {
+    fn default() -> Self {
+        Self {
+            key: None,
+            value: None,
+        }
+    }
+}
+
+impl<K: PartialEq, T> DerivedState<K, T> {
+    /// An empty state, holding nothing until the first [`get`](Self::get).
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The value for `key`, computing it only when the key has moved.
+    ///
+    /// Returns an [`Arc`](std::sync::Arc) rather than a borrow so the caller is
+    /// free to touch the rest of its state while it draws. A `&T` out of
+    /// `&mut self` pins the whole owner for the length of a card body, which is
+    /// exactly the span in which a card also wants its filter row and its
+    /// controls; the allocation is nothing beside the computation it replaces.
+    pub fn get(&mut self, key: K, compute: impl FnOnce() -> T) -> std::sync::Arc<T> {
+        if self.key.as_ref() != Some(&key) {
+            // Order matters if `compute` panics: leave the key unset so a later
+            // call retries rather than serving a value that was never produced.
+            self.key = None;
+            self.value = Some(std::sync::Arc::new(compute()));
+            self.key = Some(key);
+        }
+        self.value
+            .clone()
+            .expect("a value is present whenever the key is")
+    }
+
+    /// The held value, if the state has ever been computed.
+    ///
+    /// For a caller that wants to draw what it has without asking for a
+    /// recomputation it is not ready to pay for.
+    pub fn peek(&self) -> Option<&std::sync::Arc<T>> {
+        self.value.as_ref()
+    }
+
+    /// The key the held value was computed under.
+    pub fn key(&self) -> Option<&K> {
+        self.key.as_ref()
+    }
+
+    /// Drop the held value, so the next [`get`](Self::get) recomputes.
+    pub fn clear(&mut self) {
+        self.key = None;
+        self.value = None;
+    }
+}
+
+impl<K: std::fmt::Debug, T> std::fmt::Debug for DerivedState<K, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DerivedState")
+            .field("key", &self.key)
+            .field("held", &self.value.is_some())
+            .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DerivedState;
+    use std::cell::Cell;
+
+    /// The whole contract in one test: compute on a new key, and only then.
+    ///
+    /// A state that recomputed too often would only be slow. One that
+    /// recomputed too rarely would put the previous key's figures on the
+    /// screen, which is the failure this has to be trusted not to have.
+    #[test]
+    fn a_value_is_computed_once_per_key_and_again_when_the_key_moves() {
+        let computed = Cell::new(0);
+        let mut state: DerivedState<(u32, char), String> = DerivedState::new();
+        fn ask(
+            state: &mut DerivedState<(u32, char), String>,
+            computed: &Cell<u32>,
+            key: (u32, char),
+        ) -> std::sync::Arc<String> {
+            state.get(key, || {
+                computed.set(computed.get() + 1);
+                format!("{}-{}", key.0, key.1)
+            })
+        }
+        let mut ask = |key| ask(&mut state, &computed, key);
+
+        assert_eq!(*ask((1, 'a')), "1-a");
+        assert_eq!(computed.get(), 1);
+        // Same key: the held value, untouched.
+        assert_eq!(*ask((1, 'a')), "1-a");
+        assert_eq!(computed.get(), 1);
+        // Either half of the key moving is enough to invalidate.
+        assert_eq!(*ask((2, 'a')), "2-a");
+        assert_eq!(computed.get(), 2);
+        assert_eq!(*ask((2, 'b')), "2-b");
+        assert_eq!(computed.get(), 3);
+        // Coming back to a key is a recomputation, not a hit: one slot, always
+        // the current one.
+        assert_eq!(*ask((1, 'a')), "1-a");
+        assert_eq!(computed.get(), 4);
+    }
+}

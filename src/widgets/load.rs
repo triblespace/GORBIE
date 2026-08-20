@@ -2,6 +2,22 @@ use crate::dataflow::ComputedState;
 use crate::themes::GorbieToggleButtonStyle;
 use crate::widgets::Button;
 use eframe::egui;
+use std::time::Duration;
+
+/// How often to wake the notebook while a background task runs.
+///
+/// Deliberately not "as fast as the machine will go". A repaint request with no
+/// delay spins the UI thread flat out against the very worker it is waiting
+/// for; measured on a notebook whose load takes about seventeen seconds, that
+/// contention stretched it past twenty-five. Nothing on a waiting page needs
+/// more than this, and the cores it would burn are the ones doing the work.
+const RUNNING_POLL: Duration = Duration::from_millis(100);
+
+/// The same, for a control that animates while it waits.
+///
+/// Fast enough that a slow pulse reads as a pulse rather than a flicker, and
+/// still an order of magnitude cheaper than an uncapped repaint.
+const RUNNING_POLL_ANIMATED: Duration = Duration::from_millis(33);
 
 /// Show a toggle button that spawns `action` in the background on click.
 ///
@@ -34,7 +50,7 @@ pub fn load_button<'a, T: Send + 'static>(
         ui.ctx().request_repaint();
     }
     if running {
-        ui.ctx().request_repaint();
+        ui.ctx().request_repaint_after(RUNNING_POLL_ANIMATED);
     }
     value.value_mut()
 }
@@ -55,7 +71,7 @@ pub fn load_auto<'a, T: Send + 'static>(
         ui.ctx().request_repaint();
     }
     if value.is_running() {
-        ui.ctx().request_repaint();
+        ui.ctx().request_repaint_after(RUNNING_POLL);
     }
     value.value_mut()
 }
