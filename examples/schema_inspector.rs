@@ -2,15 +2,14 @@
 //! ```cargo
 //! [dependencies]
 //! GORBIE = { path = "..", features = ["triblespace"] }
-//! egui = "0.33"
-//! triblespace = "0.34.1"
+//! egui = "0.34"
+//! triblespace = { path = "../../triblespace-rs" }
 //! ```
 
-use triblespace::core::blob::encodings::longstring::LongString;
 use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
 use triblespace::core::blob::encodings::succinctarchive::SuccinctArchiveBlob;
+use triblespace::core::blob::encodings::utf8string::UTF8String;
 use triblespace::core::blob::encodings::wasmcode::WasmCode;
-use triblespace::core::blob::MemoryBlobStore;
 use triblespace::core::id::Id;
 use triblespace::core::id::RawId;
 use triblespace::core::inline::encodings::boolean::Boolean;
@@ -32,46 +31,46 @@ use triblespace::core::metadata;
 use triblespace::core::metadata::MetaDescribe;
 use triblespace::core::repo::BlobStore;
 use triblespace::core::repo::BlobStoreGet;
-use triblespace::core::trible::TribleSet;
+use triblespace::core::trible::{Fragment, TribleSet};
 use triblespace::macros::{find, pattern};
 use triblespace::prelude::View;
 
 use GORBIE::prelude::*;
 
-fn build_schema_metadata(blobs: &mut MemoryBlobStore) -> TribleSet {
-    let mut metadata_set = TribleSet::new();
+fn build_schema_metadata() -> Fragment {
+    let mut metadata = Fragment::empty();
 
-    metadata_set += Boolean::describe();
-    metadata_set += ShortString::describe();
-    metadata_set += GenId::describe();
-    metadata_set += F64::describe();
-    metadata_set += F256LE::describe();
-    metadata_set += F256BE::describe();
-    metadata_set += U256LE::describe();
-    metadata_set += U256BE::describe();
-    metadata_set += I256LE::describe();
-    metadata_set += I256BE::describe();
-    metadata_set += R256LE::describe();
-    metadata_set += R256BE::describe();
-    metadata_set += RangeU128::describe();
-    metadata_set += RangeInclusiveU128::describe();
-    metadata_set += LineLocation::describe();
-    metadata_set += NsTAIInterval::describe();
-    metadata_set += ED25519RComponent::describe();
-    metadata_set += ED25519SComponent::describe();
-    metadata_set += ED25519PublicKey::describe();
-    metadata_set += Blake3::describe();
-    metadata_set += Handle::<LongString>::describe();
-    metadata_set += Handle::<SimpleArchive>::describe();
-    metadata_set += Handle::<SuccinctArchiveBlob>::describe();
-    metadata_set += Handle::<WasmCode>::describe();
+    metadata += Boolean::describe();
+    metadata += ShortString::describe();
+    metadata += GenId::describe();
+    metadata += F64::describe();
+    metadata += F256LE::describe();
+    metadata += F256BE::describe();
+    metadata += U256LE::describe();
+    metadata += U256BE::describe();
+    metadata += I256LE::describe();
+    metadata += I256BE::describe();
+    metadata += R256LE::describe();
+    metadata += R256BE::describe();
+    metadata += RangeU128::describe();
+    metadata += RangeInclusiveU128::describe();
+    metadata += LineLocation::describe();
+    metadata += NsTAIInterval::describe();
+    metadata += ED25519RComponent::describe();
+    metadata += ED25519SComponent::describe();
+    metadata += ED25519PublicKey::describe();
+    metadata += Blake3::describe();
+    metadata += Handle::<UTF8String>::describe();
+    metadata += Handle::<SimpleArchive>::describe();
+    metadata += Handle::<SuccinctArchiveBlob>::describe();
+    metadata += Handle::<WasmCode>::describe();
 
-    metadata_set += LongString::describe();
-    metadata_set += SimpleArchive::describe();
-    metadata_set += SuccinctArchiveBlob::describe();
-    metadata_set += WasmCode::describe();
+    metadata += UTF8String::describe();
+    metadata += SimpleArchive::describe();
+    metadata += SuccinctArchiveBlob::describe();
+    metadata += WasmCode::describe();
 
-    metadata_set
+    metadata
 }
 
 fn render_schema_sections(
@@ -90,8 +89,8 @@ fn render_schema_sections(
     let mut rows: Vec<(Id, String, String)> = find!(
         (
             id: Id,
-            name: Inline<Handle<LongString>>,
-            description: Inline<Handle<LongString>>
+            name: Inline<Handle<UTF8String>>,
+            description: Inline<Handle<UTF8String>>
         ),
         pattern!(metadata_set, [{
             ?id @
@@ -102,8 +101,8 @@ fn render_schema_sections(
     )
     .into_iter()
     .filter_map(|(id, name, description)| {
-        let name = blobs.get::<View<str>, LongString>(name).ok()?;
-        let description = blobs.get::<View<str>, LongString>(description).ok()?;
+        let name = blobs.get::<View<str>, UTF8String>(name).ok()?;
+        let description = blobs.get::<View<str>, UTF8String>(description).ok()?;
         Some((id, name.to_string(), description.to_string()))
     })
     .collect();
@@ -163,9 +162,9 @@ fn render_schema_sections(
 #[notebook]
 fn main(nb: &mut NotebookCtx) {
     let padding = GORBIE::cards::DEFAULT_CARD_PADDING;
-    let mut blobs = MemoryBlobStore::new();
-    let metadata_set = build_schema_metadata(&mut blobs);
-    let reader = blobs.reader().expect("metadata blob reader");
+    let mut metadata = build_schema_metadata();
+    let reader = metadata.blobs_mut().reader().expect("metadata blob reader");
+    let metadata_set = metadata.into_facts();
 
     nb.view(move |ctx| {
         ctx.with_padding(padding, |ctx| {

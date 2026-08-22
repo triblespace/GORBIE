@@ -31,7 +31,7 @@ pub mod prelude;
 pub mod search;
 /// Thread-safe state management via [`StateId`](state::StateId) handles.
 pub mod state;
-/// Telemetry dashboard (requires `telemetry` feature).
+/// Tracing telemetry capture (requires `telemetry` feature).
 #[cfg(feature = "telemetry")]
 pub mod telemetry;
 /// Visual themes, RAL colors, and widget style structs.

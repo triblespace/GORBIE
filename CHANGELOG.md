@@ -16,14 +16,12 @@ All notable changes to this project will be documented in this file.
   collapsible detail). Plus `widgets::lcd_readout` (read-only LCD
   display field) and `colorhash::RAL_CVD_SAFE` (colorblind-safe
   categorical palette; `Fnv1a64` now implements `std::hash::Hasher`).
-- **`PileTail` live-tail helper (feature `triblespace`).** The
-  delta-tail pattern from the telemetry viewer as a reusable state
-  machine: owns a read-only pile handle (open-loud, never amputates,
-  never pushes), tracks the last seen branch head, and `poll()`
-  returns only the `TribleSet` delta since the previous head with
-  built-in wall-clock throttling (throttled polls skip no data).
-  Branch by id or lazily-resolved name. See
-  `examples/dashboard_widgets.rs` for all five in one notebook.
+- **TribleSpace collection cutover.** Removed the branch/head-based
+  commit browser, pile tail, pile overview, telemetry viewer, and their
+  obsolete examples after TribleSpace retired mutable repositories.
+  The immutable entity inspector remains, telemetry capture continues
+  to publish native collection commits, and the spatial pile resolver
+  now reopens and materializes a native collection.
 
 ## 0.18.0 - 2026-06-05
 

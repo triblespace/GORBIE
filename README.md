@@ -114,8 +114,8 @@ the same `watchexec` + `rust-script` shebang.
 For cargo examples:
 `cargo run --example grid_demo --features typst`
 `cargo run --example polars --features polars`
-`cargo run --example pile_inspector --features gloss`
-`cargo run --example triblespace_best_practices --features triblespace`
+`cargo run --example entity_inspector --features triblespace`
+`cargo run --example spatial_pile_resolver --features triblespace`
 
 ## Typst Integration
 
@@ -145,7 +145,7 @@ The renderer runs fully offscreen (no window is created). Use `--scale` to contr
 pixels-per-point (default: 2.0). Use `--headless-wait-ms` to wait for repaint requests
 to settle before capturing each card (default: 2000ms).
 
-`cargo run --example pile_inspector --features gloss -- --headless --out-dir ./captures --scale 2`
+`cargo run --example intro -- --headless --out-dir ./captures --scale 2`
 
 
 # Feature Flags
@@ -153,8 +153,7 @@ GORBIE! defaults to a lean build with `markdown` enabled. Add extras as needed:
 - `markdown`: rich Markdown rendering with `md!` and `note!` (default).
 - `typst`: Typst integration — math, scientific typesetting, and full document rendering via `typst!` macro. Renders as vector geometry directly on egui's Painter (no SVG, no raster). Includes the RAL color palette, grid-aligned layout constants, text selection, and inline error diagnostics.
 - `polars`: dataframe widget (Polars + GORBIE table).
-- `triblespace`: TribleSpace widgets (commit graph, entity inspector, etc.).
-- `gloss`: heavier TribleSpace visualizations (pile overview; pulls in `rapier2d`).
+- `triblespace`: immutable TribleSpace data inspection with the entity graph widget.
 - `cubecl`: GPU simulated-annealing ordering for the entity inspector (use with `triblespace`).
 - `telemetry`: span-based profiling via `tracing` that writes into a dedicated TribleSpace pile.
 
@@ -164,27 +163,18 @@ Enable tracing span capture:
 
 ```sh
 # In your notebook project:
-TELEMETRY_PILE=./telemetry.pile cargo run --features telemetry
+TELEMETRY_PILE=./telemetry.pile \
+TELEMETRY_COLLECTION_NAME=gorbie \
+cargo run --features telemetry
 
 # In this repo (demo notebook):
-TELEMETRY_PILE=./telemetry.pile cargo run --example playbook --features telemetry
-```
-
-Open the telemetry viewer:
-
-```sh
-cargo run --bin telemetry-viewer --features telemetry -- ./telemetry.pile
+TELEMETRY_PILE=./telemetry.pile \
+TELEMETRY_COLLECTION_NAME=gorbie-playbook \
+cargo run --example playbook --features telemetry
 ```
 
 For in-process embedding, attach the telemetry layer to your own `tracing_subscriber`
 setup via `Telemetry::layer_from_env(...)` and keep the returned guard alive.
-
-# TribleSpace Live Patterns
-
-When building live notebooks on top of a growing `.pile`, keep the pile/repo open
-in notebook state and use `pull + checkout(prev_head..)` to process only deltas.
-`widgets::triblespace::PileRepoState` / `PileRepoWidget` codify this pattern; see
-the `triblespace_best_practices` example.
 
 # Community
 

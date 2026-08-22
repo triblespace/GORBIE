@@ -137,7 +137,7 @@ fn main() {
     ];
 
     // Build the marker set. Each entity gets an ECEF position keyed by
-    // its genid; the display name stays in our own table (a LongString
+    // its genid; the display name stays in our own table (a UTF8String
     // name would need a blob store this headless demo deliberately omits
     // — the point under test is the Position encoding, not name blobs).
     let mut markers = TribleSet::new();

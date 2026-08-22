@@ -37,7 +37,7 @@ pub mod stream_lane;
 pub mod table;
 mod table_layout;
 mod table_sizing;
-/// TribleSpace browser widgets (pile repo, inspectors).
+/// TribleSpace widgets for immutable graph data.
 #[cfg(feature = "triblespace")]
 pub mod triblespace;
 /// Typst vector rendering engine (outline, painter, world).

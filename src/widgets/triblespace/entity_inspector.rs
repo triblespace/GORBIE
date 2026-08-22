@@ -16,7 +16,7 @@ use cubecl::prelude::*;
 use cubecl::server::Handle as CubeHandle;
 #[cfg(feature = "cubecl")]
 use cubecl::wgpu::{WgpuDevice, WgpuRuntime};
-use triblespace::core::blob::encodings::longstring::LongString;
+use triblespace::core::blob::encodings::utf8string::UTF8String;
 use triblespace::core::blob::encodings::wasmcode::WasmCode;
 use triblespace::core::blob::BlobCache;
 use triblespace::core::id::Id;
@@ -109,14 +109,14 @@ struct AttrInfo {
 
 fn build_attr_info<B>(
     metadata: &TribleSet,
-    name_cache: &BlobCache<B, LongString, View<str>>,
+    name_cache: &BlobCache<B, UTF8String, View<str>>,
 ) -> HashMap<Id, AttrInfo>
 where
     B: BlobStoreGet,
 {
     let mut labels = HashMap::<Id, String>::new();
     for (attr, name_handle) in find!(
-        (attr: Id, name_handle: Inline<Handle<LongString>>),
+        (attr: Id, name_handle: Inline<Handle<UTF8String>>),
         pattern!(metadata, [{ ?attr @ triblespace::core::metadata::name: ?name_handle }])
     ) {
         if let Ok(name) = name_cache.get(name_handle) {
@@ -124,7 +124,7 @@ where
         }
     }
     for (usage, attr, name_handle) in find!(
-        (usage: Id, attr: Id, name_handle: Inline<Handle<LongString>>),
+        (usage: Id, attr: Id, name_handle: Inline<Handle<UTF8String>>),
         pattern!(metadata, [
             { ?usage @ triblespace::core::metadata::attribute: ?attr },
             { ?usage @ triblespace::core::metadata::tag: triblespace::core::metadata::KIND_ATTRIBUTE_USAGE },
@@ -186,7 +186,7 @@ where
 fn build_entity_graph<B>(
     data: &TribleSet,
     metadata: &TribleSet,
-    name_cache: &BlobCache<B, LongString, View<str>>,
+    name_cache: &BlobCache<B, UTF8String, View<str>>,
     formatter_cache: &BlobCache<B, WasmCode, WasmValueFormatter>,
 ) -> EntityGraph
 where
@@ -340,7 +340,7 @@ fn cached_entity_graph<B>(
     cache_id: egui::Id,
     data: &TribleSet,
     metadata: &TribleSet,
-    name_cache: &BlobCache<B, LongString, View<str>>,
+    name_cache: &BlobCache<B, UTF8String, View<str>>,
     formatter_cache: &BlobCache<B, WasmCode, WasmValueFormatter>,
 ) -> Arc<EntityGraph>
 where
@@ -609,7 +609,7 @@ where
 {
     data: &'a TribleSet,
     metadata: &'a TribleSet,
-    name_cache: &'a BlobCache<B, LongString, View<str>>,
+    name_cache: &'a BlobCache<B, UTF8String, View<str>>,
     formatter_cache: &'a BlobCache<B, WasmCode, WasmValueFormatter>,
     selection: &'a mut Id,
     columns: usize,
@@ -624,7 +624,7 @@ where
     pub fn new(
         data: &'a TribleSet,
         metadata: &'a TribleSet,
-        name_cache: &'a BlobCache<B, LongString, View<str>>,
+        name_cache: &'a BlobCache<B, UTF8String, View<str>>,
         formatter_cache: &'a BlobCache<B, WasmCode, WasmValueFormatter>,
         selection: &'a mut Id,
     ) -> Self {

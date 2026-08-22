@@ -8,7 +8,7 @@
 //! parent→child motor edge stored as tribles. The whole tree is written
 //! to a real pile file, the file is closed and re-opened fresh, and the
 //! resolver then walks the tree by running `pattern!`/`find!` **queries**
-//! against the checked-out `TribleSet` — never a HashMap. Static edges
+//! against the materialized `TribleSet` — never a HashMap. Static edges
 //! are a single fact; dynamic edges are a series of timestamped samples
 //! that the resolver screw-interpolates between the bracketing pair at
 //! query time t (exactly tf2's append-only transform log, here durable).
@@ -38,6 +38,7 @@
 
 use ed25519_dalek::SigningKey;
 use hifitime::Epoch;
+use triblespace::core::collection::{reach, Collection, CollectionName};
 use triblespace::core::id::{fucid, ExclusiveId, Id};
 use triblespace::core::inline::encodings::hash::Handle;
 use triblespace::core::inline::encodings::time::NsTAIInterval;
@@ -46,10 +47,9 @@ use triblespace::core::inline::{
 };
 use triblespace::core::metadata::{self, MetaDescribe};
 use triblespace::core::repo::pile::Pile;
-use triblespace::core::repo::Repository;
 use triblespace::core::trible::{Fragment, TribleSet};
 use triblespace::macros::{find, id_hex, pattern};
-use triblespace::prelude::blobencodings::LongString;
+use triblespace::prelude::blobencodings::UTF8String;
 
 // ── Quaternion (Hamilton, [w,x,y,z]) ─────────────────────────────────
 
@@ -366,7 +366,7 @@ fn time_secs(v: &Inline<NsTAIInterval>) -> f64 {
 // ── The pile-resident resolver (queries, not a HashMap) ──────────────
 
 /// The to-parent motor for `child` at time t, and the parent frame id —
-/// resolved purely by querying the pile-checked-out `TribleSet` for the
+/// resolved purely by querying the pile-materialized `TribleSet` for the
 /// transform samples whose `sample_frame` is `child`. Returns `None` when
 /// `child` has no to-parent edge (i.e. it is the tree root).
 fn edge_at(set: &TribleSet, child: Id, t: f64) -> Option<(Motor, Id)> {
@@ -449,7 +449,7 @@ fn resolve_point(set: &TribleSet, p: Vec3, src: Id, dst: Id, t: f64) -> Vec3 {
 }
 
 /// Look up a frame entity by its `metadata::name` handle.
-fn frame_by_name(set: &TribleSet, name_handle: Inline<Handle<LongString>>) -> Option<Id> {
+fn frame_by_name(set: &TribleSet, name_handle: Inline<Handle<UTF8String>>) -> Option<Id> {
     find!(
         (e: Id),
         pattern!(set, [{ ?e @ metadata::name: name_handle }])
@@ -528,20 +528,25 @@ fn main() {
     ));
     std::fs::File::create(&tmp).expect("create pile file");
 
-    let branch_id = {
+    let collection_name = CollectionName::new("spatial-tf").expect("collection name");
+    {
         use triblespace::core::inline::IntoInline;
         use triblespace::macros::entity;
 
         let pile = Pile::open(&tmp).expect("open pile");
-        let mut repo = Repository::new(pile, SigningKey::from_bytes(&[42u8; 32]), TribleSet::new())
-            .expect("repo");
-        let branch_id = *repo.create_branch("main", None).expect("branch");
-        let mut ws = repo.pull(branch_id).expect("pull");
+        let signing_key = SigningKey::from_bytes(&[42u8; 32]);
+        let mut collection = Collection::new(
+            pile,
+            &collection_name,
+            signing_key.verifying_key(),
+            signing_key,
+            reach::private(),
+        );
 
         // Frames are named entities.
-        let mut world = TribleSet::new();
+        let mut world = Fragment::empty();
         for (id, name) in [(&eci_id, "ECI"), (&ecef_id, "ECEF"), (&enu_id, "ENU")] {
-            let name_handle = ws.put::<LongString, _>(name.to_string());
+            let name_handle = world.put::<UTF8String, _>(name.to_string());
             world += entity! { ExclusiveId::force_ref(id) @ metadata::name: name_handle };
         }
 
@@ -593,34 +598,32 @@ fn main() {
             };
         }
 
-        ws.commit(
-            world,
-            "spatial TF tree: frames, static + dynamic edges, one satellite",
-        );
-        repo.push(&mut ws).expect("push");
-        repo.into_storage().close().expect("flush + close pile");
-        branch_id
-    };
+        collection.commit(world).expect("commit spatial collection");
+        collection.close().expect("flush + close pile");
+    }
 
-    // ── Phase 2: re-open the pile FRESH and check the tree back out ──
+    // ── Phase 2: re-open the pile FRESH and materialize the collection ──
     // Nothing from Phase 1's in-memory tree survives; everything below
     // comes from disk.
     let facts: TribleSet = {
         let mut pile = Pile::open(&tmp).expect("re-open pile");
         pile.refresh().expect("load pile index from disk");
-        let mut repo = Repository::new(pile, SigningKey::from_bytes(&[42u8; 32]), TribleSet::new())
-            .expect("repo (reopen)");
-        let facts = {
-            let mut ws = repo.pull(branch_id).expect("pull (reopen)");
-            ws.checkout(..).expect("checkout HEAD").into_facts()
-        };
-        repo.into_storage().close().expect("close pile (reopen)");
+        let signing_key = SigningKey::from_bytes(&[42u8; 32]);
+        let mut collection = Collection::new(
+            pile,
+            &collection_name,
+            signing_key.verifying_key(),
+            signing_key,
+            reach::private(),
+        );
+        let facts = collection.materialize().expect("materialize collection");
+        collection.close().expect("close pile (reopen)");
         facts
     };
     let _ = std::fs::remove_file(&tmp);
 
     println!(
-        "Re-opened the pile from disk and checked out {} tribles.\n",
+        "Re-opened the pile from disk and materialized {} tribles.\n",
         facts.len()
     );
 
@@ -650,9 +653,9 @@ fn main() {
     };
 
     // Handle for "ENU" (content-addressed; recompute it to query by name).
-    let enu_handle: Inline<Handle<LongString>> = {
+    let enu_handle: Inline<Handle<UTF8String>> = {
         let mut frag = Fragment::empty();
-        frag.put::<LongString, _>("ENU".to_string())
+        frag.put::<UTF8String, _>("ENU".to_string())
     };
     let dst_frame = frame_by_name(&facts, enu_handle).expect("ENU frame present in pile");
 
@@ -766,7 +769,7 @@ fn main() {
     println!();
     if fails == 0 {
         println!("OK — the TF tree is durable and queryable: written to a pile, re-opened from");
-        println!("disk, and resolved by `pattern!`/`find!` queries over the checked-out");
+        println!("disk, and resolved by `pattern!`/`find!` queries over the materialized");
         println!("TribleSet (no HashMap). Frames are entities, transforms are timestamped motor");
         println!("edges, and the pile-composed answer matches raw geometry exactly.");
     } else {

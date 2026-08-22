@@ -2,8 +2,8 @@
 //! ```cargo
 //! [dependencies]
 //! GORBIE = { path = "..", features = ["triblespace"] }
-//! egui = "0.33"
-//! eframe = "0.33"
+//! egui = "0.34"
+//! eframe = "0.34"
 //! triblespace = { path = "../../triblespace-rs", features = ["wasm"] }
 //! ```
 
@@ -13,13 +13,12 @@ use triblespace::core::blob::BlobCache;
 use triblespace::core::examples::literature;
 use triblespace::core::id::ExclusiveId;
 use triblespace::core::id::Id;
-use triblespace::core::inline::encodings::hash::Blake3;
 use triblespace::core::inline::encodings::hash::Handle;
 use triblespace::core::repo::memoryrepo::MemoryRepo;
 use triblespace::core::repo::BlobStore;
 use triblespace::core::repo::BlobStorePut;
 use triblespace::core::value_formatter::WasmValueFormatter;
-use triblespace::prelude::blobencodings::LongString;
+use triblespace::prelude::blobencodings::UTF8String;
 use triblespace::prelude::inlineencodings::{GenId, ShortString, R256};
 use triblespace::prelude::{entity, MetaDescribe, TribleSet, View};
 
@@ -52,7 +51,7 @@ fn build_demo_space() -> (TribleSet, TribleSet, MemoryRepo, Id) {
 
     let schema_genid = <GenId as MetaDescribe>::id();
     let schema_shortstring = <ShortString as MetaDescribe>::id();
-    let schema_handle = <Handle<LongString> as MetaDescribe>::id();
+    let schema_handle = <Handle<UTF8String> as MetaDescribe>::id();
     let schema_r256 = <R256 as MetaDescribe>::id();
     for (attr, name, schema) in [
         (name, "name", schema_shortstring),
@@ -65,7 +64,7 @@ fn build_demo_space() -> (TribleSet, TribleSet, MemoryRepo, Id) {
         (lit_page_count, "page_count", schema_r256),
     ] {
         let name_handle = storage
-            .put::<LongString, _>(name.to_string())
+            .put::<UTF8String, _>(name.to_string())
             .expect("name handle");
         metadata += entity! { ExclusiveId::force_ref(&attr) @
             triblespace::core::metadata::name: name_handle,
@@ -74,7 +73,7 @@ fn build_demo_space() -> (TribleSet, TribleSet, MemoryRepo, Id) {
     }
 
     metadata += GenId::describe();
-    metadata += <Handle<LongString> as MetaDescribe>::describe();
+    metadata += <Handle<UTF8String> as MetaDescribe>::describe();
     metadata += R256::describe();
     metadata += ShortString::describe();
 
@@ -272,7 +271,7 @@ fn build_demo_space() -> (TribleSet, TribleSet, MemoryRepo, Id) {
     for (idx, (title, author_idx, quote, pages)) in books.iter().enumerate() {
         let id = demo_id(0xB000 + idx as u16);
         let author_id = author_ids.get(*author_idx).copied().expect("author index");
-        let quote_handle = storage.put::<LongString, _>(*quote).expect("quote handle");
+        let quote_handle = storage.put::<UTF8String, _>(*quote).expect("quote handle");
         data += entity! { ExclusiveId::force_ref(&id) @
             demo::name: *title,
             demo::isa: e_book_kind,
@@ -318,7 +317,7 @@ fn main(nb: &mut NotebookCtx) {
     let reader = storage.reader().expect("demo blob store reader");
     let formatter_cache: BlobCache<_, WasmCode, WasmValueFormatter> =
         BlobCache::new(reader.clone());
-    let name_cache: BlobCache<_, LongString, View<str>> = BlobCache::new(reader);
+    let name_cache: BlobCache<_, UTF8String, View<str>> = BlobCache::new(reader);
     let inspector = nb.state(
         "inspector",
         InspectorState {

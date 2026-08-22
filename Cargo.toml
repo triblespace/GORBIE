@@ -69,27 +69,10 @@ version = "0.52.0"
 optional = true
 features = ["lazy", "sql", "polars-ops"]
 
-[dependencies.rapier2d]
-version = "0.32"
-optional = true
-
-[dependencies.hifitime]
-version = "4.2.3"
-optional = true
-
 [dependencies.cubecl]
 version = "0.10.0"
 default-features = false
 features = ["wgpu", "std"]
-optional = true
-
-[dependencies.ed25519-dalek]
-version = "2.1.1"
-optional = true
-
-[dependencies.rand_core06]
-package = "rand_core"
-version = "0.6.4"
 optional = true
 
 [dependencies.typst]
@@ -124,8 +107,7 @@ accesskit = []
 markdown = ["dep:egui_commonmark"]
 polars = ["dep:polars"]
 plots = ["dep:egui_plot"]
-triblespace = ["dep:triblespace", "dep:ed25519-dalek", "dep:rand_core06"]
-gloss = ["triblespace", "dep:hifitime", "dep:rapier2d"]
+triblespace = ["dep:triblespace"]
 cubecl = ["dep:cubecl"]
 typst = ["dep:typst", "dep:typst-syntax", "dep:ttf-parser", "dep:earcutr", "dep:comemo"]
 telemetry = ["triblespace", "triblespace/telemetry"]
@@ -167,10 +149,6 @@ name = "polars"
 required-features = ["polars"]
 
 [[example]]
-name = "pile_inspector"
-required-features = ["gloss"]
-
-[[example]]
 name = "entity_inspector"
 required-features = ["triblespace"]
 
@@ -183,20 +161,8 @@ name = "minla"
 required-features = ["cubecl", "plots"]
 
 [[example]]
-name = "telemetry_viewer"
-required-features = ["telemetry"]
-
-[[example]]
-name = "triblespace_best_practices"
-required-features = ["triblespace"]
-
-[[example]]
-name = "wiki_viewer"
-required-features = ["triblespace", "typst", "cubecl"]
-
-[[example]]
 name = "dashboard_widgets"
-required-features = ["plots", "triblespace"]
+required-features = ["plots"]
 
 [[example]]
 name = "spatial_resolver"
