@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Security lock refresh.** Bump the retained `quinn-proto` lock entry
+  from 0.11.14 to 0.11.15, closing GHSA-4w2j-m93h-cj5j.
 - **Restore WASM builds after the wgpu/theme additions.** `egui-wgpu`
   is now a direct dependency on both native and web targets, and the
   native-only headless-theme initializer is correctly target-gated.
