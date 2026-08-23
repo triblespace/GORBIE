@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Restore WASM builds after the wgpu/theme additions.** `egui-wgpu`
+  is now a direct dependency on both native and web targets, and the
+  native-only headless-theme initializer is correctly target-gated.
 - **Live-dashboard widget set.** Four new reusable widgets grown out
   of the `drive` operational dashboard: `StreamLane` (scrolling
   tagged text runs with chunked, lazily laid-out rendering and a

@@ -264,7 +264,10 @@ impl<K: std::fmt::Debug, T> std::fmt::Debug for DerivedState<K, T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ComputedState, DerivedState};
+    #[cfg(not(target_arch = "wasm32"))]
+    use super::ComputedState;
+    use super::DerivedState;
+    #[cfg(not(target_arch = "wasm32"))]
     use eframe::egui;
     use std::cell::Cell;
 

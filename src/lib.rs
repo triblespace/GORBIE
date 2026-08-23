@@ -346,6 +346,7 @@ impl NotebookConfig {
             headless_capture: None,
             #[cfg(not(target_arch = "wasm32"))]
             headless_settle_timeout: None,
+            #[cfg(not(target_arch = "wasm32"))]
             headless_theme: HeadlessTheme::default(),
         }
     }
