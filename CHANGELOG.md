@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Lazy notebook state initialization.** `NotebookCtx::state_with` accepts an
+  initializer closure that runs only when its state key is absent, so
+  expensive resources are not reconstructed while the notebook body rebuilds
+  on later frames. The existing eager-value `state` API is unchanged. The new
+  `incremental_collection` example uses it to retain two live Pile handles and
+  incrementally fold exact collection-ticket additions without frame-rate
+  storage polling or a resident watcher thread.
 - **Security lock refresh.** Bump the retained `quinn-proto` lock entry
   from 0.11.14 to 0.11.15, closing GHSA-4w2j-m93h-cj5j.
 - **Restore WASM builds after the wgpu/theme additions.** `egui-wgpu`

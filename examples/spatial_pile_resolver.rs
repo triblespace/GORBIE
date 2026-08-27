@@ -38,7 +38,7 @@
 
 use ed25519_dalek::SigningKey;
 use hifitime::Epoch;
-use triblespace::core::collection::{reach, Collection, CollectionName};
+use triblespace::core::collection::{reach, Collection, CollectionAdmission, CollectionName};
 use triblespace::core::id::{fucid, ExclusiveId, Id};
 use triblespace::core::inline::encodings::hash::Handle;
 use triblespace::core::inline::encodings::time::NsTAIInterval;
@@ -541,6 +541,7 @@ fn main() {
             signing_key.verifying_key(),
             signing_key,
             reach::private(),
+            CollectionAdmission::Open,
         );
 
         // Frames are named entities.
@@ -615,6 +616,7 @@ fn main() {
             signing_key.verifying_key(),
             signing_key,
             reach::private(),
+            CollectionAdmission::Open,
         );
         let facts = collection.materialize().expect("materialize collection");
         collection.close().expect("close pile (reopen)");

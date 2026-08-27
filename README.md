@@ -70,6 +70,11 @@ fn main(nb: &mut NotebookCtx) {
 
 Run it with `cargo run` to start the notebook.
 
+`nb.state` keeps the first value for a key, but its ordinary Rust argument is
+still evaluated before every call. Use `nb.state_with("key", || expensive(),
+|ctx, value| { /* ... */ })` when a resource should be constructed only while
+that state key is absent.
+
 For reload-on-change with Cargo, use:
 `watchexec -r -w src -w Cargo.toml -- cargo run`
 or `cargo watch -x run` (install with `cargo install cargo-watch`).

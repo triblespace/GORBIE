@@ -27,32 +27,38 @@ impl StateStore {
         entry.downcast::<RwLock<T>>().ok()
     }
 
-    fn get_or_insert_raw<T: Send + Sync + 'static>(&self, id: egui::Id, init: T) -> Arc<RwLock<T>> {
-        {
-            let states = self.states.read();
-            if let Some(existing) = states.get(&id) {
-                if let Ok(state) = existing.clone().downcast::<RwLock<T>>() {
-                    return state;
-                }
-            }
+    fn get_or_insert_with_raw<T: Send + Sync + 'static>(
+        &self,
+        id: egui::Id,
+        init: impl FnOnce() -> T,
+    ) -> Arc<RwLock<T>> {
+        if let Some(existing) = self.states.read().get(&id).cloned() {
+            return existing
+                .downcast::<RwLock<T>>()
+                .expect("state store type mismatch");
         }
 
-        let state = Arc::new(RwLock::new(init));
-        let erased: Arc<dyn Any + Send + Sync> = state.clone();
         let mut states = self.states.write();
-        let entry = states.entry(id).or_insert_with(|| erased.clone());
-        entry
-            .clone()
-            .downcast::<RwLock<T>>()
-            .expect("state store type mismatch")
+        if let Some(existing) = states.get(&id).cloned() {
+            return existing
+                .downcast::<RwLock<T>>()
+                .expect("state store type mismatch");
+        }
+
+        // Construct under the write lock so concurrent first users cannot run
+        // `init` more than once. If it panics, nothing has been inserted and a
+        // later call can retry normally; parking_lot locks are not poisoned.
+        let state = Arc::new(RwLock::new(init()));
+        states.insert(id, state.clone());
+        state
     }
 
-    pub(crate) fn get_or_insert<T: Send + Sync + 'static>(
+    pub(crate) fn get_or_insert_with<T: Send + Sync + 'static>(
         &self,
         id: StateId<T>,
-        init: T,
+        init: impl FnOnce() -> T,
     ) -> Arc<RwLock<T>> {
-        self.get_or_insert_raw(id.id(), init)
+        self.get_or_insert_with_raw(id.id(), init)
     }
 
     /// Returns the state for the given handle or panics when it is missing.
@@ -156,5 +162,47 @@ impl<T: Send + Sync + 'static> StateId<T> {
     /// Acquires a write guard if the state exists and is not locked.
     pub fn try_read_mut(self, ctx: &impl StateAccess) -> Option<ArcWriteGuard<T>> {
         ctx.store().try_read_mut(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    use super::*;
+
+    #[test]
+    fn lazy_initialization_is_skipped_for_an_existing_key() {
+        let store = StateStore::default();
+        let state = StateId::new(egui::Id::new("lazy-existing"));
+        let initializations = Cell::new(0);
+
+        let first = store.get_or_insert_with(state, || {
+            initializations.set(initializations.get() + 1);
+            41_u32
+        });
+        let second = store.get_or_insert_with(state, || {
+            initializations.set(initializations.get() + 1);
+            99_u32
+        });
+
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(*second.read(), 41);
+        assert_eq!(initializations.get(), 1);
+    }
+
+    #[test]
+    fn panicking_initializer_leaves_the_key_absent() {
+        let store = StateStore::default();
+        let state = StateId::new(egui::Id::new("lazy-retry"));
+
+        let failure = catch_unwind(AssertUnwindSafe(|| {
+            store.get_or_insert_with(state, || -> u32 { panic!("initialization failed") });
+        }));
+        assert!(failure.is_err());
+
+        let recovered = store.get_or_insert_with(state, || 41_u32);
+        assert_eq!(*recovered.read(), 41);
     }
 }

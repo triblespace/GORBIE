@@ -637,14 +637,39 @@ impl NotebookCtx {
 
     /// Adds a stateful card backed by a value of type `T` in the shared state store.
     ///
-    /// The state is initialized with `init` on first use and persists across frames.
-    /// Returns a [`StateId`](state::StateId) handle for reading/writing the state
-    /// from other cards.
+    /// The first value passed for this state key is retained across frames.
+    /// Like every ordinary function argument, `init` is evaluated before this
+    /// method is called, even when the state already exists. Use
+    /// [`state_with`](Self::state_with) when construction should happen only
+    /// for an absent key.
+    ///
+    /// Returns a [`StateId`](state::StateId) handle for reading/writing the
+    /// state from other cards.
     #[track_caller]
     pub fn state<K, T, F>(&mut self, key: &K, init: T, function: F) -> state::StateId<T>
     where
         K: std::hash::Hash + ?Sized,
         T: Send + Sync + 'static,
+        F: for<'a, 'b> FnMut(&'a mut CardCtx<'b>, &mut T) + 'static,
+    {
+        self.state_with(key, || init, function)
+    }
+
+    /// Adds a stateful card, constructing its value only when the key is absent.
+    ///
+    /// `init` runs only while the state key is absent. Once it returns,
+    /// subsequent frames rebuild the card around the existing value without
+    /// invoking the initializer. If initialization panics, no state is
+    /// installed and a later call may retry.
+    ///
+    /// Returns a [`StateId`](state::StateId) handle for reading/writing the
+    /// state from other cards.
+    #[track_caller]
+    pub fn state_with<K, T, I, F>(&mut self, key: &K, init: I, function: F) -> state::StateId<T>
+    where
+        K: std::hash::Hash + ?Sized,
+        T: Send + Sync + 'static,
+        I: FnOnce() -> T,
         F: for<'a, 'b> FnMut(&'a mut CardCtx<'b>, &mut T) + 'static,
     {
         let source = SourceLocation::from_location(std::panic::Location::caller());
@@ -656,7 +681,7 @@ impl NotebookCtx {
         });
         let state = state::StateId::new(state_id);
         let handle = state;
-        self.state_store.get_or_insert(state, init);
+        self.state_store.get_or_insert_with(state, init);
         let card = cards::StatefulCard::new(state, function);
         self.push_with_source(Box::new(card), Some(source), identity);
         handle
@@ -1428,3 +1453,70 @@ fn paint_card_tab_button(
 }
 
 // notebook initialization is handled by the #[notebook] attribute macro.
+
+#[cfg(test)]
+mod notebook_state_tests {
+    use std::cell::Cell;
+
+    use super::*;
+
+    #[test]
+    fn state_with_initializes_once_across_notebook_rebuilds() {
+        let mut core = NotebookCore::new(NotebookConfig::new("lazy-state-test"), Box::new(|_| {}));
+        let initializations = Cell::new(0);
+
+        let first = {
+            let mut notebook = core.build_notebook();
+            notebook.state_with(
+                &"shared",
+                || {
+                    initializations.set(initializations.get() + 1);
+                    41_u32
+                },
+                |_, _| {},
+            )
+        };
+        let (second, value) = {
+            let mut notebook = core.build_notebook();
+            let state = notebook.state_with(
+                &"shared",
+                || {
+                    initializations.set(initializations.get() + 1);
+                    99_u32
+                },
+                |_, _| {},
+            );
+            let value = *state.read(&notebook);
+            (state, value)
+        };
+
+        assert_eq!(first, second);
+        assert_eq!(value, 41);
+        assert_eq!(initializations.get(), 1);
+    }
+
+    #[test]
+    fn state_keeps_its_eager_value_api() {
+        let mut core = NotebookCore::new(NotebookConfig::new("eager-state-test"), Box::new(|_| {}));
+        let evaluations = Cell::new(0);
+        let evaluated = |value| {
+            evaluations.set(evaluations.get() + 1);
+            value
+        };
+
+        let first = {
+            let mut notebook = core.build_notebook();
+            notebook.state(&"shared", evaluated(41_u32), |_, _| {})
+        };
+        let (second, value) = {
+            let mut notebook = core.build_notebook();
+            let state = notebook.state(&"shared", evaluated(99_u32), |_, _| {});
+            let value = *state.read(&notebook);
+            (state, value)
+        };
+
+        assert_eq!(first, second);
+        assert_eq!(value, 41);
+        assert_eq!(evaluations.get(), 2);
+    }
+}

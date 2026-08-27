@@ -126,6 +126,7 @@ rand_core = "0.9.5"
 bytemuck = { version = "1", features = ["derive"] }
 glam = "0.30"
 hifitime = "4.2.3"
+tempfile = "3.26"
 
 [[example]]
 name = "globe"
@@ -154,6 +155,10 @@ required-features = ["triblespace"]
 
 [[example]]
 name = "schema_inspector"
+required-features = ["triblespace"]
+
+[[example]]
+name = "incremental_collection"
 required-features = ["triblespace"]
 
 [[example]]

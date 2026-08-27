@@ -29,6 +29,7 @@ dependencies = [
  "polars",
  "pollster",
  "rand_core 0.9.5",
+ "tempfile",
  "tracing",
  "triblespace",
  "ttf-parser",
