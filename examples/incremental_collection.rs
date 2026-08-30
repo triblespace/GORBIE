@@ -17,10 +17,12 @@ use std::time::{Duration, Instant};
 use ed25519_dalek::SigningKey;
 use eframe::egui;
 use tempfile::TempDir;
-use triblespace::core::collection::succinctarchive_union::SuccinctArchiveCollection;
+use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
+use triblespace::core::collection::succinctarchive_union::{
+    SuccinctArchiveCollection, SuccinctArchiveView,
+};
 use triblespace::core::collection::{
-    exact_ticket_additions, reach, Collection, CollectionAdmission, CollectionCommit,
-    CollectionName, SimpleArchiveCollection,
+    reach, simplearchive_union, Collection, CollectionStoreExt, Cover, SimpleArchiveCollection,
 };
 use triblespace::core::examples::literature;
 use triblespace::core::repo::pile::{Pile, PileRevision};
@@ -58,12 +60,14 @@ impl DemoError {
 }
 
 struct Demo {
-    observer: Collection<Pile>,
-    writer: Collection<Pile>,
+    observer: Pile,
+    writer: Pile,
+    collection: Collection<SimpleArchive>,
+    signing_key: SigningKey,
     simple: SimpleArchiveCollection,
-    succinct: SuccinctArchiveCollection,
+    full_view: SuccinctArchiveView,
     author: Id,
-    checkpoint: Vec<CollectionCommit>,
+    checkpoint: Option<Cover<SimpleArchive>>,
     acknowledged_revision: Option<PileRevision>,
     observed_titles: Vec<String>,
     next_title: usize,
@@ -86,32 +90,23 @@ impl Demo {
         // A deterministic demo key makes reruns legible; the temporary pile is
         // isolated per process and this key must not be reused as real authority.
         let signing_key = SigningKey::from_bytes(&[0x47; 32]);
-        let namespace = signing_key.verifying_key();
-        let name = CollectionName::new("gorbie-incremental-literature")
-            .map_err(|error| format!("invalid collection name: {error}"))?;
+        let authority = signing_key.verifying_key();
+        let name = "gorbie-incremental-literature";
+        let source_reach = reach::private();
 
         // Open the observer before publishing the initial commits. Seeing them
         // therefore exercises Pile's external-append refresh path immediately.
-        let observer_store = Pile::open(&pile_path)
+        let observer = Pile::open(&pile_path)
             .map_err(|error| format!("could not open observer pile: {error}"))?;
-        let writer_store = Pile::open(&pile_path)
+        let mut writer = Pile::open(&pile_path)
             .map_err(|error| format!("could not open writer pile: {error}"))?;
-        let observer = Collection::new(
-            observer_store,
-            &name,
-            namespace,
-            signing_key.clone(),
-            reach::private(),
-            CollectionAdmission::Open,
-        );
-        let mut writer = Collection::new(
-            writer_store,
-            &name,
-            namespace,
-            signing_key,
-            reach::private(),
-            CollectionAdmission::Open,
-        );
+        let collection = writer
+            .collection::<SimpleArchive>(simplearchive_union::descriptor(
+                name,
+                authority,
+                source_reach.clone(),
+            ))
+            .map_err(|error| format!("could not register the collection: {error}"))?;
 
         let author = entity! {
             literature::firstname: "Frank",
@@ -121,32 +116,37 @@ impl Demo {
             .root()
             .ok_or_else(|| "the intrinsic author fragment has no root".to_owned())?;
         writer
-            .commit(author)
+            .commit(collection, &signing_key, author)
             .map_err(|error| format!("could not publish the author: {error}"))?;
         writer
-            .commit(entity! {
-                literature::title: "Dune",
-                literature::author: &author_id,
-            })
+            .commit(
+                collection,
+                &signing_key,
+                entity! {
+                    literature::title: "Dune",
+                    literature::author: &author_id,
+                },
+            )
             .map_err(|error| format!("could not publish the initial book: {error}"))?;
 
-        let simple = SimpleArchiveCollection::new(name.clone(), namespace, None, reach::private());
+        let simple = SimpleArchiveCollection::new(name, authority, source_reach.clone());
         let succinct = SuccinctArchiveCollection::new(
             name,
-            namespace,
-            None,
-            reach::private(),
-            None,
+            authority,
+            source_reach,
+            authority,
             reach::private(),
         );
 
         Ok(Self {
             observer,
             writer,
+            collection,
+            signing_key,
             simple,
-            succinct,
+            full_view: succinct.exact_view(),
             author: author_id,
-            checkpoint: Vec::new(),
+            checkpoint: None,
             acknowledged_revision: None,
             observed_titles: Vec::new(),
             next_title: 0,
@@ -166,10 +166,14 @@ impl Demo {
             .next_title()
             .ok_or_else(|| "all example commits have already been published".to_owned())?;
         self.writer
-            .commit(entity! {
-                literature::title: title,
-                literature::author: &self.author,
-            })
+            .commit(
+                self.collection,
+                &self.signing_key,
+                entity! {
+                    literature::title: title,
+                    literature::author: &self.author,
+                },
+            )
             .map_err(|error| format!("could not publish {title:?}: {error}"))?;
         self.next_title += 1;
         Ok(title)
@@ -184,14 +188,13 @@ impl Demo {
         // probe rather than accidentally swallowing it.
         let sampled = self
             .observer
-            .storage_mut()
             .store_revision()
             .map_err(|error| format!("could not sample the Pile revision: {error}"))?;
 
         if let Some(previous) = self.acknowledged_revision.as_ref() {
             let changes = <Pile as StoreRevision>::revision_changes(previous, &sampled);
             if !changes.contains(StoreRevisionChanges::COLLECTION_RECORDS) {
-                // No ticket could have changed, so there is no fold to retry.
+                // No collection cover could have changed, so there is no fold to retry.
                 self.acknowledged_revision = Some(sampled);
                 return Ok(Observation::NoCollectionChange);
             }
@@ -199,13 +202,17 @@ impl Demo {
 
         let current = self
             .observer
-            .ticket()
-            .map_err(|error| format!("could not discover the collection ticket: {error}"))?;
-        let added = exact_ticket_additions(self.simple.collection(), &self.checkpoint, &current)
-            .map_err(|error| format!("ticket is not an additions-only advance: {error}"))?;
+            .cover(self.collection)
+            .map_err(|error| format!("could not discover the collection cover: {error}"))?;
+        let added = match self.checkpoint.as_ref() {
+            Some(previous) => current
+                .additions_since(previous)
+                .map_err(|error| format!("cover is not an additions-only advance: {error}"))?,
+            None => current.clone(),
+        };
 
         // Other collections' MERGE/DERIVE records share the same Pile-level
-        // revision component. Once the exact source ticket says there is no
+        // revision component. Once the exact source cover says there is no
         // semantic delta, acknowledge the sampled false positive without
         // touching either archive representation.
         if added.is_empty() {
@@ -214,12 +221,12 @@ impl Demo {
         }
 
         let full = self
-            .succinct
-            .ensure_exact(self.observer.storage_mut(), &current)
+            .full_view
+            .ensure(&mut self.observer, &current)
             .map_err(|error| format!("could not ensure the Succinct full view: {error}"))?;
         let changed = self
             .simple
-            .attach_exact(self.observer.storage_mut(), &added)
+            .attach_exact(&mut self.observer, &added)
             .map_err(|error| format!("could not attach the SimpleArchive delta: {error}"))?;
 
         let titles: Vec<String> = find!(
@@ -238,11 +245,12 @@ impl Demo {
             consume(title)?;
         }
 
-        // Both continuation tokens advance only after every fallible step and
-        // the complete consumer fold succeeded. A failure remains retryable.
+        // The consumer continuation and sampled revision advance only after
+        // every fallible step and the complete fold succeeded. A failure
+        // remains retryable; advancing the immutable full-view cache is safe.
         let count = titles.len();
         self.observed_titles.extend(titles);
-        self.checkpoint = current;
+        self.checkpoint = Some(current);
         self.acknowledged_revision = Some(sampled);
         Ok(Observation::Folded(count))
     }
@@ -279,9 +287,9 @@ fn main(nb: &mut NotebookCtx) {
                 ctx.label("The observer and writer are separate handles to one append-only Pile.");
                 ctx.label(
                     egui::RichText::new(
-                        "Open admission is intentional in this storage-revision demo. The 100 ms \
-                         gate does not model capability expiry; authorization clocks require their \
-                         own wake-up policy even when no collection record changes.",
+                        "The demo writer is the collection authority. The 100 ms gate does not \
+                         model delegated-capability expiry; authorization clocks require their own \
+                         wake-up policy even when no collection record changes.",
                     )
                     .weak(),
                 );
@@ -348,8 +356,8 @@ fn main(nb: &mut NotebookCtx) {
 
                 ctx.separator();
                 ctx.label(format!(
-                    "Checkpoint: {} commit(s); observed incremental rows:",
-                    demo.checkpoint.len()
+                    "Checkpoint: {} payload member(s); observed incremental rows:",
+                    demo.checkpoint.as_ref().map_or(0, Cover::len)
                 ));
                 for title in &demo.observed_titles {
                     ctx.label(format!("• {title}"));

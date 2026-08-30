@@ -38,7 +38,8 @@
 
 use ed25519_dalek::SigningKey;
 use hifitime::Epoch;
-use triblespace::core::collection::{reach, Collection, CollectionAdmission, CollectionName};
+use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
+use triblespace::core::collection::{reach, simplearchive_union, Collection, CollectionStoreExt};
 use triblespace::core::id::{fucid, ExclusiveId, Id};
 use triblespace::core::inline::encodings::hash::Handle;
 use triblespace::core::inline::encodings::time::NsTAIInterval;
@@ -528,21 +529,20 @@ fn main() {
     ));
     std::fs::File::create(&tmp).expect("create pile file");
 
-    let collection_name = CollectionName::new("spatial-tf").expect("collection name");
+    let collection_name = "spatial-tf";
     {
         use triblespace::core::inline::IntoInline;
         use triblespace::macros::entity;
 
-        let pile = Pile::open(&tmp).expect("open pile");
+        let mut pile = Pile::open(&tmp).expect("open pile");
         let signing_key = SigningKey::from_bytes(&[42u8; 32]);
-        let mut collection = Collection::new(
-            pile,
-            &collection_name,
-            signing_key.verifying_key(),
-            signing_key,
-            reach::private(),
-            CollectionAdmission::Open,
-        );
+        let collection = pile
+            .collection::<SimpleArchive>(simplearchive_union::descriptor(
+                collection_name,
+                signing_key.verifying_key(),
+                reach::private(),
+            ))
+            .expect("register spatial collection");
 
         // Frames are named entities.
         let mut world = Fragment::empty();
@@ -599,8 +599,9 @@ fn main() {
             };
         }
 
-        collection.commit(world).expect("commit spatial collection");
-        collection.close().expect("flush + close pile");
+        pile.commit(collection, &signing_key, world)
+            .expect("commit spatial collection");
+        pile.close().expect("flush + close pile");
     }
 
     // ── Phase 2: re-open the pile FRESH and materialize the collection ──
@@ -610,16 +611,18 @@ fn main() {
         let mut pile = Pile::open(&tmp).expect("re-open pile");
         pile.refresh().expect("load pile index from disk");
         let signing_key = SigningKey::from_bytes(&[42u8; 32]);
-        let mut collection = Collection::new(
-            pile,
-            &collection_name,
-            signing_key.verifying_key(),
-            signing_key,
-            reach::private(),
-            CollectionAdmission::Open,
-        );
-        let facts = collection.materialize().expect("materialize collection");
-        collection.close().expect("close pile (reopen)");
+        let collection =
+            Collection::<SimpleArchive>::from_descriptor(&simplearchive_union::descriptor(
+                collection_name,
+                signing_key.verifying_key(),
+                reach::private(),
+            ))
+            .expect("type spatial collection descriptor");
+        let facts = pile
+            .snapshot::<TribleSet, _>(collection)
+            .expect("materialize collection")
+            .into_facts();
+        pile.close().expect("close pile (reopen)");
         facts
     };
     let _ = std::fs::remove_file(&tmp);
