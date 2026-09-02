@@ -9,7 +9,7 @@
 //!
 //! A native, stateful notebook card which observes collection commits appended
 //! through a second handle to the same Pile. The card polls a cheap store
-//! revision at an absolute deadline; it does not own a worker thread.
+//! snapshot at an absolute deadline; it does not own a worker thread.
 
 use std::fs::File;
 use std::time::{Duration, Instant};
@@ -19,14 +19,15 @@ use eframe::egui;
 use tempfile::TempDir;
 use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
 use triblespace::core::collection::succinctarchive_union::{
-    SuccinctArchiveCollection, SuccinctArchiveView,
+    RawToRank9AcceleratedMapping, SimpleToSuccinctMapping, SuccinctArchiveCollection,
+    SuccinctArchiveView,
 };
 use triblespace::core::collection::{
-    reach, simplearchive_union, Collection, CollectionStoreExt, Cover, SimpleArchiveCollection,
+    AdmissionPolicy, Collection, CollectionPolicy, CollectionStoreExt, Cover,
 };
 use triblespace::core::examples::literature;
-use triblespace::core::repo::pile::{Pile, PileRevision};
-use triblespace::core::repo::{StoreRevision, StoreRevisionChanges};
+use triblespace::core::repo::pile::{Pile, PileSnapshot};
+use triblespace::core::repo::{StoreChanges, StoreSnapshot};
 use triblespace::prelude::*;
 
 use GORBIE::cards::DEFAULT_CARD_PADDING;
@@ -64,11 +65,10 @@ struct Demo {
     writer: Pile,
     collection: Collection<SimpleArchive>,
     signing_key: SigningKey,
-    simple: SimpleArchiveCollection,
     full_view: SuccinctArchiveView,
     author: Id,
     checkpoint: Option<Cover<SimpleArchive>>,
-    acknowledged_revision: Option<PileRevision>,
+    acknowledged_snapshot: Option<PileSnapshot>,
     observed_titles: Vec<String>,
     next_title: usize,
     next_probe: Option<Instant>,
@@ -92,7 +92,10 @@ impl Demo {
         let signing_key = SigningKey::from_bytes(&[0x47; 32]);
         let authority = signing_key.verifying_key();
         let name = "gorbie-incremental-literature";
-        let source_reach = reach::private();
+        let policy = CollectionPolicy::new(
+            AdmissionPolicy::direct(authority),
+            AdmissionPolicy::direct(authority),
+        );
 
         // Open the observer before publishing the initial commits. Seeing them
         // therefore exercises Pile's external-append refresh path immediately.
@@ -101,11 +104,7 @@ impl Demo {
         let mut writer = Pile::open(&pile_path)
             .map_err(|error| format!("could not open writer pile: {error}"))?;
         let collection = writer
-            .collection::<SimpleArchive>(simplearchive_union::descriptor(
-                name,
-                authority,
-                source_reach.clone(),
-            ))
+            .collection(name, policy.clone())
             .map_err(|error| format!("could not register the collection: {error}"))?;
 
         let author = entity! {
@@ -129,25 +128,25 @@ impl Demo {
             )
             .map_err(|error| format!("could not publish the initial book: {error}"))?;
 
-        let simple = SimpleArchiveCollection::new(name, authority, source_reach.clone());
-        let succinct = SuccinctArchiveCollection::new(
-            name,
-            authority,
-            source_reach,
-            authority,
-            reach::private(),
-        );
+        let raw = writer
+            .derive(collection, SimpleToSuccinctMapping, policy.clone())
+            .map_err(|error| format!("could not register the Succinct collection: {error}"))?;
+        let accelerated = writer
+            .derive(raw, RawToRank9AcceleratedMapping, policy)
+            .map_err(|error| {
+                format!("could not register the Rank9-accelerated collection: {error}")
+            })?;
+        let succinct = SuccinctArchiveCollection::new(collection, raw, accelerated);
 
         Ok(Self {
             observer,
             writer,
             collection,
             signing_key,
-            simple,
             full_view: succinct.exact_view(),
             author: author_id,
             checkpoint: None,
-            acknowledged_revision: None,
+            acknowledged_snapshot: None,
             observed_titles: Vec::new(),
             next_title: 0,
             next_probe: Some(Instant::now()),
@@ -188,21 +187,21 @@ impl Demo {
         // probe rather than accidentally swallowing it.
         let sampled = self
             .observer
-            .store_revision()
-            .map_err(|error| format!("could not sample the Pile revision: {error}"))?;
+            .snapshot()
+            .map_err(|error| format!("could not sample the Pile snapshot: {error}"))?;
 
-        if let Some(previous) = self.acknowledged_revision.as_ref() {
-            let changes = <Pile as StoreRevision>::revision_changes(previous, &sampled);
-            if !changes.contains(StoreRevisionChanges::COLLECTION_RECORDS) {
+        if let Some(previous) = self.acknowledged_snapshot.as_ref() {
+            let changes = sampled.changes_since(previous);
+            if !changes.contains(StoreChanges::COLLECTION_RECORDS) {
                 // No collection cover could have changed, so there is no fold to retry.
-                self.acknowledged_revision = Some(sampled);
+                self.acknowledged_snapshot = Some(sampled);
                 return Ok(Observation::NoCollectionChange);
             }
         }
 
         let current = self
-            .observer
-            .cover(self.collection)
+            .collection
+            .admitted(&sampled)
             .map_err(|error| format!("could not discover the collection cover: {error}"))?;
         let added = match self.checkpoint.as_ref() {
             Some(previous) => current
@@ -212,21 +211,20 @@ impl Demo {
         };
 
         // Other collections' MERGE/DERIVE records share the same Pile-level
-        // revision component. Once the exact source cover says there is no
+        // snapshot component. Once the exact source cover says there is no
         // semantic delta, acknowledge the sampled false positive without
         // touching either archive representation.
         if added.is_empty() {
-            self.acknowledged_revision = Some(sampled);
+            self.acknowledged_snapshot = Some(sampled);
             return Ok(Observation::NoCollectionChange);
         }
 
         let full = self
             .full_view
-            .ensure(&mut self.observer, &current)
+            .advance(&mut self.observer, &current)
             .map_err(|error| format!("could not ensure the Succinct full view: {error}"))?;
-        let changed = self
-            .simple
-            .attach_exact(&mut self.observer, &added)
+        let changed = added
+            .materialize::<TribleSet, _>(&sampled)
             .map_err(|error| format!("could not attach the SimpleArchive delta: {error}"))?;
 
         let titles: Vec<String> = find!(
@@ -245,13 +243,13 @@ impl Demo {
             consume(title)?;
         }
 
-        // The consumer continuation and sampled revision advance only after
+        // The consumer continuation and sampled snapshot advance only after
         // every fallible step and the complete fold succeeded. A failure
         // remains retryable; advancing the immutable full-view cache is safe.
         let count = titles.len();
         self.observed_titles.extend(titles);
         self.checkpoint = Some(current);
-        self.acknowledged_revision = Some(sampled);
+        self.acknowledged_snapshot = Some(sampled);
         Ok(Observation::Folded(count))
     }
 
@@ -392,7 +390,7 @@ mod tests {
 
         demo.publish_next().expect("writer commit");
         let checkpoint_before_failure = demo.checkpoint.clone();
-        let revision_before_failure = demo.acknowledged_revision.clone();
+        let snapshot_before_failure = demo.acknowledged_snapshot.clone();
         let titles_before_failure = demo.observed_titles.clone();
 
         let error = demo
@@ -400,7 +398,21 @@ mod tests {
             .expect_err("the consumer must fail");
         assert_eq!(error, "simulated sink failure");
         assert_eq!(demo.checkpoint, checkpoint_before_failure);
-        assert!(demo.acknowledged_revision == revision_before_failure);
+        let snapshot_after_failure = demo
+            .acknowledged_snapshot
+            .as_ref()
+            .expect("the prior snapshot remains acknowledged");
+        let snapshot_before_failure = snapshot_before_failure
+            .as_ref()
+            .expect("the initial observation acknowledges a snapshot");
+        assert_eq!(
+            snapshot_after_failure.changes_since(snapshot_before_failure),
+            StoreChanges::NONE
+        );
+        assert_eq!(
+            snapshot_before_failure.changes_since(snapshot_after_failure),
+            StoreChanges::NONE
+        );
         assert_eq!(demo.observed_titles, titles_before_failure);
 
         assert_eq!(demo.observe(|_| Ok(())).unwrap(), Observation::Folded(1));
