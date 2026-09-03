@@ -193,6 +193,7 @@ impl Demo {
             .observer
             .snapshot()
             .map_err(|error| format!("could not sample the Pile snapshot: {error}"))?;
+        let instant = triblespace::core::clock::epoch_now();
 
         if let Some(previous) = self.acknowledged_snapshot.as_ref() {
             let changes = sampled.changes_since(previous);
@@ -205,7 +206,7 @@ impl Demo {
 
         let current = self
             .collection
-            .admitted(&sampled)
+            .admitted_at(&sampled, instant)
             .map_err(|error| format!("could not discover the collection cover: {error}"))?;
         let added = match self.checkpoint.as_ref() {
             Some(previous) => current
