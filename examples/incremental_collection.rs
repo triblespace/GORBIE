@@ -18,12 +18,15 @@ use ed25519_dalek::SigningKey;
 use eframe::egui;
 use tempfile::TempDir;
 use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
+use triblespace::core::blob::encodings::succinctarchive::{
+    OrderedUniverse, Rank9AcceleratedSuccinctArchiveBlob, SuccinctArchiveBlob, UnionArchive,
+};
 use triblespace::core::collection::succinctarchive_union::{
-    RawToRank9AcceleratedMapping, SimpleToSuccinctMapping, SuccinctArchiveCollection,
-    SuccinctArchiveView,
+    RawToRank9AcceleratedMapping, SimpleToSuccinctMapping,
 };
 use triblespace::core::collection::{
-    AdmissionPolicy, Collection, CollectionPolicy, CollectionStoreExt, Cover,
+    AdmissionPolicy, Collection, CollectionPolicy, CollectionSnapshotExt, CollectionStoreExt,
+    Support,
 };
 use triblespace::core::examples::literature;
 use triblespace::core::repo::pile::{Pile, PileSnapshot};
@@ -64,10 +67,11 @@ struct Demo {
     observer: Pile,
     writer: Pile,
     collection: Collection<SimpleArchive>,
+    raw: Collection<SuccinctArchiveBlob>,
+    accelerated: Collection<Rank9AcceleratedSuccinctArchiveBlob>,
     signing_key: SigningKey,
-    full_view: SuccinctArchiveView,
     author: Id,
-    checkpoint: Option<Cover<SimpleArchive>>,
+    checkpoint: Option<Support>,
     acknowledged_snapshot: Option<PileSnapshot>,
     observed_titles: Vec<String>,
     next_title: usize,
@@ -136,14 +140,13 @@ impl Demo {
             .map_err(|error| {
                 format!("could not register the Rank9-accelerated collection: {error}")
             })?;
-        let succinct = SuccinctArchiveCollection::new(collection, raw, accelerated);
-
         Ok(Self {
             observer,
             writer,
             collection,
+            raw,
+            accelerated,
             signing_key,
-            full_view: succinct.exact_view(),
             author: author_id,
             checkpoint: None,
             acknowledged_snapshot: None,
@@ -219,10 +222,22 @@ impl Demo {
             return Ok(Observation::NoCollectionChange);
         }
 
-        let full = self
-            .full_view
-            .advance(&mut self.observer, &current)
-            .map_err(|error| format!("could not ensure the Succinct full view: {error}"))?;
+        drop(
+            self.observer
+                .maintain_exact::<SimpleToSuccinctMapping>(self.raw, &current)
+                .map_err(|error| format!("could not maintain the raw Succinct view: {error}"))?,
+        );
+        let maintained = self
+            .observer
+            .maintain_exact::<RawToRank9AcceleratedMapping>(self.accelerated, &current)
+            .map_err(|error| {
+                format!("could not maintain the Rank9-accelerated Succinct view: {error}")
+            })?;
+        let full = maintained
+            .collection_exact(self.accelerated, &current)
+            .map_err(|error| format!("could not attach the Succinct full view: {error}"))?
+            .view::<UnionArchive<OrderedUniverse>>()
+            .map_err(|error| format!("could not read the Succinct full view: {error}"))?;
         let changed = added
             .materialize::<TribleSet, _>(&sampled)
             .map_err(|error| format!("could not attach the SimpleArchive delta: {error}"))?;
@@ -355,7 +370,7 @@ fn main(nb: &mut NotebookCtx) {
                 ctx.separator();
                 ctx.label(format!(
                     "Checkpoint: {} payload member(s); observed incremental rows:",
-                    demo.checkpoint.as_ref().map_or(0, Cover::len)
+                    demo.checkpoint.as_ref().map_or(0, Support::len)
                 ));
                 for title in &demo.observed_titles {
                     ctx.label(format!("• {title}"));
