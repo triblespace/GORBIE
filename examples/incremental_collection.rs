@@ -22,9 +22,6 @@ use triblespace::core::blob::encodings::simplearchive::SimpleArchive;
 use triblespace::core::blob::encodings::succinctarchive::{
     OrderedUniverse, Rank9AcceleratedSuccinctArchiveBlob, SuccinctArchiveBlob, UnionArchive,
 };
-use triblespace::core::collection::succinctarchive_union::{
-    RawToRank9AcceleratedMapping, SimpleToSuccinctMapping,
-};
 use triblespace::core::collection::{
     AdmissionPolicy, Collection, CollectionPolicy, CollectionSnapshotExt, CollectionStoreExt,
     Support,
@@ -134,10 +131,10 @@ impl Demo {
             .map_err(|error| format!("could not publish the initial book: {error}"))?;
 
         let raw = writer
-            .derive(collection, SimpleToSuccinctMapping, policy.clone())
+            .derive::<SuccinctArchiveBlob>(collection, (), policy.clone())
             .map_err(|error| format!("could not register the Succinct collection: {error}"))?;
         let accelerated = writer
-            .derive(raw, RawToRank9AcceleratedMapping, policy)
+            .derive::<Rank9AcceleratedSuccinctArchiveBlob>(raw, (), policy)
             .map_err(|error| {
                 format!("could not register the Rank9-accelerated collection: {error}")
             })?;
@@ -226,11 +223,11 @@ impl Demo {
 
         let maintained = pollster::block_on(async {
             self.observer
-                .maintain_exact::<SimpleToSuccinctMapping>(self.raw, &current)
+                .maintain_exact(self.raw, &current)
                 .await
                 .map_err(|error| format!("could not maintain the raw Succinct view: {error}"))?;
             self.observer
-                .maintain_exact::<RawToRank9AcceleratedMapping>(self.accelerated, &current)
+                .maintain_exact(self.accelerated, &current)
                 .await
                 .map_err(|error| {
                     format!("could not maintain the Rank9-accelerated Succinct view: {error}")
