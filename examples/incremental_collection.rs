@@ -3,6 +3,7 @@
 //! [dependencies]
 //! GORBIE = { path = "..", features = ["triblespace"] }
 //! ed25519-dalek = "2.1"
+//! pollster = "0.4"
 //! tempfile = "3.26"
 //! triblespace = { path = "../../triblespace-rs" }
 //! ```
@@ -222,17 +223,18 @@ impl Demo {
             return Ok(Observation::NoCollectionChange);
         }
 
-        drop(
+        let maintained = pollster::block_on(async {
             self.observer
                 .maintain_exact::<SimpleToSuccinctMapping>(self.raw, &current)
-                .map_err(|error| format!("could not maintain the raw Succinct view: {error}"))?,
-        );
-        let maintained = self
-            .observer
-            .maintain_exact::<RawToRank9AcceleratedMapping>(self.accelerated, &current)
-            .map_err(|error| {
-                format!("could not maintain the Rank9-accelerated Succinct view: {error}")
-            })?;
+                .await
+                .map_err(|error| format!("could not maintain the raw Succinct view: {error}"))?;
+            self.observer
+                .maintain_exact::<RawToRank9AcceleratedMapping>(self.accelerated, &current)
+                .await
+                .map_err(|error| {
+                    format!("could not maintain the Rank9-accelerated Succinct view: {error}")
+                })
+        })?;
         let full = maintained
             .collection_exact(self.accelerated, &current)
             .map_err(|error| format!("could not attach the Succinct full view: {error}"))?
