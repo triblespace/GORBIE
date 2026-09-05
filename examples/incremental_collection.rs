@@ -190,12 +190,12 @@ impl Demo {
             .observer
             .snapshot()
             .map_err(|error| format!("could not sample the Pile snapshot: {error}"))?;
-        let instant = triblespace::core::clock::epoch_now();
-
         if let Some(previous) = self.acknowledged_snapshot.as_ref() {
             let changes = sampled.changes_since(previous);
             if !changes.contains(StoreChanges::COLLECTION_RECORDS) {
-                // No collection cover could have changed, so there is no fold to retry.
+                // This local demo has a direct, timeless policy and publishes
+                // all blobs before their commits. A networked/delegated reader
+                // must also react to residency, proof, and validity changes.
                 self.acknowledged_snapshot = Some(sampled);
                 return Ok(Observation::NoCollectionChange);
             }
@@ -203,7 +203,7 @@ impl Demo {
 
         let current = self
             .collection
-            .admitted_at(&sampled, instant)
+            .admitted(&sampled)
             .map_err(|error| format!("could not discover the collection cover: {error}"))?;
         let added = match self.checkpoint.as_ref() {
             Some(previous) => current
