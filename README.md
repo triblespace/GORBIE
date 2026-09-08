@@ -143,6 +143,18 @@ grid-aligned column layouts. Compilation errors render inline as rustc-style
 diagnostics with source context and hints.
 
 # Headless capture
+
+Native callers can use `NotebookConfig::capture(options, body, emit)` to receive
+resident PNGs without creating a directory or reopening exported files.
+`CaptureOptions` supplies scale and per-layout settle timeout; each `CapturedPng`
+contains card/tile indices, dimensions and encoded bytes. Delivery is ordered
+and stops at the first renderer, encoder or consumer error without retrying
+accepted images. File capture uses the same rendering/encoding path and
+`CapturedPng::filename()` conventions. Both paths default to a deterministic
+dark theme; use `with_headless_theme` to choose light or explicitly opt into
+desktop detection. Capture is not a GPU-memory quota or an overall rendering
+deadline.
+
 To export cards without opening an interactive notebook, pass `--headless`. Each card
 is rendered to a PNG and saved as `card_0001.png`, `card_0002.png`, ... in the output
 directory (default: `./gorbie_capture`). You can override the directory with `--out-dir`.

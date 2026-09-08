@@ -1,11 +1,13 @@
 use crate::themes::{industrial_dark, industrial_fonts, industrial_light};
-use crate::{HeadlessCaptureConfig, NotebookCore, NOTEBOOK_MIN_HEIGHT};
+use crate::{
+    CaptureOptions, CaptureResult, CapturedPng, HeadlessCaptureConfig, HeadlessTheme, NotebookCore,
+    NOTEBOOK_COLUMN_WIDTH, NOTEBOOK_MIN_HEIGHT,
+};
 use eframe::egui;
 use egui_wgpu::wgpu;
-use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-type HeadlessResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+type HeadlessResult<T> = CaptureResult<T>;
 const HEADLESS_PNG_PPI: f32 = 254.0;
 
 /// Shift every clip rect and mesh vertex in `primitives` vertically by
@@ -28,15 +30,33 @@ fn shift_primitives_y(primitives: &mut [egui::ClippedPrimitive], delta: f32) {
 }
 
 pub(super) fn run_headless(
-    mut core: NotebookCore,
+    core: NotebookCore,
     config: HeadlessCaptureConfig,
 ) -> HeadlessResult<()> {
-    let mut runner = HeadlessWgpuRunner::new(config)?;
-    runner.capture_cards(&mut core)
+    let options = CaptureOptions {
+        pixels_per_point: config.pixels_per_point,
+        settle_timeout: config.settle_timeout,
+    };
+    options.validate()?;
+    std::fs::create_dir_all(&config.output_dir)?;
+    capture(core, options, config.theme, &mut |image| {
+        std::fs::write(config.output_dir.join(image.filename()), image.bytes)?;
+        Ok(())
+    })
+}
+
+pub(super) fn capture(
+    mut core: NotebookCore,
+    options: CaptureOptions,
+    theme: HeadlessTheme,
+    emit: &mut dyn FnMut(CapturedPng) -> CaptureResult<()>,
+) -> CaptureResult<()> {
+    options.validate()?;
+    let mut runner = HeadlessWgpuRunner::new(options, theme)?;
+    runner.capture_cards(&mut core, emit)
 }
 
 struct HeadlessWgpuRunner {
-    output_dir: PathBuf,
     card_width: f32,
     ctx: egui::Context,
     device: wgpu::Device,
@@ -50,9 +70,7 @@ struct HeadlessWgpuRunner {
 }
 
 impl HeadlessWgpuRunner {
-    fn new(config: HeadlessCaptureConfig) -> HeadlessResult<Self> {
-        std::fs::create_dir_all(&config.output_dir)?;
-
+    fn new(options: CaptureOptions, theme: HeadlessTheme) -> HeadlessResult<Self> {
         let ctx = egui::Context::default();
         // Make headless mode readable by widgets (GORBIE::is_headless)
         // — e.g. sections force-open during capture so screenshots
@@ -77,7 +95,7 @@ impl HeadlessWgpuRunner {
         // `--theme auto` still offers the old behaviour for anyone who wants a
         // capture that matches their desktop; it is just no longer the silent
         // default.
-        let theme = match config.theme {
+        let theme = match theme {
             crate::HeadlessTheme::Light => egui::ThemePreference::Light,
             crate::HeadlessTheme::Dark => egui::ThemePreference::Dark,
             crate::HeadlessTheme::Auto => match dark_light::detect() {
@@ -110,6 +128,15 @@ impl HeadlessWgpuRunner {
             trace: wgpu::Trace::default(),
         };
         let (device, queue) = pollster::block_on(adapter.request_device(&device_desc))?;
+        if (NOTEBOOK_COLUMN_WIDTH * options.pixels_per_point).round()
+            > device.limits().max_texture_dimension_2d as f32
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "capture width exceeds this GPU's texture limit; lower the scale",
+            )
+            .into());
+        }
 
         let target_format = wgpu::TextureFormat::Rgba8UnormSrgb;
         let renderer = egui_wgpu::Renderer::new(
@@ -119,21 +146,24 @@ impl HeadlessWgpuRunner {
         );
 
         Ok(Self {
-            output_dir: config.output_dir,
-            card_width: config.card_width,
+            card_width: NOTEBOOK_COLUMN_WIDTH,
             ctx,
             device,
             queue,
             renderer,
             target_format,
-            pixels_per_point: config.pixels_per_point,
+            pixels_per_point: options.pixels_per_point,
             target: None,
             time_seconds: 0.0,
-            settle_timeout: config.settle_timeout,
+            settle_timeout: options.settle_timeout,
         })
     }
 
-    fn capture_cards(&mut self, core: &mut NotebookCore) -> HeadlessResult<()> {
+    fn capture_cards(
+        &mut self,
+        core: &mut NotebookCore,
+        emit: &mut dyn FnMut(CapturedPng) -> CaptureResult<()>,
+    ) -> HeadlessResult<()> {
         let mut index = 0;
         loop {
             let (mut output, measured_height) =
@@ -159,9 +189,7 @@ impl HeadlessWgpuRunner {
 
             output.textures_delta = textures_delta;
             let tiles = self.render_output(output, egui::vec2(self.card_width, final_height))?;
-            for (tile_idx, image) in tiles.iter().enumerate() {
-                self.save_capture(index, tile_idx, tiles.len(), image)?;
-            }
+            emit_images(index, tiles, emit)?;
             index += 1;
         }
         Ok(())
@@ -358,26 +386,6 @@ impl HeadlessWgpuRunner {
         }
         Ok(())
     }
-
-    fn save_capture(
-        &self,
-        index: usize,
-        tile_idx: usize,
-        tile_count: usize,
-        image: &RenderedImage,
-    ) -> HeadlessResult<()> {
-        // Single-tile cards stay as `card_NNNN.png`; multi-tile cards
-        // get `card_NNNN_pMM.png` (1-based page index) so the original
-        // naming is preserved for the common case.
-        let filename = if tile_count <= 1 {
-            format!("card_{:04}.png", index + 1)
-        } else {
-            format!("card_{:04}_p{:02}.png", index + 1, tile_idx + 1)
-        };
-        let path = self.output_dir.join(filename);
-        write_png_rgba(&path, image.width, image.height, &image.pixels)?;
-        Ok(())
-    }
 }
 
 struct TargetBuffers {
@@ -503,9 +511,34 @@ struct RenderedImage {
     pixels: Vec<u8>,
 }
 
-fn write_png_rgba(path: &Path, width: u32, height: u32, data: &[u8]) -> std::io::Result<()> {
-    let file = std::fs::File::create(path)?;
-    let mut encoder = png::Encoder::new(file, width, height);
+fn emit_images(
+    card_index: usize,
+    images: Vec<RenderedImage>,
+    emit: &mut dyn FnMut(CapturedPng) -> CaptureResult<()>,
+) -> CaptureResult<()> {
+    let tile_count = images.len();
+    for (tile_index, image) in images.into_iter().enumerate() {
+        let mut bytes = Vec::new();
+        write_png_rgba(&mut bytes, image.width, image.height, &image.pixels)?;
+        emit(CapturedPng {
+            card_index,
+            tile_index,
+            tile_count,
+            width: image.width,
+            height: image.height,
+            bytes,
+        })?;
+    }
+    Ok(())
+}
+
+fn write_png_rgba(
+    destination: impl std::io::Write,
+    width: u32,
+    height: u32,
+    data: &[u8],
+) -> std::io::Result<()> {
+    let mut encoder = png::Encoder::new(destination, width, height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     let pixels_per_meter = (HEADLESS_PNG_PPI / 0.0254).round().max(1.0) as u32;
@@ -542,4 +575,94 @@ fn min_repaint_delay(output: &egui::FullOutput) -> Duration {
         .map(|viewport| viewport.repaint_delay)
         .min()
         .unwrap_or(Duration::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pixel(rgba: [u8; 4]) -> RenderedImage {
+        RenderedImage {
+            width: 1,
+            height: 1,
+            pixels: rgba.to_vec(),
+        }
+    }
+
+    #[test]
+    fn resident_png_preserves_pixels_dimensions_density_and_tile_order() {
+        let pixels = [[10, 20, 30, 255], [40, 50, 60, 0]];
+        let mut captures = Vec::new();
+        emit_images(2, pixels.into_iter().map(pixel).collect(), &mut |capture| {
+            captures.push(capture);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(captures.len(), 2);
+        for (tile_index, (capture, expected)) in captures.iter().zip(pixels).enumerate() {
+            assert_eq!(capture.card_index, 2);
+            assert_eq!(capture.tile_index, tile_index);
+            assert_eq!(capture.tile_count, 2);
+            assert_eq!((capture.width, capture.height), (1, 1));
+            let mut reader = png::Decoder::new(std::io::Cursor::new(&capture.bytes))
+                .read_info()
+                .unwrap();
+            let dimensions = reader.info().pixel_dims.unwrap();
+            assert_eq!(dimensions.xppu, 10_000);
+            assert_eq!(dimensions.yppu, 10_000);
+            assert_eq!(dimensions.unit, png::Unit::Meter);
+            let mut buffer = vec![0; reader.output_buffer_size().unwrap()];
+            let info = reader.next_frame(&mut buffer).unwrap();
+            assert_eq!((info.width, info.height), (1, 1));
+            assert_eq!(info.color_type, png::ColorType::Rgba);
+            assert_eq!(buffer[..info.buffer_size()], expected);
+
+            // The file consumer gets exactly the existing encoder's bytes.
+            let mut direct = Vec::new();
+            write_png_rgba(&mut direct, 1, 1, &expected).unwrap();
+            assert_eq!(capture.bytes, direct);
+        }
+    }
+
+    #[test]
+    fn first_consumer_error_stops_without_retry_or_encoding_later_tiles() {
+        let mut calls = 0;
+        let error = emit_images(
+            0,
+            vec![
+                pixel([0, 0, 0, 255]),
+                RenderedImage {
+                    width: 1,
+                    height: 1,
+                    pixels: Vec::new(), // Would fail PNG encoding if reached.
+                },
+            ],
+            &mut |_| {
+                calls += 1;
+                Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "consumer closed").into())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(calls, 1);
+        assert!(error.to_string().contains("consumer closed"));
+    }
+
+    #[test]
+    fn encoding_error_is_not_delivered_as_an_image() {
+        let mut calls = 0;
+        let result = emit_images(
+            0,
+            vec![RenderedImage {
+                width: 1,
+                height: 1,
+                pixels: Vec::new(),
+            }],
+            &mut |_| {
+                calls += 1;
+                Ok(())
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(calls, 0);
+    }
 }

@@ -16,6 +16,9 @@
 
 #![allow(non_snake_case)]
 
+/// Native headless rendering with resident PNG delivery.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod capture;
 /// Card context — the `&mut CardCtx` passed to card closures.
 pub mod card_ctx;
 /// Card trait and built-in card types (stateful, stateless).
@@ -39,6 +42,8 @@ pub mod themes;
 /// Built-in widgets: buttons, fields, sliders, progress bars, and more.
 pub mod widgets;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use capture::{CaptureOptions, CaptureResult, CapturedPng};
 pub use gorbie_macros::__gorbie_web_export;
 pub use gorbie_macros::notebook;
 
@@ -230,7 +235,6 @@ pub enum HeadlessTheme {
 #[derive(Clone)]
 struct HeadlessCaptureConfig {
     output_dir: PathBuf,
-    card_width: f32,
     pixels_per_point: f32,
     settle_timeout: Duration,
     theme: HeadlessTheme,
@@ -366,7 +370,6 @@ impl NotebookConfig {
             .unwrap_or(HEADLESS_DEFAULT_SETTLE_TIMEOUT);
         self.headless_capture = Some(HeadlessCaptureConfig {
             output_dir: output_dir.into(),
-            card_width: NOTEBOOK_COLUMN_WIDTH,
             pixels_per_point: HEADLESS_DEFAULT_PIXELS_PER_POINT,
             settle_timeout,
             theme: self.headless_theme,
@@ -406,7 +409,6 @@ impl NotebookConfig {
             .unwrap_or(HEADLESS_DEFAULT_SETTLE_TIMEOUT);
         self.headless_capture = Some(HeadlessCaptureConfig {
             output_dir: output_dir.into(),
-            card_width: NOTEBOOK_COLUMN_WIDTH,
             pixels_per_point,
             settle_timeout,
             theme: self.headless_theme,
@@ -423,6 +425,32 @@ impl NotebookConfig {
             headless.settle_timeout = timeout;
         }
         self
+    }
+
+    /// Render native headless cards into resident PNGs without a window or
+    /// filesystem output. `emit` runs synchronously in card/page order; its
+    /// first failure stops capture, with no retry of accepted output. Rendering
+    /// and settling are shared with file captures, not a separate renderer.
+    ///
+    /// `options` controls scale and settling independently of file-capture
+    /// settings. The theme follows [`with_headless_theme`](Self::with_headless_theme)
+    /// and defaults to dark. A card's raw tiles may be resident while it is
+    /// encoded; this is not a GPU memory quota or an overall rendering deadline.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn capture(
+        self,
+        options: CaptureOptions,
+        body: impl FnMut(&mut NotebookCtx) + 'static,
+        mut emit: impl FnMut(CapturedPng) -> CaptureResult<()>,
+    ) -> CaptureResult<()> {
+        options.validate()?;
+        let theme = self.headless_theme;
+        headless::capture(
+            NotebookCore::new(self, Box::new(body)),
+            options,
+            theme,
+            &mut emit,
+        )
     }
 
     fn state_id(&self) -> egui::Id {

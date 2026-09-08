@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Resident native PNG capture.** `NotebookConfig::capture` delivers ordered
+  `CapturedPng` card tiles to a synchronous consumer without filesystem output.
+  File capture shares the renderer and encoder, preserving filenames, density,
+  and explicit headless theme selection (dark by default). Invalid scales fail
+  before GPU acquisition; renderer, encoder, and consumer errors stop delivery
+  without retrying accepted images. Scale and per-layout settling remain
+  separate from any caller-owned output budget or overall deadline.
 - **Lazy notebook state initialization.** `NotebookCtx::state_with` accepts an
   initializer closure that runs only when its state key is absent, so
   expensive resources are not reconstructed while the notebook body rebuilds
