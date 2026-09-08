@@ -3113,6 +3113,8 @@ dependencies = [
 [[package]]
 name = "gorbie-commonmark"
 version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d58d870b6f4d9a1704fc60a6249a30dc29a3fb58cac696bcdc296a7b96bf274"
 dependencies = [
  "egui 0.34.2",
  "egui_extras",
@@ -3123,6 +3125,8 @@ dependencies = [
 [[package]]
 name = "gorbie-commonmark-backend"
 version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e069e2c7c45d3486da3c72347105d8607b43e428c3aa37193a79c98dbaa53e22"
 dependencies = [
  "egui 0.34.2",
  "egui_extras",

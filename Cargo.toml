@@ -51,7 +51,6 @@ web-sys = { version = "0.3", features = ["HtmlCanvasElement", "Document", "Windo
 [dependencies.egui_commonmark]
 package = "gorbie-commonmark"
 version = "0.24.0"
-path = "../gorbie_commonmark/egui_commonmark"
 features = ["better_syntax_highlighting", "svg", "fetch"]
 optional = true
 
