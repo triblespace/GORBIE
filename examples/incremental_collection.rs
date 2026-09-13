@@ -223,11 +223,11 @@ impl Demo {
 
         let maintained = pollster::block_on(async {
             self.observer
-                .maintain_exact(self.raw, &current)
+                .maintain_exact(self.raw, &self.signing_key, &current)
                 .await
                 .map_err(|error| format!("could not maintain the raw Succinct view: {error}"))?;
             self.observer
-                .maintain_exact(self.accelerated, &current)
+                .maintain_exact(self.accelerated, &self.signing_key, &current)
                 .await
                 .map_err(|error| {
                     format!("could not maintain the Rank9-accelerated Succinct view: {error}")
