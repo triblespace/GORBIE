@@ -164,6 +164,66 @@ to settle before capturing each card (default: 2000ms).
 
 `cargo run --example intro -- --headless --out-dir ./captures --scale 2`
 
+## Read-only physics snapshots
+
+`widgets::PhysicsView` is a lightweight egui Painter-based orthographic 3D
+viewer. Its generic `PhysicsScene` owns f64 line, particle and label arrays;
+no physics dependency is enabled by default. Keep the view in notebook state
+and supply a snapshot captured by your own simulation or a saved frame:
+
+```rust
+use GORBIE::widgets::{Bounds3, PhysicsScene, PhysicsView};
+
+let mut camera = PhysicsView::default().height(360.0).bounds(Bounds3 {
+    min: [-0.02, -0.01, -0.01],
+    max: [0.02, 0.01, 0.01],
+});
+let snapshot = PhysicsScene::default(); // Populate from actual sampled data.
+// In the notebook card: camera.show(ctx, &snapshot);
+```
+
+Drag to orbit, Shift/right/middle-drag to pan, and scroll to zoom. Fit and
+Reset are explicit; the camera does not continuously re-fit changing frames.
+An optional fixed bounds envelope keeps scales comparable across runs. A
+world-orientation triad, scale bar, legend and snapshot diagnostics remain
+visible. The scene declares its length units (`"m"` by default); no coordinate
+or unit conversion happens implicitly.
+
+Enable optional `rapier` / `salva` features for adapters matching
+`rapier3d-f64 = 0.35.1` and `salva3d-f64 = 0.10.0`:
+
+```rust,ignore
+use GORBIE::widgets::physics;
+
+let mut snapshot = physics::rapier::scene(&rigid_bodies, &colliders);
+snapshot.extend(physics::salva::scene(&liquid_world));
+// Or: physics::salva::fluid_scene(&fluid)
+camera.show(ctx, &snapshot);
+```
+
+Rapier snapshots compose body and collider-local world transforms and recurse
+through compounds. Cuboids, balls and capsules are wireframes; unsupported
+shapes get labelled, warned world-AABB approximations, or are omitted with a
+warning when no finite AABB exists. Salva copies real fluid particle positions
+and each fluid's configured radius, not invented motion or a mass-derived
+radius. Particles pending deletion are retained and reported until the actual
+simulation removes them. Boundary sampling points are not mislabelled as fluid.
+
+Wireframes intentionally remain visible through depth-sorted particle disks;
+this is an x-ray diagnostic, not hidden-surface rendering or a reconstructed
+fluid surface. Radii are drawn to scale (no minimum display-radius inflation).
+Invalid primitives are omitted with a count. Particle sorting/drawing runs on
+the CPU; this is not a million-particle GPU renderer. The widget neither owns
+nor advances a solver, requests simulation work, or certifies physical results.
+
+```sh
+cargo run --example physics_widgets
+cargo run --example physics_widgets --features rapier,salva
+```
+
+The example shows labelled static geometry and, with the features enabled,
+real initialized physics objects. It does not fabricate a running simulation.
+
 
 # Feature Flags
 GORBIE! defaults to a lean build with `markdown` enabled. Add extras as needed:
@@ -173,6 +233,8 @@ GORBIE! defaults to a lean build with `markdown` enabled. Add extras as needed:
 - `triblespace`: immutable TribleSpace data inspection with the entity graph widget.
 - `cubecl`: GPU simulated-annealing ordering for the entity inspector (use with `triblespace`).
 - `telemetry`: span-based profiling via `tracing` that writes into a dedicated TribleSpace pile.
+- `rapier`: read-only wireframe snapshot adapter for `rapier3d-f64` 0.35.1.
+- `salva`: read-only particle snapshot adapter for `salva3d-f64` 0.10.0 (does not implicitly enable Rapier).
 
 # Telemetry (Profiling)
 

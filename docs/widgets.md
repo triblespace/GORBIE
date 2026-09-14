@@ -28,6 +28,25 @@ in `./gorbie_capture` by default. Override the output directory with `--out-dir`
 Rendering runs fully offscreen (no window is created). Use `--scale` to control the
 pixels-per-point (default: 2.0).
 
+## Physics snapshots
+
+`widgets::PhysicsView` holds only orbit/pan/zoom state. Call
+`view.show(ui, &PhysicsScene)` with owned sampled geometry. `PhysicsScene`
+contains `Line3`, `Particle3`, `Label3`, `LegendEntry`, warnings and an explicit
+length-unit label. `view.bounds(Bounds3 { min, max })` supplies a fixed camera
+envelope; otherwise the first finite scene is fitted once. Fit/Reset never
+advance the simulation. The scale bar is world-unit-aware; wireframes are
+intentional x-ray overlays over depth-sorted, true-radius particle disks.
+
+The generic viewer has no physics dependencies. Feature `rapier` adds
+`widgets::physics::rapier::scene(&RigidBodySet, &ColliderSet)`; `salva` adds
+`widgets::physics::salva::scene(&LiquidWorld)` and `fluid_scene(&Fluid)`.
+Combine snapshots with `scene.extend(other_scene)`; different declared units
+produce a warning, not a silent conversion. Unsupported Rapier shapes produce
+explicit AABB approximations/warnings. Salva boundary points are not included
+as fluid. Capture at your chosen real simulation timestep, outside the widget.
+See `examples/physics_widgets.rs` and the README for feature commands and limits.
+
 ## Triblespace entity inspector
 
 `GORBIE::widgets::triblespace::EntityInspectorWidget` renders an entity graph from a

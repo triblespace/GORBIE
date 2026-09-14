@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Read-only physics views.** `PhysicsScene` and `PhysicsView` display owned
+  3D wireframes/particles with orbit, pan, zoom, stable bounds and fit/reset.
+  Optional `rapier` and `salva` adapters capture real f64 collider transforms
+  and fluid positions/radii without taking ownership of simulation stepping.
+  Unsupported collider shapes are explicitly labelled AABB approximations.
+  The generic viewer adds neither engine to default builds. Also gate
+  `CardCtx::markdown` consistently so no-default-feature consumers compile.
 - **Resident native PNG capture.** `NotebookConfig::capture` delivers ordered
   `CapturedPng` card tiles to a synchronous consumer without filesystem output.
   File capture shares the renderer and encoder, preserving filenames, density,

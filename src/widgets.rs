@@ -26,6 +26,8 @@ pub mod markdown;
 /// Rolling time-series strip with readout and percentile band.
 #[cfg(feature = "plots")]
 pub mod metric_strip;
+/// Read-only, orthographic 3D physics snapshots with optional Rapier/Salva adapters.
+pub mod physics;
 /// Determinate progress bars.
 pub mod progress;
 /// Horizontal and vertical sliders.
@@ -67,6 +69,7 @@ pub use load::load_button;
 pub use markdown::markdown;
 #[cfg(feature = "plots")]
 pub use metric_strip::MetricStrip;
+pub use physics::{Bounds3, Label3, LegendEntry, Line3, Particle3, PhysicsScene, PhysicsView};
 pub use progress::ProgressBar;
 pub use slider::Slider;
 pub use slider::SliderClamping;
