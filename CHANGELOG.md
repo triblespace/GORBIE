@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Sections are top-level card components.** `docs/widgets.md` and the
+  `section` docs now say where a section goes: at the top of a card, with a
+  grid or one full-width widget nested inside it. A section inside a grid
+  cell inherits the cell's inset, which gives the header a border and margin
+  it is not designed for, and several sections in one card cannot be
+  detached separately, so the rule is one section per card. The `grid_demo`
+  sections card is split into one card per section accordingly.
 - **Resident native PNG capture.** `NotebookConfig::capture` delivers ordered
   `CapturedPng` card tiles to a synchronous consumer without filesystem output.
   File capture shares the renderer and encoder, preserving filenames, density,

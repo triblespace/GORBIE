@@ -14,6 +14,40 @@ Without `markdown`, `md!` and `note!` are unavailable. Disable defaults with
 `md!` renders Markdown inside a padded card. Use `GORBIE::widgets::markdown`
 when you want inline Markdown without padding.
 
+## Sections and grids
+
+`ctx.section(title, |ctx| ...)` is a top-level component of a card: a
+collapsible region with a coloured header bar that runs the full card width.
+Put the section at the top of the card body and nest the layout inside it,
+usually a grid:
+
+```rust
+nb.view(|ctx| {
+    ctx.section("Parameters", |ctx| {
+        ctx.grid(|g| {
+            g.place(6, |ctx| { ctx.number(&mut a); });
+            g.place(6, |ctx| { ctx.number(&mut b); });
+        });
+    });
+});
+```
+
+A section may also wrap one monolithic full-width widget instead of a grid
+(a map, a globe, a large table) when the content should not carry the grid's
+margins.
+
+Two rules follow from what a section and a card are:
+
+- Never place a section inside a grid cell. A cell insets its content, so
+  the header bar gets a border and a margin it is not designed to have; the
+  header is meant to touch the card's edges. Grids go inside sections, not
+  the other way round.
+- One section per card. Every `nb.view` is a cell the reader can detach
+  from the notebook and move around the workspace; several sections in one
+  cell can only move together. Split a card with several sections into one
+  card per section. The section titles carry their own RAL colours, so the
+  split costs nothing visually.
+
 ## Text fields
 
 `GORBIE::widgets::TextField` supports `rows()` to set the minimum visible height

@@ -545,18 +545,29 @@ subtle visual tension that keeps the layout from feeling sterile."
         typst!(ctx, "This line renders fine, but #unknown-func() does not.");
     });
 
-    // Collapsible sections.
+    // Collapsible sections: one per card, so each can be detached and moved
+    // on its own, with the layout nested inside the section.
     nb.view(move |ctx| {
         ctx.section("Configuration", |ctx| {
-            ctx.label("First section content.");
+            ctx.label("A section is the top of its card.");
             ctx.label("Click the header to collapse.");
         });
+    });
+    nb.view(move |ctx| {
         ctx.section("Output", |ctx| {
-            ctx.label("Second section with different color.");
-            ctx.label("Each title gets a unique RAL color.");
+            ctx.grid(|g| {
+                g.place(6, |ctx| {
+                    ctx.label("Grids go inside sections,");
+                });
+                g.place(6, |ctx| {
+                    ctx.label("never sections inside grid cells.");
+                });
+            });
         });
+    });
+    nb.view(move |ctx| {
         ctx.section("Diagnostics", |ctx| {
-            ctx.label("Third section — another color.");
+            ctx.label("Each title gets its own RAL color.");
         });
     });
 
