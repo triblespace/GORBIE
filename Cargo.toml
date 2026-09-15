@@ -63,6 +63,11 @@ version = "0.47"
 path = "../triblespace-rs"
 optional = true
 
+[dependencies.triblespace-net]
+version = "0.47"
+path = "../triblespace-rs/triblespace-net"
+optional = true
+
 [dependencies.polars]
 version = "0.52.0"
 optional = true
@@ -107,6 +112,7 @@ markdown = ["dep:egui_commonmark"]
 polars = ["dep:polars"]
 plots = ["dep:egui_plot"]
 triblespace = ["dep:triblespace"]
+cluster-health = ["triblespace", "dep:triblespace-net"]
 cubecl = ["dep:cubecl"]
 typst = ["dep:typst", "dep:typst-syntax", "dep:ttf-parser", "dep:earcutr", "dep:comemo"]
 telemetry = ["triblespace", "triblespace/telemetry"]
@@ -174,3 +180,8 @@ name = "spatial_resolver"
 [[example]]
 name = "spatial_pile_resolver"
 required-features = ["triblespace"]
+
+[[bin]]
+name = "gorbie-cluster-health"
+path = "src/bin/gorbie-cluster-health.rs"
+required-features = ["cluster-health"]

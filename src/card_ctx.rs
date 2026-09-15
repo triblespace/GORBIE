@@ -155,6 +155,7 @@ impl<'a> CardCtx<'a> {
     }
 
     /// Render markdown with GORBIE styling and syntax themes.
+    #[cfg(feature = "markdown")]
     pub fn markdown(&mut self, text: &str) {
         crate::widgets::markdown(self.ui, text);
     }
