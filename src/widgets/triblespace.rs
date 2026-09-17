@@ -1,7 +1,13 @@
 //! Widgets for inspecting immutable TribleSpace data.
 
+#[cfg(feature = "cluster-health")]
+pub mod cluster_health;
 pub mod entity_inspector;
 
+#[cfg(feature = "cluster-health")]
+pub use cluster_health::cluster_health_notebook;
+#[cfg(feature = "cluster-health")]
+pub use cluster_health::ClusterHealthWidget;
 pub use entity_inspector::id_full;
 pub use entity_inspector::id_short;
 pub use entity_inspector::EntityInspectorResponse;

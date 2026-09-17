@@ -11,6 +11,21 @@ All notable changes to this project will be documented in this file.
   Unsupported collider shapes are explicitly labelled AABB approximations.
   The generic viewer adds neither engine to default builds. Also gate
   `CardCtx::markdown` consistently so no-default-feature consumers compile.
+- **Sections are top-level card components.** `docs/widgets.md` and the
+  `section` docs now say where a section goes: at the top of a card, with a
+  grid or one full-width widget nested inside it. A section inside a grid
+  cell inherits the cell's inset, which gives the header a border and margin
+  it is not designed for, and several sections in one card cannot be
+  detached separately, so the rule is one section per card. The `grid_demo`
+  sections card is split into one card per section accordingly.
+
+- **TribleSpace cluster-health notebook.** The optional `cluster-health`
+  feature adds an embeddable `ClusterHealthWidget`, a multi-card notebook
+  layout, and the `gorbie-cluster-health` companion for
+  `trible pile net dashboard --gui`. All views consume the shared immutable
+  `DashboardReport`; the GUI performs no repair or writes and keeps local blob
+  residency, stored native work, durable WANTs, and bounded observer evidence
+  visibly distinct.
 - **Resident native PNG capture.** `NotebookConfig::capture` delivers ordered
   `CapturedPng` card tiles to a synchronous consumer without filesystem output.
   File capture shares the renderer and encoder, preserving filenames, density,

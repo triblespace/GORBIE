@@ -122,6 +122,11 @@ For cargo examples:
 `cargo run --example entity_inspector --features triblespace`
 `cargo run --example spatial_pile_resolver --features triblespace`
 
+The optional cluster-health companion renders the same immutable report as
+TribleSpace's terminal dashboard:
+
+`cargo run --bin gorbie-cluster-health --features cluster-health -- --pile /path/to/self.pile`
+
 ## Typst Integration
 
 Enable the `typst` feature for math and scientific typesetting:
@@ -231,6 +236,9 @@ GORBIE! defaults to a lean build with `markdown` enabled. Add extras as needed:
 - `typst`: Typst integration — math, scientific typesetting, and full document rendering via `typst!` macro. Renders as vector geometry directly on egui's Painter (no SVG, no raster). Includes the RAL color palette, grid-aligned layout constants, text selection, and inline error diagnostics.
 - `polars`: dataframe widget (Polars + GORBIE table).
 - `triblespace`: immutable TribleSpace data inspection with the entity graph widget.
+- `cluster-health`: the shared TribleSpace cluster-health widget, multi-card
+  notebook layout, and `gorbie-cluster-health` companion binary. Implies
+  `triblespace`.
 - `cubecl`: GPU simulated-annealing ordering for the entity inspector (use with `triblespace`).
 - `telemetry`: span-based profiling via `tracing` that writes into a dedicated TribleSpace pile.
 - `rapier`: read-only wireframe snapshot adapter for `rapier3d-f64` 0.35.1.

@@ -207,6 +207,13 @@ impl<'a> CardCtx<'a> {
     /// [`colorhash::ral_categorical`], like colored divider tabs in stationery.
     /// Click to expand/collapse.
     ///
+    /// A section is a top-level component of a card: put it at the top of
+    /// the card body and nest the layout inside it, a [`grid`](Self::grid)
+    /// or one monolithic full-width widget. Never place a section inside a
+    /// grid cell, whose inset gives the header a border and margin it is not
+    /// designed for, and use one section per card, because a card is the
+    /// unit the reader can detach and move around the workspace.
+    ///
     /// The "open by default" half can be flipped notebook-wide with
     /// [`set_default_section_open`] — useful for dashboards composing
     /// many heavy sections where starting collapsed keeps the initial
