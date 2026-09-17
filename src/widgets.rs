@@ -23,6 +23,8 @@ pub mod load;
 /// Markdown rendering via gorbie-commonmark.
 #[cfg(feature = "markdown")]
 pub mod markdown;
+/// Observed peer mesh as a deterministic radial graph.
+pub mod mesh;
 /// Rolling time-series strip with readout and percentile band.
 #[cfg(feature = "plots")]
 pub mod metric_strip;
@@ -67,6 +69,7 @@ pub use load::load_auto;
 pub use load::load_button;
 #[cfg(feature = "markdown")]
 pub use markdown::markdown;
+pub use mesh::{MeshGraph, MeshLink, MeshNode, MeshNodeState};
 #[cfg(feature = "plots")]
 pub use metric_strip::MetricStrip;
 pub use physics::{Bounds3, Label3, LegendEntry, Line3, Particle3, PhysicsScene, PhysicsView};
