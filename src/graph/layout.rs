@@ -558,12 +558,28 @@ impl ForceLayout {
         }
     }
 
+    /// Cool the nodes that have stopped needing the energy, and report.
+    ///
+    /// Cooling is gated on the node's own speed, and that gate is the whole
+    /// design rather than a refinement of it. An unconditional schedule reaches
+    /// the floor in a few hundred steps whatever the layout is doing, so a
+    /// layout that has not finished arriving is frozen where it stands —
+    /// measured at 3382 nodes: seeded on the old ring of 17 110 world units it
+    /// sat at a settled radius of 16 625, having barely closed at all, while
+    /// the same law with the schedule off reached 10 479 and was still
+    /// contracting toward about 8 400. The energies of the two schedules looked
+    /// almost identical (704 against 683), which is exactly the trap: they
+    /// matched because BOTH had frozen, and the radius was the number that
+    /// said so.
+    ///
+    /// Gated on speed, a node keeps its energy for as long as it is using it
+    /// and gives it up when it stops. A field that has settled goes quiet; a
+    /// neighbourhood that was just granted heat keeps it until it arrives. The
+    /// failure mode also inverts, which is the better half of the trade: an
+    /// ungated schedule fails INVISIBLY, leaving a half-settled layout that
+    /// looks finished, while this one fails VISIBLY, by continuing to move.
     fn cool_and_measure(&mut self) -> LayoutStats {
         let params = self.params;
-        for heat in &mut self.heat {
-            *heat = (*heat * params.cool).max(params.heat_floor);
-        }
-
         let mut energy = 0.0f32;
         let mut speed_sum = 0.0f32;
         let mut max_speed: f32 = 0.0;
@@ -580,6 +596,10 @@ impl ForceLayout {
             let speed = speed_sq.sqrt();
             speed_sum += speed;
             max_speed = max_speed.max(speed);
+            if speed < params.quiet_speed {
+                let heat = &mut self.heat[index];
+                *heat = (*heat * params.cool).max(params.heat_floor);
+            }
             let point = self.pos[index];
             bounds[0] = bounds[0].min(point[0]);
             bounds[1] = bounds[1].min(point[1]);
@@ -1071,57 +1091,57 @@ mod tests {
         // JP's wiggle, as a specification: the change is visible because the
         // energy went where the change was, and the rest of the field stayed
         // quiet enough to make that legible.
-        let edges: Vec<(u32, u32)> = (0..199u32).map(|index| (index, index + 1)).collect();
-        let mut layout = ForceLayout::new(200, &edges, LayoutParams::default());
-        settle(&mut layout, 800);
+        //
+        // The background has to be genuinely settled first, or the contrast is
+        // measured against a field that never cooled — cooling is gated on a
+        // node's own speed, so a fixture that is still moving at the moment of
+        // the retarget has not given up its energy and there is nothing to
+        // stand out against. That is the gate working, not a flaw in it.
+        let mut edges = grid(14);
+        let mut layout = ForceLayout::new(196, &edges, LayoutParams::default());
+        settle(&mut layout, 5_000);
+        assert!(
+            layout.node_heat(0) <= layout.params().heat_floor + 1e-6,
+            "the field never cooled, so the contrast would measure nothing"
+        );
 
-        let mut next = edges.clone();
-        next.push((100, 200));
-        let mut carry: Vec<Option<u32>> = (0..200).map(|index| Some(index as u32)).collect();
+        // Node 196 arrives attached to node 98, which is row 7, column 0.
+        edges.push((98, 196));
+        let mut carry: Vec<Option<u32>> = (0..196).map(|index| Some(index as u32)).collect();
         carry.push(None);
-        layout.retarget(201, &next, &carry);
+        layout.retarget(197, &edges, &carry);
 
-        // Two hops from node 200 is {200, 100, 99, 101}.
-        let near: Vec<usize> = vec![200, 100, 99, 101];
-        let hot: f32 = near
-            .iter()
-            .map(|index| layout.node_heat(*index))
-            .sum::<f32>()
-            / 4.0;
-        let cold: f32 = (0..90).map(|index| layout.node_heat(index)).sum::<f32>() / 90.0;
-        assert!(hot > 10.0 * cold, "heat contrast only {hot} vs {cold}");
+        let near = [196usize, 98, 99, 84, 112];
+        let far: Vec<usize> = (0..196).filter(|index| !near.contains(index)).collect();
+        fn mean(nodes: &[usize], of: &dyn Fn(usize) -> f32) -> f32 {
+            nodes.iter().map(|index| of(*index)).sum::<f32>() / nodes.len() as f32
+        }
+        let heats =
+            |layout: &ForceLayout, nodes: &[usize]| mean(nodes, &|index| layout.node_heat(index));
+        let energies = |layout: &ForceLayout, nodes: &[usize]| {
+            mean(nodes, &|index| {
+                let velocity = layout.vel[index];
+                velocity[0] * velocity[0] + velocity[1] * velocity[1]
+            })
+        };
+        // A grant halves per hop, so the MEAN over a two-hop neighbourhood is
+        // diluted by construction: one node at 1.0, one at 0.5 and three at
+        // 0.25 average to 0.45 against a floor of 0.05, which is ninefold. The
+        // contrast that matters is in the energy below, because kinetic energy
+        // goes as the square of the force and therefore as the square of this.
+        let (hot, cold) = (heats(&layout, &near), heats(&layout, &far));
+        assert!(hot > 5.0 * cold, "heat contrast only {hot} vs {cold}");
 
         layout.step();
-        let energy_near: f32 = near
-            .iter()
-            .map(|index| {
-                let speed = layout.vel[*index];
-                speed[0] * speed[0] + speed[1] * speed[1]
-            })
-            .sum();
-        let energy_far: f32 = (0..90)
-            .map(|index| {
-                let speed = layout.vel[index];
-                speed[0] * speed[0] + speed[1] * speed[1]
-            })
-            .sum::<f32>()
-            * 4.0
-            / 90.0;
+        let (near_energy, far_energy) = (energies(&layout, &near), energies(&layout, &far));
         assert!(
-            energy_near > 10.0 * energy_far,
-            "kinetic energy did not concentrate: {energy_near} vs {energy_far}"
+            near_energy > 10.0 * far_energy,
+            "kinetic energy did not concentrate: {near_energy} vs {far_energy}"
         );
 
         // ... and it must fade, or the field never becomes legible again.
-        for _ in 0..300 {
-            layout.step();
-        }
-        let hot: f32 = near
-            .iter()
-            .map(|index| layout.node_heat(*index))
-            .sum::<f32>()
-            / 4.0;
-        let cold: f32 = (0..90).map(|index| layout.node_heat(index)).sum::<f32>() / 90.0;
+        settle(&mut layout, 2_000);
+        let (hot, cold) = (heats(&layout, &near), heats(&layout, &far));
         assert!(hot < 1.5 * cold, "heat never faded: {hot} vs {cold}");
     }
 

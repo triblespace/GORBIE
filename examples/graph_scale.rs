@@ -39,15 +39,78 @@ fn time(nodes: usize, theta: f32, steps: usize) -> f64 {
     for _ in 0..20 {
         layout.step();
     }
-    let start = std::time::Instant::now();
-    for _ in 0..steps {
-        layout.step();
+    // The MEDIAN of several reps, not one run. This box is shared with other
+    // agents and a single rep swung ninefold between two runs of this very
+    // example; a number taken once here is a measurement of the neighbours.
+    let mut reps: Vec<f64> = Vec::new();
+    for _ in 0..5 {
+        let start = std::time::Instant::now();
+        for _ in 0..steps {
+            layout.step();
+        }
+        reps.push(start.elapsed().as_secs_f64() * 1000.0 / steps as f64);
     }
-    start.elapsed().as_secs_f64() * 1000.0 / steps as f64
+    reps.sort_by(f64::total_cmp);
+    reps[reps.len() / 2]
+}
+
+/// Compare the two seeds at the wiki graph's live size.
+///
+/// Framing rule: these are kinetic energy, mean speed and world radius after a
+/// fixed number of steps of the SAME force law, with only the opening radius
+/// differing. Not wall clock, not a claim about any machine — a claim about how
+/// far from rest each seed leaves the layout after the same amount of
+/// simulation, on this topology.
+///
+/// Run at BOTH heat settings, because they answer different questions and the
+/// difference between them is the point. With the schedule on, every node is at
+/// the heat floor within a few hundred steps and both runs creep at the same
+/// rate whatever their radius, so the comparison measures the schedule rather
+/// than the seed.
+fn seeds(nodes: usize, steps: usize, cool: f32) {
+    let edges = ring_with_chords(nodes);
+    let params = LayoutParams {
+        cool,
+        ..LayoutParams::default()
+    };
+    let counted_radius = 200.0 + nodes as f32 * 5.0;
+    let area_radius = params.seed_scale * (nodes as f32).sqrt();
+
+    let mut by_count = ForceLayout::new(nodes, &edges, params);
+    by_count.seed_ring(counted_radius);
+    let mut by_area = ForceLayout::new(nodes, &edges, params);
+
+    let mut counted = by_count.stats();
+    let mut area = by_area.stats();
+    for _ in 0..steps {
+        counted = by_count.step();
+        area = by_area.step();
+    }
+    let radius = |stats: &GORBIE::graph::LayoutStats| {
+        ((stats.bounds[2] - stats.bounds[0]) + (stats.bounds[3] - stats.bounds[1])) * 0.25
+    };
+    println!(
+        "{nodes} nodes, {steps} steps, cool = {cool}, identical law, only the seed differs:\n  \
+         ring 200 + 5n   = {counted_radius:>6.0}: KE {:>9.0}  mean speed {:>6.3}  settled radius {:>7.0}\n  \
+         ring 40*sqrt(n) = {area_radius:>6.0}: KE {:>9.0}  mean speed {:>6.3}  settled radius {:>7.0}",
+        counted.kinetic_energy,
+        counted.mean_speed,
+        radius(&counted),
+        area.kinetic_energy,
+        area.mean_speed,
+        radius(&area),
+    );
 }
 
 fn main() {
     println!("ms per solver step, single core, this machine");
+    // Below a few hundred nodes the tree build costs more than the pairs it
+    // saves, and all-pairs wins — measured at 200 nodes, where it is several
+    // times faster. It is not worth a special case: the whole step is well
+    // under a millisecond at that size either way, and a branch on node count
+    // would be two code paths to keep honest in exchange for nothing a reader
+    // could perceive.
+    println!("(all-pairs wins below a few hundred nodes; the tree build is the cost)");
     println!(
         "{:>8}  {:>10}  {:>12}  {:>10}",
         "nodes", "theta=0.7", "all-pairs", "speedup"
@@ -72,4 +135,11 @@ fn main() {
             println!("{nodes:>8}  {approximate:>10.2}  {:>12}  {:>10}", "-", "-");
         }
     }
+
+    println!();
+    // The physics, with the heat schedule out of the way.
+    seeds(3_382, 1_200, 1.0);
+    println!();
+    // And as the widget actually runs it.
+    seeds(3_382, 1_200, LayoutParams::default().cool);
 }
