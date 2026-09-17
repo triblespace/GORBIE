@@ -314,9 +314,21 @@ Past a few dozen peers it lists counts and shares instead of handles.
 
 **Links recede with the level of detail.** At `Lod::Full` a link is a fact you
 can follow; by `Lod::Marks` it is one of thousands and what it contributes is
-density, so blend it toward the ground until the marks read on top of it. Two
-and a half thousand links at full weight are a grey wash that drowns every node
-in the field, and a wash that drowns the nodes has stopped being information.
+density, so it has to step back until the marks read on top of it. Two and a
+half thousand links at full weight are a grey wash that drowns every node in the
+field, and a wash that drowns the nodes has stopped being information.
+
+**But recede toward the RÉSEAU, never toward the ground — the réseau is the
+floor of the visual stack, and nothing carrying data may sink to or below the
+field that measures it.** Receding toward the ground walks straight through it.
+Measured on the bone page: a 45%-receded wire lands at `#d2d3cc` against a
+réseau of `#d5d7cf`, a **1.05:1** difference, and by `Lod::Dots` the link is
+*lighter* than the réseau — the data has gone behind the instrument. Both poles
+do it, because the inversion is faithful: on graphite the same link recedes to
+`#383937` against a réseau of `#3e3e3c`. Blending from the réseau toward the
+link colour instead, with a floor of 0.35, holds every band at 1.16–1.43 against
+the field and always on the forward side. Three layers, always in this order:
+réseau behind, links between, marks and labels in front.
 
 **Report what was DRAWN, not only what exists.** When the view folds 947 marks
 into 158, the spec strip says so (`DRAWN 211`). A view that folds and does not
