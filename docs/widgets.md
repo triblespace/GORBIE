@@ -108,3 +108,179 @@ Core widgets:
 
 Response:
 - Store the `Result` in your own state if you want other cards to react to the current query.
+
+## Graph views: the visual language
+
+`MeshGraph`, `LatticeGraph` and the wiki viewer share one solver and one drawing
+kit (`src/graph/`). This section is the **visual** contract that sits on top of
+that kit: what the chrome around a graph is, what each channel is allowed to
+carry, and which devices are deliberately scarce. It is a sibling of the web
+system in `gorbie-system/gorbie.css`, which is itself a port of `src/themes.rs`
+— the same tokens, the same derivations, the same reasons.
+
+### An instrument, not a chart
+
+A graph drawn into a bare rect is a chart. The site's register is an instrument:
+a measured object inside a frame that states what it measured. So a graph view
+wears the same furniture the pages do, and **every part of it reads a real
+value** — that is the condition on which the measurement decals were restored to
+the site at all, after a first version that was a tick rail measuring nothing.
+
+| device | on the page | in a graph view | reads |
+|---|---|---|---|
+| bezel rail | section measure bar | left of the viewport, 30pt | fine ticks at the 12pt module, heavy ticks at the 144pt réseau pitch |
+| rail designation | `.bezel-id` | `M·01`, `L·02`, `J·03` + the view's name, vertical | which view this is |
+| datum arrows | `.bezel-rail::before/after` | rail top and bottom, accent | closes the vertical dimension |
+| vertical readout | `.bezel-dim` | rail foot, accent | the world-space height on screen |
+| horizontal callout | `.dim-x` | under the viewport, accent | the world-space width, the réseau decimation, the zoom |
+| registration brackets | `.frame` | four corners, 14pt, accent | nothing — they mark the *primary* view |
+| spec strip | `.strip` | under the callout | five counts read off the data |
+| phosphor well | `.lcd` | viewport corner | the solver's own state |
+
+**Scarcity is part of the look, not a caveat on it.** JP: *"you don't have to put
+them everywhere, but I like the technical look"*; the site's own comment says an
+annotation that appears on everything annotates nothing. So:
+
+* The **primary** view in a dashboard gets the full instrument.
+* A **secondary** view gets `bezel-rail--light`: fine ticks and a name, no datum
+  arrows, no readout, no brackets. It is an annotation, not a measurement.
+* A view inside a notebook card gets the rail only.
+
+The rail carries a name *and* a dimension, and in a short viewport they collide.
+The dimension yields: it is the annotation, the name is the label.
+
+### The réseau is in world space
+
+`paint_reseau_grid` paints the page margin at a fixed pitch. Inside a graph
+viewport the same field belongs in **world coordinates**, so it pans and zooms
+with the graph. That turns texture into instrumentation: count the crosses and
+you have the distance, watch them crowd and you have the zoom. A dot field says
+"you may draw here"; a réseau says "this has been measured" — and here it
+finally does measure.
+
+Decimate by powers of two whenever the on-screen pitch would fall below 48pt, so
+the field stays a real logarithmic scale bar instead of collapsing into grey
+mush at the far end of the zoom range. Report the factor in the horizontal
+callout (`RÉSEAU ×1`, `×2`, `×4`), because a scale bar whose scale is unstated
+is not a scale bar. Colour stays `blend(bg, border, 0.28)` — a cross carries more
+ink than a dot and has to sit further back to stay quiet.
+
+### Four channels, and colour is not one of them
+
+The palette is a true inversion 16.03:1 across, which caps any single value at
+`sqrt(16.03) = 4.00:1` against both grounds — below the 4.5:1 text threshold.
+Colour here **cannot** carry a fact on its own even when it looks like it does.
+So every fact rides on geometry:
+
+| channel | carries |
+|---|---|
+| **glyph** | square = authored/heard · circle = computed · slash = an attempt that failed |
+| **stroke** | filled = whole · open = present but qualified · dashed = a hole |
+| **track** | a ratio, as an arc, plus a datum tick that says a measurement exists |
+| **position** | rank, in the lattice views; force equilibrium, in the mesh |
+
+The accent (RAL 2005) is spent on at most three things, in this order:
+
+1. **What you asked about** — the ring on the selected or hovered node.
+2. **Direction** — link barbs, *only* on the links of that node. A barb on every
+   link puts twenty accent marks in one field, which reads as measles rather
+   than as scarce saturation; and at rest nobody is asking about direction.
+3. **Datum marks** — the rail arrows and the two dimension readouts, which
+   measure the *frame* and not the data.
+
+Nothing else. No status colours on nodes: the status palette is fixed, must
+always be paired with an icon and a label, and a coloured node is a node made
+harder to read. Teal is reserved for inside the phosphor well, which is the one
+lit surface and therefore the one legitimate place for a scanline.
+
+### A measured zero is not a missing measurement
+
+`draw_track` returns early both for `None` and for `Some(0.0)`, so a node that
+was successfully observed and reported exactly zero renders **identically** to a
+node nobody has measured. That is the one thing these views exist to prevent.
+
+Draw a **datum tick** at the track's 12 o'clock origin whenever a measurement
+exists, of any value including zero; omit it when there is none. Put it strictly
+*outside* the track: drawn across it, it lands exactly where the arc begins and
+ends, so a 94% ring reads as a closed ring with a tick rather than as six per
+cent short — the tick fills in the gap it exists to let you see. Outside, it is
+an index mark beside the gauge, and the gap beneath it is the shortfall.
+
+Pair it with digits: `0%` for the measured zero, `—` for the absent measurement.
+
+### Percentages beside the arcs
+
+An arc is a bar in polar coordinates, and JP asked for percentages over bars
+explicitly, so the numbers stay readable by a machine as well as by an eye. The
+arc is for the glance across many nodes and is the channel that survives zooming
+out; the digits are the read. Draw both at `Lod::Full`, the arc alone below it.
+
+Where the layout has columns, **align the percentages into one** and let
+complete values recede to `--weak` while everything short of complete stays at
+`--fg`. An aligned column of digits makes the incomplete rows findable without a
+single arc, which is why the derivation forest draws no tracks at all: beside
+such a column a 7pt arc says nothing the number does not.
+
+### The mesh's states are two facts, not one
+
+The old widget collapsed *never observed*, *observed but stale* and *observed as
+exactly zero* into one glyph, under a legend that said "connected but stale".
+They are two orthogonal facts and want two channels. The vocabulary is the
+producer's: absent stays absent, stale is freshness metadata, `None` on failed
+or unobserved scans, `Some(0)` only after a successful exact observation.
+
+| state | glyph | stroke | track |
+|---|---|---|---|
+| heard, fresh | square | filled | tick + arc + `n%` |
+| heard, stale | square | open | tick + arc + `n%` |
+| never heard — named only by a peer | square | dashed | bare, `—` |
+| scan attempted and failed | square + slash | dashed | bare, `—` |
+
+Freshness qualifies a report, so it can only apply where there *is* one; that is
+why it lives on the stroke of the two heard states and nowhere else.
+
+Then draw an **observation census** beneath the graph: one zebra row per state,
+with its count, its share and the handles. JP asked whether slashed daemons were
+down or just quiet and could not tell from the picture — that is a *roster*
+question, and a graph is a bad roster. The answer is not a cleverer glyph, it is
+the table the system already owns. It is the legend, the roster and the count in
+one device, it needs no legend lookup, and it survives being read by a machine.
+
+### What each view becomes when it is folded
+
+Prettiness that hides state is a regression, and a hairball is prettiness that
+hides state. Each view has an honest aggregate form, and it is a *different
+instrument* rather than a blurrier version of the same one:
+
+* **Derivation forest** — chains of depth ≤ 2 are not a graph problem, they are
+  a table. Draw one zebra row per chain with rank as the column, so "everything
+  at depth 2" is one glance rather than a traversal, and start every link in a
+  rank at the same x so the links read as the grid the rest of the system is
+  built on. Collections with no derivation fold into a single `Glyph::Aggregate`
+  that **states its own count** — folded, not hidden.
+* **Join semilattice** — tens of thousands of results with two parents each. At
+  `Lod::Aggregate` fold to the **merge-depth profile**: one aggregate mark per
+  rank, area proportional to the count, each stating its count and share. The
+  decay rate is a real diagnostic a hairball cannot give — a balanced schedule
+  halves at each step, a degenerate one does not. Keep the aggregates on the
+  same rank axis the members occupy, so magnifying unfolds them in place: one
+  picture at two scales, not two views.
+* `Glyph::Aggregate` takes a fixed inner mark, not one scaled with the ring. The
+  inner dot is the rank point where members unfold; scaling it with the ring
+  turns a row of aggregates into a row of eyeballs.
+
+### Absence is fixture-only, and must be labelled so
+
+Non-resident descriptors and declared-but-unperformed derivations are the point
+of the lattice view, and that path has never been exercised on live data — every
+pile we own reports "0 with no resident descriptor". A clean render must not be
+allowed to imply the path works. Keep a fixture that carries at least one
+absent member and one unendorsed edge, render it, and let the spec strip say
+where the numbers came from (`SOURCE FIXTURE`).
+
+One rendering note that is easy to get wrong: a dashed circle needs its dash
+phase carried **across** the polyline segments that approximate it. `arc_points`
+emits 64 short segments; restarting the pattern on each draws a full dash every
+time and the ring comes out solid, silently turning every absence mark back into
+an ordinary open one. `Shape::dashed_line` does carry the phase — any
+reimplementation must too.
