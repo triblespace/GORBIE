@@ -284,3 +284,67 @@ emits 64 short segments; restarting the pattern on each draws a full dash every
 time and the ring comes out solid, silently turning every absence mark back into
 an ordinary open one. `Shape::dashed_line` does carry the phase — any
 reimplementation must too.
+
+### Scale: what a thousand peers actually looks like
+
+A clean picture of twelve nodes says nothing about a thousand, so the design was
+rendered against a 1000-peer fixture settled with a real force solver before any
+of the rules below were written down.
+
+**Level of detail decimates the NORM, never the EXCEPTION.** A level of detail
+that folds everything equally is a blur, and a blur of a thousand healthy peers
+hides the eleven that are not — which are the only reason anyone opened the
+view. So the fresh majority collapses to one dot per node (and, lower still,
+into folded screen cells), while every node in an exceptional state keeps its
+full mark and a small knockout of the page ground beneath it, so it stays
+legible in the densest part of the field. The cost is bounded by how bad things
+are rather than by how big the colony is: exceptions are rare by definition, and
+a colony where that stops being true is a colony whose legend is telling you so.
+
+Rendering the fixture made the payoff obvious and it was not the one expected:
+failures **cluster by site**. Fifty-three exceptional marks scattered over a
+folded field show at a glance which clusters are in trouble, which is a spatial
+fact a roster cannot give and a hairball cannot either.
+
+**The census is the LOD-invariant channel.** Four rows whether the colony is
+twelve peers or ten thousand. Everything else in the view degrades as the zoom
+goes out — the label first, then the track, then the glyph — and the census does
+not, which is why it belongs under every mesh rather than only the small ones.
+Past a few dozen peers it lists counts and shares instead of handles.
+
+**Links recede with the level of detail.** At `Lod::Full` a link is a fact you
+can follow; by `Lod::Marks` it is one of thousands and what it contributes is
+density, so blend it toward the ground until the marks read on top of it. Two
+and a half thousand links at full weight are a grey wash that drowns every node
+in the field, and a wash that drowns the nodes has stopped being information.
+
+**Report what was DRAWN, not only what exists.** When the view folds 947 marks
+into 158, the spec strip says so (`DRAWN 211`). A view that folds and does not
+disclose it is a view you cannot trust the next time it looks sparse.
+
+Two measured findings, recorded because both were assumptions until they were
+rendered:
+
+* A 1000-peer colony fitted to a dashboard panel lands in **`Lod::Dots`, not
+  `Lod::Aggregate`** — mark ≈ 1.8pt at the fit zoom. The aggregate band is
+  reached by zooming out past the fit, or by a colony roughly an order of
+  magnitude larger. So at the size this system is actually asked for, every node
+  still gets a dot and the exceptions still get a glyph; what has already been
+  lost by then is the track and the label.
+* The réseau's decimation is what keeps the field readable across that range:
+  ×1 at the twelve-node zoom, ×2 at the thousand-node fit, ×4 pulled back. State
+  the factor in the horizontal callout at every level.
+
+#### One implementation hazard, for whoever tunes the solver
+
+A repulsion with a **distance cutoff and no long-range term collapses every
+cluster into one blob.** Two sites further apart than the cutoff exert nothing
+on each other while the inter-site springs pull without opposition, so the
+layout converges to a single amorphous mass — and revealing latent structure is
+the entire reason a force layout is being paid for. The fixture did exactly this
+on the first run: fourteen sites, one blob, no structure visible at any zoom.
+Adding a single coarse Barnes-Hut level (each cell's centre of mass repelling
+every node outside its own neighbourhood) separated all fourteen at the same
+cost class. An O(n²) GPU pass does not have this problem; anything that buckets
+or tiles for speed does, and it fails silently — the picture still looks like a
+graph, it just no longer means anything.
