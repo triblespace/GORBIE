@@ -19,13 +19,12 @@ All notable changes to this project will be documented in this file.
   detached separately, so the rule is one section per card. The `grid_demo`
   sections card is split into one card per section accordingly.
 
-- **TribleSpace cluster-health notebook.** The optional `cluster-health`
-  feature adds an embeddable `ClusterHealthWidget`, a multi-card notebook
-  layout, and the `gorbie-cluster-health` companion for
-  `trible pile net dashboard --gui`. All views consume the shared immutable
-  `DashboardReport`; the GUI performs no repair or writes and keeps local blob
-  residency, stored native work, durable WANTs, and bounded observer evidence
-  visibly distinct.
+- **Removed the cluster-health notebook and companion binary.** `trible pile
+  net dashboard --gui` no longer shells out to `gorbie-cluster-health`; it
+  embeds its own notebook over the live telemetry `Frame`. The companion
+  rendered the older `DashboardReport` and nothing called it any more, so it
+  was a second dashboard free to drift out of agreement with the one people
+  actually run.
 - **Resident native PNG capture.** `NotebookConfig::capture` delivers ordered
   `CapturedPng` card tiles to a synchronous consumer without filesystem output.
   File capture shares the renderer and encoder, preserving filenames, density,
