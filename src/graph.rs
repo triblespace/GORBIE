@@ -165,3 +165,79 @@ pub fn key_of(bytes: &[u8]) -> u64 {
     }
     hash
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_unchanged_graph_reports_no_change() {
+        // Called once a frame. If it retargeted every time, every frame would
+        // pay a rebuild and nothing would ever settle.
+        let keys = vec![key_of(b"a"), key_of(b"b"), key_of(b"c")];
+        let edges = vec![(0u32, 1u32), (1, 2)];
+        let mut layout = KeyedLayout::new(keys.clone(), &edges, LayoutParams::default());
+        assert!(layout.sync(&keys, &edges).is_none());
+        assert_eq!(layout.generation(), 0);
+    }
+
+    #[test]
+    fn a_changed_graph_carries_the_survivors() {
+        // The behaviour the wiki viewer did not have: it dropped the whole
+        // graph on any dataset revision, so one write by one peer re-seeded
+        // every node on a fresh ring and the settle was paid again.
+        let keys = vec![key_of(b"a"), key_of(b"b"), key_of(b"c")];
+        let edges = vec![(0u32, 1u32), (1, 2)];
+        let mut layout = KeyedLayout::new(keys.clone(), &edges, LayoutParams::default());
+        for _ in 0..400 {
+            layout.layout_mut().step();
+        }
+        let before: Vec<[f32; 2]> = layout.layout().positions().to_vec();
+
+        // `b` is gone, `d` has arrived, and `a` and `c` have moved index.
+        let next = vec![key_of(b"a"), key_of(b"c"), key_of(b"d")];
+        let report = layout
+            .sync(&next, &[(0, 1), (1, 2)])
+            .expect("a changed graph must report the change");
+        assert_eq!(report.added, 1);
+        assert_eq!(report.removed, 1);
+        assert_eq!(layout.generation(), 1);
+        assert_eq!(
+            layout.layout().positions()[0],
+            before[0],
+            "`a` was re-seeded"
+        );
+        assert_eq!(
+            layout.layout().positions()[1],
+            before[2],
+            "`c` was re-seeded"
+        );
+        assert!(layout.layout().positions()[2][0].is_finite());
+        assert_eq!(layout.index_of(key_of(b"d")), Some(2));
+    }
+
+    #[test]
+    fn a_key_collision_costs_a_position_and_nothing_else() {
+        // Keys are UI handles, never lookups. Two nodes that collide on one
+        // lose a carried position between frames, which costs a settle and no
+        // correctness property — so the collision must not drop a node.
+        let keys = vec![key_of(b"same"), key_of(b"same"), key_of(b"other")];
+        let mut layout = KeyedLayout::new(keys, &[], LayoutParams::default());
+        let next = vec![key_of(b"same"), key_of(b"same")];
+        layout.sync(&next, &[]).expect("changed");
+        assert_eq!(layout.layout().len(), 2, "a collision must not drop a node");
+
+        // Both carried the same old position, so they arrive coincident — and
+        // must not stay that way. This is the coincident-node fix reached
+        // through a path a real view can actually take.
+        for _ in 0..200 {
+            layout.layout_mut().step();
+        }
+        let a = layout.layout().positions()[0];
+        let b = layout.layout().positions()[1];
+        assert!(
+            (a[0] - b[0]).hypot(a[1] - b[1]) > 1.0,
+            "colliding keys left two nodes welded at {a:?} / {b:?}"
+        );
+    }
+}
