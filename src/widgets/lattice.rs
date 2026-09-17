@@ -1,6 +1,4 @@
-use eframe::egui::{
-    pos2, vec2, Align2, Pos2, Rect, Response, Sense, Shape, Stroke, TextStyle, Ui, Widget,
-};
+use eframe::egui::{pos2, vec2, Pos2, Rect, Response, Sense, Shape, Stroke, TextStyle, Ui, Widget};
 
 use crate::themes;
 
@@ -133,7 +131,7 @@ pub struct LatticeGraph<'a> {
     nodes: &'a [LatticeNode],
     edges: &'a [LatticeEdge],
     selected: Option<usize>,
-    height: f32,
+    height: Option<f32>,
 }
 
 impl<'a> LatticeGraph<'a> {
@@ -147,7 +145,7 @@ impl<'a> LatticeGraph<'a> {
             nodes,
             edges,
             selected: None,
-            height: 320.0,
+            height: None,
         }
     }
 
@@ -158,16 +156,30 @@ impl<'a> LatticeGraph<'a> {
         self
     }
 
-    /// Override the drawing height. Width follows the available space.
+    /// Fix the drawing height. Width always follows the available space.
+    ///
+    /// Left alone, the height is computed from the layout: one row pitch per
+    /// node in the busiest column. A three-node lattice then takes three rows
+    /// of space instead of reserving a screenful and drawing a sparse picture
+    /// in it, and a caller cannot make the marks collide by guessing low.
     pub fn height(mut self, height: f32) -> Self {
-        self.height = height;
+        self.height = Some(height);
         self
     }
 
     /// Draw the lattice and report what the pointer did.
     pub fn show(self, ui: &mut Ui) -> LatticeResponse {
+        let count = self.nodes.len();
+        let ranks = levels(count, self.edges);
         let width = ui.available_width();
-        let (rect, response) = ui.allocate_exact_size(vec2(width, self.height), Sense::click());
+        let height = self.height.unwrap_or_else(|| {
+            let rows = (0..count)
+                .map(|node| ranks.iter().filter(|rank| **rank == ranks[node]).count())
+                .max()
+                .unwrap_or(1);
+            (rows as f32 * PITCH + TOP + BOTTOM).max(PITCH + TOP + BOTTOM)
+        });
+        let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
         if !ui.is_rect_visible(rect) || self.nodes.is_empty() {
             return LatticeResponse {
                 response,
@@ -185,8 +197,6 @@ impl<'a> LatticeGraph<'a> {
         let painter = ui.painter().with_clip_rect(rect);
         let font = TextStyle::Small.resolve(ui.style());
 
-        let count = self.nodes.len();
-        let ranks = levels(count, self.edges);
         let positions = place(rect, &ranks);
         let lit = match self.selected.filter(|index| *index < count) {
             Some(index) => chain(count, self.edges, index),
@@ -245,13 +255,16 @@ impl<'a> LatticeGraph<'a> {
                 painter.circle_stroke(at, TRACK + 4.0, Stroke::new(1.5_f32, accent));
             }
 
-            painter.text(
-                at + vec2(0.0, TRACK + 3.0),
-                Align2::CENTER_TOP,
-                &node.label,
-                font.clone(),
-                colour,
+            // Labels are centred under the mark, then slid back inside the
+            // region. The end columns sit close to the edges, so a centred
+            // label there would run off and be clipped mid-word — which loses
+            // the very name the reader needs to tell two collections apart.
+            let galley = painter.layout_no_wrap(node.label.clone(), font.clone(), colour);
+            let left = (at.x - galley.size().x * 0.5).clamp(
+                rect.left(),
+                (rect.right() - galley.size().x).max(rect.left()),
             );
+            painter.galley(pos2(left, at.y + TRACK + 3.0), galley, colour);
         }
 
         let near = |at: Pos2| {
@@ -293,6 +306,8 @@ const CLEARANCE: f32 = TRACK + 4.0;
 const HIT: f32 = TRACK + 6.0;
 /// Space kept clear at the left and right edges so end labels stay readable.
 const SIDE: f32 = 34.0;
+/// Vertical distance between two marks sharing a column.
+const PITCH: f32 = 46.0;
 /// Space kept clear above a mark, and below it for the label.
 const TOP: f32 = TRACK + 4.0;
 /// Space kept clear under the lowest mark, sized for its label.
@@ -307,7 +322,11 @@ fn draw_mark(
     let stroke = Stroke::new(1.5_f32, colour);
     match (node.mark, node.presence) {
         (LatticeMark::Authored, LatticePresence::Present) => {
-            painter.rect_filled(Rect::from_center_size(at, vec2(MARK * 2.0, MARK * 2.0)), 0.0, colour);
+            painter.rect_filled(
+                Rect::from_center_size(at, vec2(MARK * 2.0, MARK * 2.0)),
+                0.0,
+                colour,
+            );
         }
         (LatticeMark::Authored, LatticePresence::Absent) => {
             let mark = Rect::from_center_size(at, vec2(MARK * 2.0, MARK * 2.0));
@@ -440,8 +459,8 @@ fn place(rect: Rect, ranks: &[usize]) -> Vec<Pos2> {
             rect.left() + SIDE + span * (rank as f32 / (columns - 1) as f32)
         }
     };
-    let top = rect.top() + TOP;
     let height = (rect.height() - TOP - BOTTOM).max(1.0);
+    let middle = rect.top() + TOP + height * 0.5;
 
     ranks
         .iter()
@@ -453,13 +472,22 @@ fn place(rect: Rect, ranks: &[usize]) -> Vec<Pos2> {
                 .filter(|(_, other)| *other == rank)
                 .map(|(other, _)| other)
                 .collect();
-            let row = siblings.iter().position(|other| *other == index).unwrap_or(0);
-            let y = if siblings.len() <= 1 {
-                top + height * 0.5
-            } else {
-                top + height * (row as f32 / (siblings.len() - 1) as f32)
+            let row = siblings
+                .iter()
+                .position(|other| *other == index)
+                .unwrap_or(0);
+            // A fixed pitch, centred: a column of three marks is three marks
+            // tall wherever it sits, so two columns are comparable by eye
+            // instead of being stretched apart by however much room the
+            // caller happened to give. Only a column that would otherwise
+            // overflow is compressed, because a mark outside the allocated
+            // region is clipped away and silently missing.
+            let pitch = match siblings.len() > 1 {
+                true => PITCH.min(height / (siblings.len() - 1) as f32),
+                false => PITCH,
             };
-            pos2(column_x(*rank), y)
+            let offset = row as f32 - (siblings.len() as f32 - 1.0) * 0.5;
+            pos2(column_x(*rank), middle + offset * pitch)
         })
         .collect()
 }
@@ -531,15 +559,15 @@ mod tests {
         let ranks = levels(3, &[edge(0, 1), edge(1, 2), edge(2, 1)]);
         assert_eq!(ranks.len(), 3);
         assert_eq!(ranks[0], 0);
-        assert!(ranks[1] > 0 && ranks[2] > 0, "cycle nodes still get a column");
+        assert!(
+            ranks[1] > 0 && ranks[2] > 0,
+            "cycle nodes still get a column"
+        );
     }
 
     #[test]
     fn out_of_range_and_self_edges_are_skipped_not_panics() {
-        let ranks = levels(
-            2,
-            &[edge(0, 9), edge(7, 1), edge(1, 1), edge(0, 1)],
-        );
+        let ranks = levels(2, &[edge(0, 9), edge(7, 1), edge(1, 1), edge(0, 1)]);
         assert_eq!(ranks, vec![0, 1]);
     }
 
@@ -578,11 +606,49 @@ mod tests {
         let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(300.0, 200.0));
         // Ranks 0, 1, 1: one source feeding two outputs.
         let points = place(rect, &[0, 1, 1]);
-        assert!(points[0].x < points[1].x, "a source sits left of its output");
-        assert!((points[1].x - points[2].x).abs() < 1e-3, "one rank, one column");
+        assert!(
+            points[0].x < points[1].x,
+            "a source sits left of its output"
+        );
+        assert!(
+            (points[1].x - points[2].x).abs() < 1e-3,
+            "one rank, one column"
+        );
         assert!(points[1].y < points[2].y, "siblings stack in index order");
         for point in &points {
             assert!(rect.contains(*point), "every mark stays inside the region");
+        }
+    }
+
+    #[test]
+    fn a_column_uses_a_fixed_pitch_rather_than_the_whole_height() {
+        // Two marks in a tall region must sit one pitch apart and centred, not
+        // be flung to the top and bottom edges with emptiness between them.
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(300.0, 600.0));
+        let points = place(rect, &[0, 0]);
+        assert!(
+            (points[1].y - points[0].y - PITCH).abs() < 1e-3,
+            "siblings are one pitch apart"
+        );
+        let middle = (points[0].y + points[1].y) * 0.5;
+        let expected = rect.top() + TOP + (rect.height() - TOP - BOTTOM) * 0.5;
+        assert!(
+            (middle - expected).abs() < 1e-3,
+            "and centred in the region"
+        );
+    }
+
+    #[test]
+    fn a_column_that_cannot_fit_is_compressed_instead_of_overflowing() {
+        // Many marks in a short region must still land inside it: a mark drawn
+        // outside the allocated rect is clipped away and silently missing.
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(300.0, 120.0));
+        let ranks = vec![0; 12];
+        for point in place(rect, &ranks) {
+            assert!(
+                point.y >= rect.top() && point.y <= rect.bottom(),
+                "every mark stays inside the region"
+            );
         }
     }
 
