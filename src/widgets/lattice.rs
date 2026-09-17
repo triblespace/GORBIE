@@ -1,5 +1,6 @@
-use eframe::egui::{pos2, vec2, Pos2, Rect, Response, Sense, Shape, Stroke, TextStyle, Ui, Widget};
+use eframe::egui::{vec2, Color32, Painter, Pos2, Response, Sense, TextStyle, Ui, Widget};
 
+use crate::graph::{self, Anchors, Glyph, GraphViewport, LayoutParams, Lod, Stroke2};
 use crate::themes;
 
 /// What kind of element a node stands for.
@@ -51,6 +52,39 @@ pub struct LatticeNode {
     /// nothing comparable to divide, and draws as an **empty track** — absence
     /// of evidence is not completeness, and the two must not look alike.
     pub coverage: Option<f32>,
+    /// Was anything here seen to produce this element?
+    ///
+    /// `false` is a member reached only as somebody else's join input: it is
+    /// resident, it is real, and the record that made it lives somewhere this
+    /// observation cannot see. It draws as a circle with a gap at the bottom —
+    /// nothing below it produced it.
+    ///
+    /// This was the one absence in the whole view carried by *text*: a count
+    /// printed beside the picture, while the marks themselves were pixel
+    /// identical to fully-produced outputs. A reader cannot point at a number
+    /// and ask which ones.
+    pub produced: bool,
+    /// Is the label the element's real name, or a stand-in for one?
+    ///
+    /// `false` when the name exists but its bytes are not resident, so the
+    /// label shown is a short handle. Drawn in dim ink with a leading middle
+    /// dot — deliberately **not** a dashed underline, because underlines are
+    /// reserved for links and a dashed one would read as a broken link rather
+    /// than as a missing name.
+    pub label_known: bool,
+}
+
+impl Default for LatticeNode {
+    fn default() -> Self {
+        LatticeNode {
+            label: String::new(),
+            mark: LatticeMark::Computed,
+            presence: LatticePresence::Present,
+            coverage: None,
+            produced: true,
+            label_known: true,
+        }
+    }
 }
 
 /// A directed edge: `from` is below `to` in the order — a source, a merge
@@ -78,36 +112,56 @@ pub struct LatticeResponse {
     pub hovered: Option<usize>,
     /// Node clicked this frame, if any.
     pub clicked: Option<usize>,
+    /// Marks drawn in full this frame.
+    ///
+    /// A view that folds and does not disclose it is a view you cannot trust
+    /// the next time it looks sparse.
+    pub drawn: usize,
+    /// Nodes collapsed to a dot because the zoom made their mark unreadable.
+    pub folded: usize,
 }
 
-/// A collection lattice, drawn as a layered Hasse diagram.
+/// A collection lattice, drawn as a settling layout with ranked lanes.
 ///
-/// # Why layered and not force-directed
+/// # Why a simulation, when a partial order has a canonical picture
 ///
-/// The thing being drawn is a **partial order**, and a partial order already
-/// has a canonical picture: rank every element by its longest path from a
-/// minimal one and draw the ranks as parallel columns. A force-directed layout
-/// would discard exactly the structure that matters — it would place a source
-/// and its third-generation derivation wherever the springs settled, and settle
-/// differently on the next frame. Ranking is a pure function of the edge set,
-/// so the same records always draw the same picture and two observations can be
-/// compared by eye. Columns run left to right because that is where a reader
-/// already looks for "came from": a node's sources are always to its left, its
-/// dependents always to its right, which is why no arrowheads are needed.
+/// This widget used to argue that ranking is a pure function of the edge set,
+/// that the same records therefore always draw the same picture, and that a
+/// force-directed layout would discard exactly the structure that matters. The
+/// first two are still true and the third is the part that has been fixed
+/// rather than abandoned: **the ranking did not go away, it became a force.**
+/// A node's rank is still its longest path from a minimal element, computed by
+/// exactly the same [`levels`] function, and it is now a stiff spring pinning
+/// the node's `x`. A source is still always to the left of everything it feeds.
+///
+/// What the simulation buys is the `y` axis, which the old layout had to guess
+/// at by stacking siblings in index order. Left free, `y` is available to carry
+/// something real: a cross-collection derivation edge is an ordinary spring,
+/// and because `x` is pinned it can only pull in `y` — so a member and the
+/// member it was derived into line up, and a member with no partner visibly
+/// fails to. That is the derive backlog drawn instead of counted, and it is not
+/// available to a layout that has already spent `y` on index order.
+///
+/// It also buys size. The old placement compressed a column to fit the
+/// allocated height, so a collection with twenty thousand members drew twenty
+/// thousand marks inside a few hundred points; a pan-and-zoom viewport over a
+/// settling layout draws the same members at a size a reader can use.
 ///
 /// # Encoding
 ///
-/// Three facts, three independent channels, none of them colour alone:
+/// Facts, each in its own channel, none of them colour alone:
 ///
-/// * **Shape** — square is authored, circle is computed.
+/// * **Shape** — square is authored, circle is computed, and a circle with a
+///   gap at the bottom is an element nothing here produced.
 /// * **Stroke** — solid is resident, dashed is a hole. Dashed edges are
 ///   equations the model expects and no record endorses.
 /// * **Arc** — the track around a mark is materialized work over expected
 ///   work. An empty track is no evidence, not agreement.
+/// * **Position** — rank is horizontal, and vertical alignment across lanes is
+///   correspondence.
+/// * **Motion** — energy is granted only where something changed.
 ///
 /// The accent is spent on one thing only: the ring around the selected node.
-/// Direction, rank and state are all carried by geometry, so saturation is left
-/// for the single fact geometry cannot carry — which of these did you ask about.
 ///
 /// # Selection
 ///
@@ -116,7 +170,8 @@ pub struct LatticeResponse {
 /// The chain is the transitive closure in **both** directions: every element
 /// that feeds the selection and everything the selection feeds. Unendorsed
 /// edges are part of it, because the missing step is exactly what a reader
-/// following a broken chain needs to see.
+/// following a broken chain needs to see. It is computed when the selection
+/// changes, not per frame.
 ///
 /// ```ignore
 /// let lattice = LatticeGraph::new(&nodes, &edges)
@@ -132,6 +187,7 @@ pub struct LatticeGraph<'a> {
     edges: &'a [LatticeEdge],
     selected: Option<usize>,
     height: Option<f32>,
+    salt: &'static str,
 }
 
 impl<'a> LatticeGraph<'a> {
@@ -146,6 +202,7 @@ impl<'a> LatticeGraph<'a> {
             edges,
             selected: None,
             height: None,
+            salt: "gorbie_lattice",
         }
     }
 
@@ -158,12 +215,19 @@ impl<'a> LatticeGraph<'a> {
 
     /// Fix the drawing height. Width always follows the available space.
     ///
-    /// Left alone, the height is computed from the layout: one row pitch per
-    /// node in the busiest column. A three-node lattice then takes three rows
-    /// of space instead of reserving a screenful and drawing a sparse picture
-    /// in it, and a caller cannot make the marks collide by guessing low.
+    /// Left alone, the height is computed from the shape of the ranking: one
+    /// row pitch per node in the busiest column, bounded above so a collection
+    /// with twenty thousand members asks for a viewport rather than a mile of
+    /// page. A three-node lattice still takes three rows of space instead of
+    /// reserving a screenful and drawing a sparse picture in it.
     pub fn height(mut self, height: f32) -> Self {
         self.height = Some(height);
+        self
+    }
+
+    /// Distinguish two lattices drawn from the same `Ui`.
+    pub fn id_salt(mut self, salt: &'static str) -> Self {
+        self.salt = salt;
         self
     }
 
@@ -172,21 +236,79 @@ impl<'a> LatticeGraph<'a> {
         let count = self.nodes.len();
         let ranks = levels(count, self.edges);
         let width = ui.available_width();
-        let height = self.height.unwrap_or_else(|| {
-            let rows = (0..count)
-                .map(|node| ranks.iter().filter(|rank| **rank == ranks[node]).count())
-                .max()
-                .unwrap_or(1);
-            (rows as f32 * PITCH + TOP + BOTTOM).max(PITCH + TOP + BOTTOM)
-        });
-        let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+        let height = self.height.unwrap_or_else(|| auto_height(&ranks));
+        let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click_and_drag());
         if !ui.is_rect_visible(rect) || self.nodes.is_empty() {
             return LatticeResponse {
                 response,
                 hovered: None,
                 clicked: None,
+                drawn: 0,
+                folded: 0,
             };
         }
+
+        // The key is the label, which is what the caller uses to tell two
+        // elements apart on screen. It is a UI handle and never a lookup: two
+        // elements that collide on one lose a carried position between frames
+        // and nothing else.
+        let keys: Vec<u64> = self
+            .nodes
+            .iter()
+            .map(|node| graph::key_of(node.label.as_bytes()))
+            .collect();
+        let pairs: Vec<(u32, u32)> = self
+            .edges
+            .iter()
+            .filter(|edge| edge.from != edge.to)
+            .map(|edge| (edge.from as u32, edge.to as u32))
+            .collect();
+
+        let layout_id = ui.id().with(self.salt);
+        let (shared, changed) =
+            graph::shared(ui, layout_id, &keys, &pairs, LayoutParams::default());
+        let mut shared = shared.lock();
+        let generation = shared.generation();
+        let layout = shared.layout_mut();
+
+        let view_id = layout_id.with("view");
+        let mut view = GraphViewport::load(ui, view_id);
+        if changed {
+            // Rank is the `x` anchor and it is stiff; `y` is left slack so a
+            // cross-lane correspondence spring has somewhere to pull. Seeding
+            // on the anchor rather than on a ring means the picture arrives
+            // already readable and settles into detail, rather than unwinding
+            // from a circle every time a record lands.
+            let target: Vec<[f32; 2]> = ranks
+                .iter()
+                .enumerate()
+                .map(|(index, rank)| [rank_x(*rank), seed_y(index, count)])
+                .collect();
+            for (index, point) in target.iter().enumerate() {
+                layout.seed(index, *point);
+            }
+            let anchors = Anchors {
+                target: target.iter().map(|point| [point[0], 0.0]).collect(),
+                k: vec![[RANK_K, LANE_K]; count],
+            };
+            layout.anchors(Some(&anchors));
+            view.release();
+        }
+        let stats = layout.step_budget(STEP_BUDGET_MS);
+        view.interact(ui, &response, rect);
+        view.fit_unless_touched(rect, stats.bounds, LABEL_MARGIN);
+        view.store(ui, view_id);
+        if !stats.quiet {
+            ui.ctx().request_repaint();
+        }
+
+        let positions = layout.positions();
+        let screen: Vec<Pos2> = (0..count)
+            .map(|index| view.to_screen(rect, positions[index]))
+            .collect();
+        drop(shared);
+
+        let lit = lit_chain(ui, layout_id, generation, count, self.edges, self.selected);
 
         let visuals = ui.visuals();
         let ink = visuals.text_color();
@@ -196,86 +318,121 @@ impl<'a> LatticeGraph<'a> {
         let accent = themes::button_light_on();
         let painter = ui.painter().with_clip_rect(rect);
         let font = TextStyle::Small.resolve(ui.style());
-
-        let positions = place(rect, &ranks);
-        let lit = match self.selected.filter(|index| *index < count) {
-            Some(index) => chain(count, self.edges, index),
-            None => vec![true; count],
-        };
+        let scale = view.zoom();
+        let lod = view.lod();
+        let visible = rect.expand(graph::HIT * scale + 4.0);
 
         // Edges first, so marks always sit on top of them.
         for edge in self.edges {
-            let (Some(from), Some(to)) = (positions.get(edge.from), positions.get(edge.to)) else {
+            let (Some(from), Some(to)) = (screen.get(edge.from), screen.get(edge.to)) else {
                 continue;
             };
-            if edge.from == edge.to {
+            if edge.from == edge.to || !(visible.contains(*from) || visible.contains(*to)) {
                 continue;
             }
             let on_chain = lit[edge.from] && lit[edge.to];
             let colour = if on_chain { hairline } else { dim };
-            let along = (*to - *from).normalized();
-            let start = *from + along * CLEARANCE;
-            let end = *to - along * CLEARANCE;
-            if edge.endorsed {
-                painter.line_segment([start, end], Stroke::new(1.0_f32, colour));
+            // An unendorsed edge is the exception this view exists to show, so
+            // it keeps its weight while the ordinary ones thin out. Links
+            // recede by thinning and never by lightening: see `draw_link`.
+            let weight = if !edge.endorsed {
+                1.0
             } else {
-                painter.extend(Shape::dashed_line(
-                    &[start, end],
-                    Stroke::new(1.0_f32, colour),
-                    4.0,
-                    4.0,
-                ));
-            }
+                match lod {
+                    Lod::Full => 1.0,
+                    Lod::Marks => 0.7,
+                    _ => 0.45,
+                }
+            };
+            graph::draw_link(
+                &painter,
+                *from,
+                *to,
+                scale,
+                edge.endorsed,
+                None,
+                colour,
+                weight,
+            );
         }
 
+        let mut labelled = 0usize;
+        let mut drawn = 0usize;
+        let mut folded = 0usize;
         for (index, node) in self.nodes.iter().enumerate() {
-            let at = positions[index];
+            let at = screen[index];
+            if !visible.contains(at) {
+                continue;
+            }
             let colour = if lit[index] { ink } else { dim };
 
-            // Coverage track, then the materialized arc over it. Drawn for
-            // every node so a full ring and an empty one sit in the same place
-            // and can be told apart at a glance.
-            painter.add(Shape::line(
-                arc_points(at, TRACK, 0.0, std::f32::consts::TAU),
-                Stroke::new(1.0_f32, if lit[index] { track } else { dim }),
-            ));
-            if let Some(ratio) = node.coverage {
-                let sweep = ratio.clamp(0.0, 1.0) * std::f32::consts::TAU;
-                if sweep > f32::EPSILON {
-                    painter.add(Shape::line(
-                        arc_points(at, TRACK, -std::f32::consts::FRAC_PI_2, sweep),
-                        Stroke::new(2.0_f32, colour),
-                    ));
-                }
+            // The level of detail decimates the norm, never the exception. A
+            // hole and an unproduced member are the two things anybody opened
+            // this view for, so they keep their full mark at every zoom, on a
+            // small knockout of the page ground so they stay legible where the
+            // field is densest.
+            let exception = matches!(node.presence, LatticePresence::Absent) || !node.produced;
+            let detail = if exception { Lod::Full } else { lod };
+            if matches!(detail, Lod::Dots | Lod::Aggregate) {
+                painter.circle_filled(at, 1.5, colour);
+                folded += 1;
+                continue;
             }
-
-            draw_mark(&painter, at, node, colour);
-
+            drawn += 1;
+            if exception && !matches!(lod, Lod::Full) {
+                painter.circle_filled(at, graph::MARK * scale + 2.0, visuals.panel_fill);
+            }
+            if matches!(detail, Lod::Full) {
+                graph::draw_track(
+                    &painter,
+                    at,
+                    scale,
+                    node.coverage,
+                    if lit[index] { track } else { dim },
+                    colour,
+                );
+            }
+            draw_mark(&painter, at, scale, node, colour);
             if self.selected == Some(index) {
-                painter.circle_stroke(at, TRACK + 4.0, Stroke::new(1.5_f32, accent));
+                painter.circle_stroke(
+                    at,
+                    (graph::TRACK + 4.0) * scale,
+                    eframe::egui::Stroke::new(1.5_f32, accent),
+                );
             }
 
-            // Labels are centred under the mark, then slid back inside the
-            // region. The end columns sit close to the edges, so a centred
-            // label there would run off and be clipped mid-word — which loses
-            // the very name the reader needs to tell two collections apart.
-            let galley = painter.layout_no_wrap(node.label.clone(), font.clone(), colour);
+            // A label budget, not a label per node. Twelve-character handles at
+            // the small text style are about seventy-eight points wide, so a
+            // dense column overlaps its own names past nine ranks and the
+            // reader loses the very thing they were reading. A node too small
+            // to label is a node too small to click: zoom in.
+            if !matches!(lod, Lod::Full) || labelled >= LABEL_BUDGET {
+                continue;
+            }
+            labelled += 1;
+            let colour = if node.label_known {
+                colour
+            } else {
+                themes::blend(visuals.window_fill, colour, 0.55)
+            };
+            let text = if node.label_known {
+                node.label.clone()
+            } else {
+                format!("\u{b7} {}", node.label)
+            };
+            let galley = painter.layout_no_wrap(text, font.clone(), colour);
             let left = (at.x - galley.size().x * 0.5).clamp(
                 rect.left(),
                 (rect.right() - galley.size().x).max(rect.left()),
             );
-            painter.galley(pos2(left, at.y + TRACK + 3.0), galley, colour);
+            painter.galley(
+                eframe::egui::pos2(left, at.y + graph::TRACK * scale + 3.0),
+                galley,
+                colour,
+            );
         }
 
-        let near = |at: Pos2| {
-            positions
-                .iter()
-                .enumerate()
-                .map(|(index, node)| (index, (*node - at).length()))
-                .filter(|(_, distance)| *distance <= HIT)
-                .min_by(|left, right| left.1.total_cmp(&right.1))
-                .map(|(index, _)| index)
-        };
+        let near = |at: Pos2| graph::pick(&screen, at, graph::HIT * scale.max(0.4));
         let hovered = response.hover_pos().and_then(near);
         let clicked = response
             .clicked()
@@ -286,6 +443,8 @@ impl<'a> LatticeGraph<'a> {
             response,
             hovered,
             clicked,
+            drawn,
+            folded,
         }
     }
 }
@@ -296,65 +455,105 @@ impl Widget for LatticeGraph<'_> {
     }
 }
 
-/// Half-width of a node mark, in points.
-const MARK: f32 = 6.0;
-/// Radius of the coverage track drawn around each mark.
-const TRACK: f32 = 11.0;
-/// How far an edge stops short of a mark, so lines never run under it.
-const CLEARANCE: f32 = TRACK + 4.0;
-/// Pointer distance that counts as touching a node.
-const HIT: f32 = TRACK + 6.0;
-/// Space kept clear at the left and right edges so end labels stay readable.
-const SIDE: f32 = 34.0;
-/// Vertical distance between two marks sharing a column.
+/// World-space distance between two ranks.
+const RANK_PITCH: f32 = 260.0;
+/// Stiffness of the rank spring. Stiff: rank is the one thing the simulation is
+/// not allowed to renegotiate, because it is the order itself.
+///
+/// The per-step impulse is capped at `max_force`, so a node's worst-case
+/// departure from its rank is `max_force / RANK_K` world units. At these values
+/// that is thirty against a pitch of two hundred and sixty, so a mark never
+/// leaves its own column. The discrete spring is stable to roughly `k = 6.4` at
+/// the shared damping, so this is nowhere near the edge.
+const RANK_K: f32 = 0.5;
+/// Stiffness of the lane spring. Slack, so a correspondence edge from another
+/// lane can pull a node into line without fighting it.
+const LANE_K: f32 = 0.0008;
+/// Vertical distance between two marks sharing a column, before settling.
 const PITCH: f32 = 46.0;
 /// Space kept clear above a mark, and below it for the label.
-const TOP: f32 = TRACK + 4.0;
+const TOP: f32 = graph::TRACK + 4.0;
 /// Space kept clear under the lowest mark, sized for its label.
-const BOTTOM: f32 = TRACK + 18.0;
+const BOTTOM: f32 = graph::TRACK + 18.0;
+/// Screen points kept clear around the marks for labels and end columns.
+const LABEL_MARGIN: f32 = 40.0;
+/// Solver time per frame.
+const STEP_BUDGET_MS: f32 = 4.0;
+/// Labels drawn per frame, at most.
+const LABEL_BUDGET: usize = 512;
+/// Rows a column may claim before the view stops growing and starts scrolling
+/// its own viewport instead.
+const MAX_ROWS: f32 = 18.0;
 
-fn draw_mark(
-    painter: &eframe::egui::Painter,
-    at: Pos2,
-    node: &LatticeNode,
-    colour: eframe::egui::Color32,
-) {
-    let stroke = Stroke::new(1.5_f32, colour);
-    match (node.mark, node.presence) {
-        (LatticeMark::Authored, LatticePresence::Present) => {
-            painter.rect_filled(
-                Rect::from_center_size(at, vec2(MARK * 2.0, MARK * 2.0)),
-                0.0,
-                colour,
-            );
+fn rank_x(rank: usize) -> f32 {
+    rank as f32 * RANK_PITCH
+}
+
+/// Where a node starts inside its column, before the springs take over.
+fn seed_y(index: usize, count: usize) -> f32 {
+    // Spread by index so two nodes never start coincident. They would separate
+    // anyway — the shared solver pushes a coincident pair apart — but arriving
+    // already spread means the first frame a reader sees is already a lattice.
+    let span = (count.max(1) as f32).sqrt() * PITCH;
+    (index as f32 / count.max(1) as f32 - 0.5) * span * 2.0
+}
+
+/// Height from the shape of the ranking, in one pass over the nodes.
+///
+/// The old expression counted a column's members once *per member*, which is
+/// quadratic and was measured as a real cost on a collection with thousands of
+/// them — before anything was drawn at all.
+fn auto_height(ranks: &[usize]) -> f32 {
+    let mut rows: Vec<u32> = Vec::new();
+    for rank in ranks {
+        if *rank >= rows.len() {
+            rows.resize(rank + 1, 0);
         }
-        (LatticeMark::Authored, LatticePresence::Absent) => {
-            let mark = Rect::from_center_size(at, vec2(MARK * 2.0, MARK * 2.0));
-            painter.extend(Shape::dashed_line(
-                &[
-                    mark.left_top(),
-                    mark.right_top(),
-                    mark.right_bottom(),
-                    mark.left_bottom(),
-                    mark.left_top(),
-                ],
-                stroke,
-                3.0,
-                3.0,
-            ));
-        }
-        (LatticeMark::Computed, LatticePresence::Present) => {
-            painter.circle_filled(at, MARK, colour);
-        }
-        (LatticeMark::Computed, LatticePresence::Absent) => {
-            painter.extend(Shape::dashed_line(
-                &arc_points(at, MARK, 0.0, std::f32::consts::TAU),
-                stroke,
-                3.0,
-                3.0,
-            ));
+        rows[*rank] += 1;
+    }
+    let busiest = rows.iter().copied().max().unwrap_or(1).max(1) as f32;
+    busiest.min(MAX_ROWS) * PITCH + TOP + BOTTOM
+}
+
+/// The chain, recomputed only when the selection or the topology changes.
+fn lit_chain(
+    ui: &Ui,
+    id: eframe::egui::Id,
+    generation: u64,
+    count: usize,
+    edges: &[LatticeEdge],
+    selected: Option<usize>,
+) -> std::sync::Arc<Vec<bool>> {
+    type Cached = std::sync::Arc<(u64, Option<usize>, std::sync::Arc<Vec<bool>>)>;
+    let id = id.with("chain");
+    let cached: Option<Cached> = ui.ctx().data(|data| data.get_temp(id));
+    if let Some(cached) = &cached {
+        if cached.0 == generation && cached.1 == selected {
+            return cached.2.clone();
         }
     }
+    let lit = std::sync::Arc::new(match selected.filter(|index| *index < count) {
+        Some(index) => chain(count, edges, index),
+        None => vec![true; count],
+    });
+    let entry: Cached = std::sync::Arc::new((generation, selected, lit.clone()));
+    ui.ctx().data_mut(|data| data.insert_temp(id, entry));
+    lit
+}
+
+fn draw_mark(painter: &Painter, at: Pos2, scale: f32, node: &LatticeNode, colour: Color32) {
+    let outline = match node.presence {
+        LatticePresence::Present => Stroke2::Filled,
+        LatticePresence::Absent => Stroke2::Dashed,
+    };
+    let glyph = match (node.mark, node.produced) {
+        // Authored elements are produced by definition — someone asserted
+        // them — so the open-below glyph is never reachable for a square.
+        (LatticeMark::Authored, _) => Glyph::Square,
+        (LatticeMark::Computed, true) => Glyph::Circle,
+        (LatticeMark::Computed, false) => Glyph::CircleOpenBelow,
+    };
+    graph::draw_node(painter, at, scale, glyph, outline, colour, 1);
 }
 
 /// Rank every node by its longest path from a minimal element.
@@ -367,7 +566,7 @@ fn draw_mark(
 /// Unendorsed edges rank exactly like endorsed ones. A missing derivation still
 /// says where its output would sit, and placing the hole in the right column is
 /// the point of drawing it at all.
-fn levels(count: usize, edges: &[LatticeEdge]) -> Vec<usize> {
+pub fn levels(count: usize, edges: &[LatticeEdge]) -> Vec<usize> {
     let mut level = vec![0usize; count];
     let mut indegree = vec![0usize; count];
     let mut outgoing: Vec<Vec<usize>> = vec![Vec::new(); count];
@@ -388,7 +587,8 @@ fn levels(count: usize, edges: &[LatticeEdge]) -> Vec<usize> {
         let node = queue[head];
         head += 1;
         settled[node] = true;
-        for next in outgoing[node].clone() {
+        for index in 0..outgoing[node].len() {
+            let next = outgoing[node][index];
             level[next] = level[next].max(level[node] + 1);
             indegree[next] -= 1;
             if indegree[next] == 0 {
@@ -416,29 +616,32 @@ fn levels(count: usize, edges: &[LatticeEdge]) -> Vec<usize> {
 /// always then asks "and what else was built on it". Unendorsed edges are
 /// followed too: a chain that is broken is still the chain you asked for, and
 /// hiding the break would answer the question wrongly.
+///
+/// The walk is over adjacency built once, not over the edge slice per frontier
+/// node. Same answer; the old shape was `O(n * e)` and this is `O(n + e)`.
 fn chain(count: usize, edges: &[LatticeEdge], selected: usize) -> Vec<bool> {
     let mut on = vec![false; count];
     if selected >= count {
         return on;
     }
+    let mut upward: Vec<Vec<usize>> = vec![Vec::new(); count];
+    let mut downward: Vec<Vec<usize>> = vec![Vec::new(); count];
+    for edge in edges {
+        if edge.from >= count || edge.to >= count {
+            continue;
+        }
+        upward[edge.from].push(edge.to);
+        downward[edge.to].push(edge.from);
+    }
+
     on[selected] = true;
-    for downward in [true, false] {
+    for adjacency in [&downward, &upward] {
         let mut frontier = vec![selected];
         while let Some(node) = frontier.pop() {
-            for edge in edges {
-                if edge.from >= count || edge.to >= count {
-                    continue;
-                }
-                let next = if downward {
-                    (edge.to == node).then_some(edge.from)
-                } else {
-                    (edge.from == node).then_some(edge.to)
-                };
-                if let Some(next) = next {
-                    if !on[next] {
-                        on[next] = true;
-                        frontier.push(next);
-                    }
+            for next in &adjacency[node] {
+                if !on[*next] {
+                    on[*next] = true;
+                    frontier.push(*next);
                 }
             }
         }
@@ -446,67 +649,32 @@ fn chain(count: usize, edges: &[LatticeEdge], selected: usize) -> Vec<bool> {
     on
 }
 
-/// Turn ranks into points: one column per rank, nodes stacked within it in
-/// index order so a caller that sorts its nodes gets a layout that does not
-/// jump when one node's presence changes.
-fn place(rect: Rect, ranks: &[usize]) -> Vec<Pos2> {
-    let columns = ranks.iter().copied().max().map_or(0, |max| max + 1);
-    let span = (rect.width() - 2.0 * SIDE).max(1.0);
-    let column_x = |rank: usize| {
-        if columns <= 1 {
-            rect.center().x
-        } else {
-            rect.left() + SIDE + span * (rank as f32 / (columns - 1) as f32)
-        }
-    };
-    let height = (rect.height() - TOP - BOTTOM).max(1.0);
-    let middle = rect.top() + TOP + height * 0.5;
-
-    ranks
+#[cfg(test)]
+fn settled(nodes: usize, edges: &[LatticeEdge], steps: usize) -> Vec<[f32; 2]> {
+    use crate::graph::ForceLayout;
+    let ranks = levels(nodes, edges);
+    let pairs: Vec<(u32, u32)> = edges
+        .iter()
+        .filter(|edge| edge.from != edge.to)
+        .map(|edge| (edge.from as u32, edge.to as u32))
+        .collect();
+    let mut layout = ForceLayout::new(nodes, &pairs, LayoutParams::default());
+    let target: Vec<[f32; 2]> = ranks
         .iter()
         .enumerate()
-        .map(|(index, rank)| {
-            let siblings: Vec<usize> = ranks
-                .iter()
-                .enumerate()
-                .filter(|(_, other)| *other == rank)
-                .map(|(other, _)| other)
-                .collect();
-            let row = siblings
-                .iter()
-                .position(|other| *other == index)
-                .unwrap_or(0);
-            // A fixed pitch, centred: a column of three marks is three marks
-            // tall wherever it sits, so two columns are comparable by eye
-            // instead of being stretched apart by however much room the
-            // caller happened to give. Only a column that would otherwise
-            // overflow is compressed, because a mark outside the allocated
-            // region is clipped away and silently missing.
-            let pitch = match siblings.len() > 1 {
-                true => PITCH.min(height / (siblings.len() - 1) as f32),
-                false => PITCH,
-            };
-            let offset = row as f32 - (siblings.len() as f32 - 1.0) * 0.5;
-            pos2(column_x(*rank), middle + offset * pitch)
-        })
-        .collect()
-}
-
-/// Sample an arc as a polyline. egui has no arc primitive, and sampling keeps
-/// the stroke joins consistent with every other line the theme draws.
-fn arc_points(centre: Pos2, radius: f32, start: f32, sweep: f32) -> Vec<Pos2> {
-    let steps = ((sweep.abs() / std::f32::consts::TAU) * 64.0)
-        .ceil()
-        .max(2.0) as usize;
-    (0..=steps)
-        .map(|step| {
-            let angle = start + sweep * (step as f32 / steps as f32);
-            pos2(
-                centre.x + radius * angle.cos(),
-                centre.y + radius * angle.sin(),
-            )
-        })
-        .collect()
+        .map(|(index, rank)| [rank_x(*rank), seed_y(index, nodes)])
+        .collect();
+    for (index, point) in target.iter().enumerate() {
+        layout.seed(index, *point);
+    }
+    layout.anchors(Some(&Anchors {
+        target: target.iter().map(|point| [point[0], 0.0]).collect(),
+        k: vec![[RANK_K, LANE_K]; nodes],
+    }));
+    for _ in 0..steps {
+        layout.step();
+    }
+    layout.positions().to_vec()
 }
 
 #[cfg(test)]
@@ -594,72 +762,177 @@ mod tests {
     }
 
     #[test]
-    fn a_single_column_is_centred_rather_than_pinned_left() {
-        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(200.0, 100.0));
-        let points = place(rect, &[0]);
-        assert_eq!(points.len(), 1);
-        assert!((points[0].x - 100.0).abs() < 1e-3);
-    }
-
-    #[test]
-    fn columns_run_left_to_right_and_siblings_stack() {
-        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(300.0, 200.0));
-        // Ranks 0, 1, 1: one source feeding two outputs.
-        let points = place(rect, &[0, 1, 1]);
-        assert!(
-            points[0].x < points[1].x,
-            "a source sits left of its output"
-        );
-        assert!(
-            (points[1].x - points[2].x).abs() < 1e-3,
-            "one rank, one column"
-        );
-        assert!(points[1].y < points[2].y, "siblings stack in index order");
-        for point in &points {
-            assert!(rect.contains(*point), "every mark stays inside the region");
+    fn lane_members_share_an_x_band() {
+        // Rank is the order itself, so the simulation is not allowed to
+        // renegotiate it. A mark that wandered into the next column would draw
+        // a derivation running backwards.
+        let mut edges = Vec::new();
+        for rank in 0..5usize {
+            for row in 0..24usize {
+                let index = rank * 24 + row;
+                if rank + 1 < 5 {
+                    edges.push(edge(index, index + 24));
+                }
+            }
         }
-    }
-
-    #[test]
-    fn a_column_uses_a_fixed_pitch_rather_than_the_whole_height() {
-        // Two marks in a tall region must sit one pitch apart and centred, not
-        // be flung to the top and bottom edges with emptiness between them.
-        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(300.0, 600.0));
-        let points = place(rect, &[0, 0]);
-        assert!(
-            (points[1].y - points[0].y - PITCH).abs() < 1e-3,
-            "siblings are one pitch apart"
-        );
-        let middle = (points[0].y + points[1].y) * 0.5;
-        let expected = rect.top() + TOP + (rect.height() - TOP - BOTTOM) * 0.5;
-        assert!(
-            (middle - expected).abs() < 1e-3,
-            "and centred in the region"
-        );
-    }
-
-    #[test]
-    fn a_column_that_cannot_fit_is_compressed_instead_of_overflowing() {
-        // Many marks in a short region must still land inside it: a mark drawn
-        // outside the allocated rect is clipped away and silently missing.
-        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(300.0, 120.0));
-        let ranks = vec![0; 12];
-        for point in place(rect, &ranks) {
+        let points = settled(120, &edges, 1_500);
+        let ranks = levels(120, &edges);
+        for (index, point) in points.iter().enumerate() {
+            let expected = rank_x(ranks[index]);
             assert!(
-                point.y >= rect.top() && point.y <= rect.bottom(),
-                "every mark stays inside the region"
+                (point[0] - expected).abs() < RANK_PITCH * 0.5,
+                "node {index} at x {} left column {expected}",
+                point[0]
             );
         }
     }
 
     #[test]
-    fn arc_is_sampled_with_endpoints_on_the_circle() {
-        let points = arc_points(pos2(10.0, 10.0), 5.0, 0.0, std::f32::consts::TAU);
-        assert!(points.len() >= 3);
-        for point in &points {
-            let dx = point.x - 10.0;
-            let dy = point.y - 10.0;
-            assert!((dx.hypot(dy) - 5.0).abs() < 1e-3, "point off the circle");
+    fn a_single_rank_still_places_every_node() {
+        // Twenty members of one collection with no joins at all: one column,
+        // and the springs have to spread them in y rather than pile them up.
+        let points = settled(20, &[], 800);
+        let mut ys: Vec<f32> = points.iter().map(|point| point[1]).collect();
+        ys.sort_by(f32::total_cmp);
+        for pair in ys.windows(2) {
+            assert!(
+                pair[1] - pair[0] > 2.0 * graph::MARK,
+                "marks {} and {} overlap",
+                pair[0],
+                pair[1]
+            );
         }
+    }
+
+    #[test]
+    fn auto_height_is_the_busiest_column_and_is_bounded() {
+        // Three nodes must not reserve a screenful, and twenty thousand must
+        // not reserve a mile of page.
+        let small = auto_height(&[0, 1, 2]);
+        assert!((small - (PITCH + TOP + BOTTOM)).abs() < 1e-3);
+        let wide = auto_height(&[0, 0, 0, 1]);
+        assert!((wide - (3.0 * PITCH + TOP + BOTTOM)).abs() < 1e-3);
+        let huge = auto_height(&vec![0usize; 20_000]);
+        assert!(huge <= MAX_ROWS * PITCH + TOP + BOTTOM);
+    }
+
+    /// Count the shape kinds one mark emits, by actually driving egui.
+    ///
+    /// There was no render-level test of absence in either graph widget: they
+    /// tested `arc_points`, `levels`, `chain` and `place`, so a clean render
+    /// implied nothing at all about whether a hole would have been drawn. This
+    /// is the smallest thing that fixes that — it asks the painter what shapes
+    /// came out, rather than comparing pixels a settling layout cannot promise.
+    fn mark_shapes(node: &LatticeNode) -> (usize, usize, usize, usize) {
+        // A panel paints its own background, so the counts are taken against a
+        // baseline frame that draws no mark at all. Otherwise every assertion
+        // here is off by whatever the frame happened to contain, which is a
+        // test that passes for the wrong reason the first time the frame
+        // changes.
+        let count = |node: Option<&LatticeNode>| {
+            let ctx = eframe::egui::Context::default();
+            let node = node.cloned();
+            let output = ctx.run(Default::default(), |ctx| {
+                eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                    let painter = ui.painter().clone();
+                    if let Some(node) = &node {
+                        draw_mark(
+                            &painter,
+                            eframe::egui::pos2(60.0, 60.0),
+                            1.0,
+                            node,
+                            Color32::WHITE,
+                        );
+                    }
+                });
+            });
+            let mut kinds = [0usize; 4];
+            for clipped in &output.shapes {
+                match &clipped.shape {
+                    eframe::egui::Shape::Circle(_) => kinds[0] += 1,
+                    eframe::egui::Shape::Rect(_) => kinds[1] += 1,
+                    eframe::egui::Shape::Path(_) => kinds[2] += 1,
+                    eframe::egui::Shape::LineSegment { .. } => kinds[3] += 1,
+                    _ => {}
+                }
+            }
+            kinds
+        };
+        let base = count(None);
+        let drawn = count(Some(node));
+        (
+            drawn[0] - base[0],
+            drawn[1] - base[1],
+            drawn[2] - base[2],
+            drawn[3] - base[3],
+        )
+    }
+
+    #[test]
+    fn an_absent_member_emits_a_dashed_path() {
+        // A hole is a dashed outline and a resident member is a solid mark.
+        // Constraint made real: the render is asserted, not eyeballed.
+        let present = LatticeNode {
+            label: "here".into(),
+            mark: LatticeMark::Authored,
+            presence: LatticePresence::Present,
+            ..LatticeNode::default()
+        };
+        let absent = LatticeNode {
+            presence: LatticePresence::Absent,
+            ..present.clone()
+        };
+        let (_, rects, _, _) = mark_shapes(&present);
+        assert_eq!(rects, 1, "a resident authored member is one filled square");
+
+        let (_, rects, _, segments) = mark_shapes(&absent);
+        assert_eq!(rects, 0, "an absent member must not draw a solid square");
+        assert!(
+            segments >= 4,
+            "a dashed square needs at least one dash per side, got {segments}"
+        );
+    }
+
+    #[test]
+    fn an_unproduced_member_is_not_pixel_identical_to_a_derive_output() {
+        // This absence has never been seen on live data and is fixture-only,
+        // which is exactly why it needs a test: a clean render must not be
+        // allowed to imply the path works. Until now it had no geometry at
+        // all — it was built as a resident computed member, which is the same
+        // mark a fully-produced DERIVE output draws — and the only thing
+        // saying otherwise was a count printed beside the picture.
+        let produced = LatticeNode {
+            label: "a".into(),
+            mark: LatticeMark::Computed,
+            ..LatticeNode::default()
+        };
+        let unproduced = LatticeNode {
+            produced: false,
+            ..produced.clone()
+        };
+        let (circles, _, paths, _) = mark_shapes(&produced);
+        assert_eq!(circles, 1, "a produced output is a filled disc");
+        assert_eq!(paths, 0);
+
+        let (circles, _, paths, _) = mark_shapes(&unproduced);
+        assert_eq!(
+            circles, 0,
+            "an unproduced member must not draw a filled disc"
+        );
+        assert_eq!(paths, 1, "it draws an arc with a gap at the bottom");
+    }
+
+    #[test]
+    fn an_authored_member_is_never_drawn_open_below() {
+        // Someone asserted it, so "nothing produced this" cannot be true of it.
+        // The glyph table has to say so, or a caller passing a default could
+        // make a commit look like a dangling join input.
+        let node = LatticeNode {
+            mark: LatticeMark::Authored,
+            produced: false,
+            ..LatticeNode::default()
+        };
+        let (circles, rects, paths, _) = mark_shapes(&node);
+        assert_eq!((circles, rects, paths), (0, 1, 0));
     }
 }
