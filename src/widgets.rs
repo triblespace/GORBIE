@@ -18,6 +18,8 @@ pub mod field;
 pub mod histogram;
 /// Row-height labels for grid alignment.
 pub mod label;
+/// Collection lattice as a deterministic layered Hasse diagram.
+pub mod lattice;
 /// Background-loading toggle buttons and auto-loaders.
 pub mod load;
 /// Markdown rendering via gorbie-commonmark.
@@ -65,6 +67,9 @@ pub use histogram::Histogram;
 pub use histogram::HistogramBucket;
 pub use histogram::HistogramYAxis;
 pub use label::row_label;
+pub use lattice::{
+    LatticeEdge, LatticeGraph, LatticeMark, LatticeNode, LatticePresence, LatticeResponse,
+};
 pub use load::load_auto;
 pub use load::load_button;
 #[cfg(feature = "markdown")]
