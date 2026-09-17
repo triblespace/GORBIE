@@ -1,6 +1,6 @@
 use eframe::egui::{vec2, Color32, Painter, Pos2, Response, Sense, TextStyle, Ui, Widget};
 
-use crate::graph::{self, Anchors, Glyph, GraphViewport, LayoutParams, Lod, Stroke2};
+use crate::graph::{self, Anchors, Glyph, GraphViewport, LayoutParams, LayoutStats, Lod, Stroke2};
 use crate::themes;
 
 /// What kind of element a node stands for.
@@ -236,17 +236,6 @@ impl<'a> LatticeGraph<'a> {
         let count = self.nodes.len();
         let ranks = levels(count, self.edges);
         let width = ui.available_width();
-        let height = self.height.unwrap_or_else(|| auto_height(&ranks));
-        let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click_and_drag());
-        if !ui.is_rect_visible(rect) || self.nodes.is_empty() {
-            return LatticeResponse {
-                response,
-                hovered: None,
-                clicked: None,
-                drawn: 0,
-                folded: 0,
-            };
-        }
 
         // The key is the label, which is what the caller uses to tell two
         // elements apart on screen. It is a UI handle and never a lookup: two
@@ -264,10 +253,27 @@ impl<'a> LatticeGraph<'a> {
             .map(|edge| (edge.from as u32, edge.to as u32))
             .collect();
 
+        // The layout is built BEFORE the region is allocated, because how tall
+        // this widget should be is a question about the shape of the thing
+        // being drawn, and answering it needs no rect.
         let layout_id = ui.id().with(self.salt);
         let (shared, changed) =
             graph::shared(ui, layout_id, &keys, &pairs, LayoutParams::default());
         let mut shared = shared.lock();
+        let height = self
+            .height
+            .unwrap_or_else(|| auto_height(&ranks, shared.layout().stats(), width));
+        let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click_and_drag());
+        if !ui.is_rect_visible(rect) || self.nodes.is_empty() {
+            drop(shared);
+            return LatticeResponse {
+                response,
+                hovered: None,
+                clicked: None,
+                drawn: 0,
+                folded: 0,
+            };
+        }
         let generation = shared.generation();
         let layout = shared.layout_mut();
 
@@ -318,8 +324,10 @@ impl<'a> LatticeGraph<'a> {
         let accent = themes::button_light_on();
         let painter = ui.painter().with_clip_rect(rect);
         let font = TextStyle::Small.resolve(ui.style());
-        let scale = view.zoom();
-        let lod = view.lod();
+        let scale = view.mark_scale();
+        // Rank pitch is the widest regular spacing in this layout; nodes
+        // sharing a rank sit closer, which is what the fold is for.
+        let lod = view.lod(RANK_PITCH * 0.5);
         let visible = rect.expand(graph::HIT * scale + 4.0);
 
         // Edges first, so marks always sit on top of them.
@@ -498,12 +506,26 @@ fn seed_y(index: usize, count: usize) -> f32 {
     (index as f32 / count.max(1) as f32 - 0.5) * span * 2.0
 }
 
-/// Height from the shape of the ranking, in one pass over the nodes.
+/// Height from the shape of the thing being drawn.
 ///
-/// The old expression counted a column's members once *per member*, which is
-/// quadratic and was measured as a real cost on a collection with thousands of
-/// them — before anything was drawn at all.
-fn auto_height(ranks: &[usize]) -> f32 {
+/// Once the layout has taken a step this follows its ASPECT, because the
+/// viewport frames the whole layout into whatever region it is given: a card
+/// too short for the layout's proportions does not crop the picture, it shrinks
+/// it. That is not a theory. A six-node lattice occupying roughly a square of
+/// world came back drawn inside a 136-point strip, every mark under three
+/// points and not a label in sight, on a page with room to spare — found by
+/// rendering it, which no assertion about shape kinds was ever going to catch.
+///
+/// Before the first step there are no bounds, so it falls back to the shape of
+/// the ranking: one row pitch per node in the busiest column, which is the rule
+/// this widget has always used and still keeps a three-node lattice from
+/// reserving a screenful. Either way it is bounded above, so twenty thousand
+/// members ask for a viewport rather than a mile of page.
+///
+/// Counted in ONE pass. The old expression counted a column's members once per
+/// member, which is quadratic and was a real cost on a collection with
+/// thousands of them, paid before anything was drawn at all.
+fn auto_height(ranks: &[usize], stats: LayoutStats, width: f32) -> f32 {
     let mut rows: Vec<u32> = Vec::new();
     for rank in ranks {
         if *rank >= rows.len() {
@@ -512,7 +534,19 @@ fn auto_height(ranks: &[usize]) -> f32 {
         rows[*rank] += 1;
     }
     let busiest = rows.iter().copied().max().unwrap_or(1).max(1) as f32;
-    busiest.min(MAX_ROWS) * PITCH + TOP + BOTTOM
+    let floor = PITCH + TOP + BOTTOM;
+    let ceiling = MAX_ROWS * PITCH + TOP + BOTTOM;
+    let by_rank = (busiest.min(MAX_ROWS) * PITCH + TOP + BOTTOM).clamp(floor, ceiling);
+
+    let world = vec2(
+        stats.bounds[2] - stats.bounds[0],
+        stats.bounds[3] - stats.bounds[1],
+    );
+    if stats.steps == 0 || !(world.x > 1.0) || !world.y.is_finite() || world.y <= 0.0 {
+        return by_rank;
+    }
+    let usable = (width - 2.0 * LABEL_MARGIN).max(1.0);
+    (usable * (world.y / world.x) + 2.0 * LABEL_MARGIN).clamp(floor, ceiling)
 }
 
 /// The chain, recomputed only when the selection or the topology changes.
@@ -805,15 +839,44 @@ mod tests {
     }
 
     #[test]
-    fn auto_height_is_the_busiest_column_and_is_bounded() {
+    fn auto_height_is_the_busiest_column_before_the_first_step() {
         // Three nodes must not reserve a screenful, and twenty thousand must
         // not reserve a mile of page.
-        let small = auto_height(&[0, 1, 2]);
+        let unstepped = LayoutStats::default();
+        let small = auto_height(&[0, 1, 2], unstepped, 768.0);
         assert!((small - (PITCH + TOP + BOTTOM)).abs() < 1e-3);
-        let wide = auto_height(&[0, 0, 0, 1]);
+        let wide = auto_height(&[0, 0, 0, 1], unstepped, 768.0);
         assert!((wide - (3.0 * PITCH + TOP + BOTTOM)).abs() < 1e-3);
-        let huge = auto_height(&vec![0usize; 20_000]);
+        let huge = auto_height(&vec![0usize; 20_000], unstepped, 768.0);
         assert!(huge <= MAX_ROWS * PITCH + TOP + BOTTOM);
+    }
+
+    #[test]
+    fn auto_height_follows_the_layout_once_it_has_one() {
+        // A card too short for the layout's proportions does not crop the
+        // picture, it shrinks it — which is how a six-node lattice ended up
+        // drawn at under three points a mark inside a 136-point strip.
+        let square = LayoutStats {
+            steps: 10,
+            bounds: [0.0, 0.0, 800.0, 800.0],
+            ..LayoutStats::default()
+        };
+        let tall = auto_height(&[0, 1], square, 768.0);
+        let flat = LayoutStats {
+            steps: 10,
+            bounds: [0.0, 0.0, 2400.0, 240.0],
+            ..LayoutStats::default()
+        };
+        let short = auto_height(&[0, 1], flat, 768.0);
+        assert!(
+            tall > short,
+            "a square layout asked for {tall}, a wide one {short}"
+        );
+        assert!(
+            tall <= MAX_ROWS * PITCH + TOP + BOTTOM,
+            "unbounded at {tall}"
+        );
+        assert!(short >= PITCH + TOP + BOTTOM, "collapsed to {short}");
     }
 
     /// Count the shape kinds one mark emits, by actually driving egui.

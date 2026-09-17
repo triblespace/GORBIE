@@ -154,16 +154,17 @@ pub const RING_FULL: usize = 12;
 /// At or above this many the ring is gone and the layout is free to find
 /// whatever structure the observations actually carry.
 pub const RING_NONE: usize = 32;
-/// World-space ring radius per node.
+/// World units between two neighbouring peers on the ring.
 ///
-/// Wide on purpose, and free: the viewport frames whatever the layout occupies,
-/// so world scale is invisible to the reader and buys roundness. The per-step
-/// impulse is capped at `max_force` however strong the springs are, so an
-/// anchored node's worst-case departure from its ring position is a fixed
-/// `max_force / RING_K` world units — which is a smaller *fraction* of a bigger
-/// ring. At these values a six-peer mesh with one hub, the worst case for a
-/// spring overpowering its anchor, stays within about half a percent of round.
-const RING_PITCH: f32 = 280.0;
+/// World scale is NOT free, which cost a render to learn. The viewport frames
+/// whatever the layout occupies, so a ring laid out in arbitrarily large world
+/// units fits by zooming out — and a three-peer mesh came back as three specks
+/// on a card with all the room in the world. Spacing the ring by a pitch close
+/// to the points it will be drawn at makes the fit land near unity, so a small
+/// colony draws at the size it always drew at.
+const NODE_PITCH: f32 = 116.0;
+/// Smallest ring, so two peers are not drawn on top of each other.
+const MIN_RING: f32 = 92.0;
 /// Ring spring stiffness at or below [`RING_FULL`].
 const RING_K: f32 = 1.0;
 /// Screen points kept clear around the marks for the labels outside them.
@@ -206,7 +207,9 @@ fn ring_point(index: usize, count: usize) -> [f32; 2] {
     if count <= 1 {
         return [0.0, 0.0];
     }
-    let radius = RING_PITCH * count as f32;
+    // Circumference is the pitch times the peers, so neighbours sit a fixed
+    // world distance apart however many there are.
+    let radius = (NODE_PITCH * count as f32 / std::f32::consts::TAU).max(MIN_RING);
     let turn = index as f32 / count as f32;
     let angle = turn * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
     [radius * angle.cos(), radius * angle.sin()]
@@ -337,8 +340,8 @@ impl MeshGraph<'_> {
         let accent = themes::button_light_on();
         let painter = ui.painter().with_clip_rect(rect);
         let font = TextStyle::Small.resolve(ui.style());
-        let scale = view.zoom();
-        let lod = view.lod();
+        let scale = view.mark_scale();
+        let lod = view.lod(NODE_PITCH);
         let visible = rect.expand(graph::HIT * scale + 4.0);
 
         // Links first, so node marks always sit on top of them.

@@ -18,12 +18,15 @@
 
 use eframe::egui::{vec2, Id, Pos2, Rect, Response, Ui, Vec2};
 
-/// How much detail is worth drawing at the current zoom.
+/// How much detail is worth drawing.
 ///
-/// Chosen by zoom rather than by node count, because the question a level of
-/// detail answers is "can the reader see this", and that is a question about
-/// screen size. A mark under about a pixel and a half carries no shape, and a
-/// label under it carries no word.
+/// Chosen by how far apart neighbouring marks land ON SCREEN, which is the
+/// question a level of detail actually answers: marks fold when they would
+/// overlap, not when the zoom number is small. Those are different, and
+/// conflating them is a bug I shipped and then saw — a three-peer mesh fits a
+/// card at a zoom of about a tenth, because its ring is laid out in world units
+/// that have no fixed relationship to points, and every peer folded to a dot on
+/// a picture with all the room in the world.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Lod {
     /// Glyph, stroke, track and label.
@@ -199,17 +202,34 @@ impl GraphViewport {
         [min[0], min[1], max[0], max[1]]
     }
 
-    pub fn lod(&self) -> Lod {
-        let mark = super::marks::MARK * self.zoom;
-        if mark >= 4.0 {
+    /// The detail level for a layout whose neighbouring nodes sit `pitch` world
+    /// units apart.
+    ///
+    /// The thresholds are multiples of the mark, because what makes a mark
+    /// unreadable is another mark on top of it. A track needs room for a track;
+    /// a glyph needs room for a glyph; below a mark's width apart there is
+    /// nothing to see but ink.
+    pub fn lod(&self, pitch: f32) -> Lod {
+        let spacing = pitch * self.zoom;
+        if spacing >= super::marks::TRACK * 2.4 {
             Lod::Full
-        } else if mark >= 2.5 {
+        } else if spacing >= super::marks::MARK * 2.4 {
             Lod::Marks
-        } else if mark >= 1.5 {
+        } else if spacing >= super::marks::MARK {
             Lod::Dots
         } else {
             Lod::Aggregate
         }
+    }
+
+    /// The size to draw a mark at, given the current zoom.
+    ///
+    /// A mark is a SYMBOL, not a measured object: it stands for a thing rather
+    /// than showing its extent, so it stays readable instead of tracking the
+    /// zoom all the way down to a speck and all the way up to a plate. World
+    /// distances still scale; only the vocabulary holds its size.
+    pub fn mark_scale(&self) -> f32 {
+        self.zoom.clamp(0.45, 1.5)
     }
 }
 
