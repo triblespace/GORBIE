@@ -201,17 +201,52 @@ fn exceptional(state: MeshNodeState) -> bool {
     !matches!(state, MeshNodeState::Fresh)
 }
 
-/// Where node `index` of `count` sits on the seed ring. First node at the top,
+/// The angle of node `index` of `count` on the ring. First node at the top,
 /// the rest clockwise, exactly as the radial placement did.
-fn ring_point(index: usize, count: usize) -> [f32; 2] {
+fn ring_angle(index: usize, count: usize) -> f32 {
+    index as f32 / count.max(1) as f32 * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2
+}
+
+/// Ring radius for `count` peers: neighbours a fixed world distance apart,
+/// however many there are.
+fn ring_radius(count: usize) -> f32 {
+    (NODE_PITCH * count as f32 / std::f32::consts::TAU).max(MIN_RING)
+}
+
+/// Where the anchor spring pulls node `index`, and how hard.
+///
+/// BOTH ends of the handover fade, which is the part it is easy to get half
+/// right — and I did, and the render showed it. Fading only the stiffness
+/// leaves a thousand-peer colony still aimed at a ring of eighteen thousand
+/// world units at gravity's strength, and since the anchor force grows with the
+/// distance it spans, "gravity's strength" against that radius is above the
+/// per-step cap. The colony was dragged onto a circle by the very term that was
+/// supposed to have let go of it. The target has to come home to the origin as
+/// the stiffness relaxes, or the ring never actually leaves.
+fn ring_anchor(index: usize, count: usize, gravity: [f32; 2]) -> ([f32; 2], f32) {
+    if count <= 1 {
+        return ([0.0, 0.0], gravity[0]);
+    }
+    let fade = ring_fade(count);
+    let radius = ring_radius(count) * (1.0 - fade);
+    let angle = ring_angle(index, count);
+    let stiffness = RING_K * (1.0 - fade) + gravity[0] * fade;
+    ([radius * angle.cos(), radius * angle.sin()], stiffness)
+}
+
+/// Where node `index` starts.
+///
+/// On the ring while the ring is in force; on a seed sized by AREA once it is
+/// not, because a settled layout's radius grows with the square root of the
+/// node count while the ring's grows linearly, and opening far outside your own
+/// answer is a settle you pay for and need not have.
+fn seed_point(index: usize, count: usize, seed_scale: f32) -> [f32; 2] {
     if count <= 1 {
         return [0.0, 0.0];
     }
-    // Circumference is the pitch times the peers, so neighbours sit a fixed
-    // world distance apart however many there are.
-    let radius = (NODE_PITCH * count as f32 / std::f32::consts::TAU).max(MIN_RING);
-    let turn = index as f32 / count as f32;
-    let angle = turn * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+    let fade = ring_fade(count);
+    let radius = ring_radius(count) * (1.0 - fade) + seed_scale * (count as f32).sqrt() * fade;
+    let angle = ring_angle(index, count);
     [radius * angle.cos(), radius * angle.sin()]
 }
 
@@ -223,13 +258,6 @@ fn ring_point(index: usize, count: usize) -> [f32; 2] {
 fn ring_fade(count: usize) -> f32 {
     let span = (RING_NONE - RING_FULL) as f32;
     (count.saturating_sub(RING_FULL) as f32 / span).clamp(0.0, 1.0)
-}
-
-/// Ring stiffness: full hold up to [`RING_FULL`], fading to the ordinary
-/// gravity well at [`RING_NONE`] and beyond.
-fn ring_stiffness(count: usize, gravity: [f32; 2]) -> f32 {
-    let fade = ring_fade(count);
-    RING_K * (1.0 - fade) + gravity[0] * fade
 }
 
 /// The law this view runs, which is the shared one with the observation spring
@@ -309,12 +337,14 @@ impl MeshGraph<'_> {
             // The roster decides how much ring is left, so the law is re-read
             // here rather than only at creation.
             layout.set_params(params);
-            let target: Vec<[f32; 2]> = (0..count).map(|index| ring_point(index, count)).collect();
-            let stiffness = ring_stiffness(count, params.anchor_k);
-            for (index, point) in target.iter().enumerate() {
-                layout.seed(index, *point);
+            let mut anchors = Anchors::default();
+            for index in 0..count {
+                layout.seed(index, seed_point(index, count, params.seed_scale));
+                let (target, stiffness) = ring_anchor(index, count, params.anchor_k);
+                anchors.target.push(target);
+                anchors.k.push([stiffness, stiffness]);
             }
-            layout.anchors(Some(&Anchors::uniform(target, [stiffness, stiffness])));
+            layout.anchors(Some(&anchors));
             // A changed roster is a changed picture, so the framing goes back
             // to the widget. A reader who has panned keeps their view; see
             // `GraphViewport::touched`.
@@ -472,12 +502,14 @@ fn settled(count: usize, links: &[MeshLink], steps: usize) -> Vec<[f32; 2]> {
         .map(|link| (link.from as u32, link.to as u32))
         .collect();
     let mut layout = ForceLayout::new(count, &edges, params);
-    let target: Vec<[f32; 2]> = (0..count).map(|index| ring_point(index, count)).collect();
-    let stiffness = ring_stiffness(count, params.anchor_k);
-    for (index, point) in target.iter().enumerate() {
-        layout.seed(index, *point);
+    let mut anchors = Anchors::default();
+    for index in 0..count {
+        layout.seed(index, seed_point(index, count, params.seed_scale));
+        let (target, stiffness) = ring_anchor(index, count, params.anchor_k);
+        anchors.target.push(target);
+        anchors.k.push([stiffness, stiffness]);
     }
-    layout.anchors(Some(&Anchors::uniform(target, [stiffness, stiffness])));
+    layout.anchors(Some(&anchors));
     for _ in 0..steps {
         layout.step();
     }
@@ -684,13 +716,32 @@ mod tests {
         // peer joins, which is the discontinuity the radial placement was
         // chosen to avoid in the first place.
         let gravity = LayoutParams::default().anchor_k;
-        let full = ring_stiffness(RING_FULL, gravity);
-        let mid = ring_stiffness((RING_FULL + RING_NONE) / 2, gravity);
-        let none = ring_stiffness(RING_NONE, gravity);
+        let stiffness = |count| ring_anchor(0, count, gravity).1;
+        let full = stiffness(RING_FULL);
+        let mid = stiffness((RING_FULL + RING_NONE) / 2);
+        let none = stiffness(RING_NONE);
         assert_eq!(full, RING_K);
         assert!(none < RING_K * 0.01, "ring still holds at {none}");
         assert!(mid < full && mid > none, "fade is not monotone: {mid}");
-        assert!(ring_stiffness(1_000, gravity) > 0.0, "gravity well lost");
+        assert!(stiffness(1_000) > 0.0, "gravity well lost");
+
+        // The TARGET fades too, or a large colony is still aimed at a ring of
+        // eighteen thousand world units at gravity's strength — which, because
+        // the anchor force grows with the distance it spans, is above the
+        // per-step cap, and the ring the fade was supposed to release drags the
+        // whole colony onto a circle anyway.
+        let radius = |count| {
+            let target = ring_anchor(0, count, gravity).0;
+            target[0].hypot(target[1])
+        };
+        assert!(radius(RING_FULL) > 0.0, "the small ring has no radius");
+        assert_eq!(radius(RING_NONE), 0.0, "the ring target never came home");
+        assert_eq!(
+            radius(1_000),
+            0.0,
+            "a large colony is still aimed at a ring"
+        );
+        assert!(radius((RING_FULL + RING_NONE) / 2) < radius(RING_FULL));
 
         // The observation spring fades in as the ring fades out. They are one
         // handover driven by one number, so the layout is never being pulled
