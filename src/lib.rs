@@ -26,6 +26,8 @@ pub mod cards;
 /// Background computation with [`ComputedState`](dataflow::ComputedState).
 pub mod dataflow;
 pub(crate) mod floating;
+/// One force-directed layout and one drawing kit, shared by every graph view.
+pub mod graph;
 #[cfg(not(target_arch = "wasm32"))]
 mod headless;
 /// Convenient glob import of common types and constants.
