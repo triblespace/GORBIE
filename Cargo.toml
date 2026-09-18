@@ -184,3 +184,6 @@ name = "spatial_resolver"
 name = "spatial_pile_resolver"
 required-features = ["triblespace"]
 
+[[example]]
+name = "hydropneumatic_cubecl"
+required-features = ["cubecl", "salva"]
