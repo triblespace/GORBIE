@@ -122,6 +122,19 @@ For cargo examples:
 `cargo run --example entity_inspector --features triblespace`
 `cargo run --example spatial_pile_resolver --features triblespace`
 
+The GPU-first physics experiments run their numerical state evolution through
+CubeCL/WGPU and can also be captured without opening a window:
+
+```sh
+cargo run --release --example thermal_cubecl --features cubecl -- --headless --out-dir ./captures/thermal
+cargo run --release --example fluid_network_cubecl --features cubecl -- --headless --out-dir ./captures/fluid
+cargo run --release --example hydropneumatic_cubecl --features cubecl,salva -- --headless --out-dir ./captures/hydropneumatic
+```
+
+These are deliberately small lumped experiments, not CFD. They keep evolving
+state on the GPU, read back explicit observation rows, and leave the notebook
+as the visualization layer.
+
 ## Typst Integration
 
 Enable the `typst` feature for math and scientific typesetting:
