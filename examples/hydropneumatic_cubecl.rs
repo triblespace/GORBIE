@@ -24,7 +24,7 @@ use GORBIE::widgets::{
 use GORBIE::{notebook, NotebookCtx};
 
 const STATE_STRIDE: usize = 7;
-const OBSERVATION_STRIDE: usize = 7;
+const OBSERVATION_STRIDE: usize = 8;
 const PRESSURE_H: usize = 0;
 const PRESSURE_P: usize = 1;
 const POSITION: usize = 2;
@@ -33,12 +33,13 @@ const PHASE: usize = 4;
 const FLOW_H: usize = 5;
 const FLOW_P: usize = 6;
 const OBS_SOURCE_SCALE: usize = 0;
-const OBS_PRESSURE_H: usize = 1;
-const OBS_PRESSURE_P: usize = 2;
-const OBS_FLOW_H: usize = 3;
-const OBS_FLOW_P: usize = 4;
-const OBS_POSITION: usize = 5;
-const OBS_VELOCITY: usize = 6;
+const OBS_VALVE_OPENING: usize = 1;
+const OBS_PRESSURE_H: usize = 2;
+const OBS_PRESSURE_P: usize = 3;
+const OBS_FLOW_H: usize = 4;
+const OBS_FLOW_P: usize = 5;
+const OBS_POSITION: usize = 6;
+const OBS_VELOCITY: usize = 7;
 
 // SI-ish parameters for a stable, intentionally modest toy system.
 const AMBIENT_PRESSURE: f32 = 100_000.0;
@@ -66,6 +67,7 @@ struct Sample {
     pressure_pneumatic: f32,
     flow_hydraulic: f32,
     flow_pneumatic: f32,
+    valve_opening: f32,
     position: f32,
     velocity: f32,
     time: f32,
@@ -74,6 +76,8 @@ struct Sample {
 #[derive(Clone, Copy, Debug)]
 struct SweepSummary {
     scenarios: usize,
+    min_valve_opening: f32,
+    max_valve_opening: f32,
     min_position: f32,
     max_position: f32,
     max_pressure_pneumatic: f32,
@@ -85,6 +89,7 @@ struct HydroGpu {
     client: ComputeClient<WgpuRuntime>,
     state: Handle,
     source_scales: Handle,
+    valve_openings: Handle,
     sample: Handle,
     observations: Handle,
     scenario_count: usize,
@@ -105,11 +110,15 @@ impl HydroGpu {
         let source_scales: Vec<f32> = (0..SCENARIOS)
             .map(|scenario| 0.65 + 0.70 * scenario as f32 / (SCENARIOS - 1) as f32)
             .collect();
+        let valve_openings: Vec<f32> = (0..SCENARIOS)
+            .map(|scenario| 0.20 + 0.80 * scenario as f32 / (SCENARIOS - 1) as f32)
+            .collect();
 
         Self {
             _device: device,
             state: client.create_from_slice(f32::as_bytes(&initial)),
             source_scales: client.create_from_slice(f32::as_bytes(&source_scales)),
+            valve_openings: client.create_from_slice(f32::as_bytes(&valve_openings)),
             sample: client.empty(STATE_STRIDE * std::mem::size_of::<f32>()),
             observations: client.empty(
                 SCENARIOS * OBSERVATION_STRIDE * std::mem::size_of::<f32>(),
@@ -132,6 +141,7 @@ impl HydroGpu {
                 CubeDim::new_1d(1),
                 ArrayArg::from_raw_parts(self.state.clone(), state_len),
                 ArrayArg::from_raw_parts(self.source_scales.clone(), self.scenario_count),
+                ArrayArg::from_raw_parts(self.valve_openings.clone(), self.scenario_count),
                 ArrayArg::from_raw_parts(self.sample.clone(), STATE_STRIDE),
                 ArrayArg::from_raw_parts(
                     self.observations.clone(),
@@ -171,6 +181,7 @@ impl HydroGpu {
             pressure_pneumatic: values[PRESSURE_P],
             flow_hydraulic: values[FLOW_H],
             flow_pneumatic: values[FLOW_P],
+            valve_opening: values[PHASE],
             position: values[POSITION],
             velocity: values[VELOCITY],
             time: self.time,
@@ -209,7 +220,11 @@ impl HydroGpu {
         let mut max_position = f32::NEG_INFINITY;
         let mut max_pressure_pneumatic = f32::NEG_INFINITY;
         let mut peak_flow_pneumatic: f32 = 0.0;
+        let mut min_valve_opening = f32::INFINITY;
+        let mut max_valve_opening = f32::NEG_INFINITY;
         for observation in values.chunks_exact(OBSERVATION_STRIDE) {
+            min_valve_opening = min_valve_opening.min(observation[OBS_VALVE_OPENING]);
+            max_valve_opening = max_valve_opening.max(observation[OBS_VALVE_OPENING]);
             min_position = min_position.min(observation[OBS_POSITION]);
             max_position = max_position.max(observation[OBS_POSITION]);
             max_pressure_pneumatic = max_pressure_pneumatic.max(observation[OBS_PRESSURE_P]);
@@ -221,6 +236,8 @@ impl HydroGpu {
         Ok((
             SweepSummary {
                 scenarios: self.scenario_count,
+                min_valve_opening,
+                max_valve_opening,
                 min_position,
                 max_position,
                 max_pressure_pneumatic,
@@ -231,6 +248,7 @@ impl HydroGpu {
                 pressure_pneumatic: selected[OBS_PRESSURE_P],
                 flow_hydraulic: selected[OBS_FLOW_H],
                 flow_pneumatic: selected[OBS_FLOW_P],
+                valve_opening: selected[OBS_VALVE_OPENING],
                 position: selected[OBS_POSITION],
                 velocity: selected[OBS_VELOCITY],
                 time: self.time,
@@ -243,6 +261,7 @@ impl HydroGpu {
 fn hydropneumatic_step_kernel(
     state: &mut Array<f32>,
     source_scales: &Array<f32>,
+    valve_openings: &Array<f32>,
     sample: &mut Array<f32>,
     observations: &mut Array<f32>,
     scenario_count: u32,
@@ -264,6 +283,7 @@ fn hydropneumatic_step_kernel(
     if scenario < scenario_count {
         let base = (scenario as usize) * STATE_STRIDE;
         let source_scale = source_scales[scenario as usize];
+        let valve_opening = valve_openings[scenario as usize];
         let mut pressure_hydraulic = state[base + PRESSURE_H];
         let mut pressure_pneumatic = state[base + PRESSURE_P];
         let mut position = state[base + POSITION];
@@ -278,7 +298,9 @@ fn hydropneumatic_step_kernel(
                 + source_amplitude
                     * source_scale
                     * (0.5f32 + 0.5f32 * (phase * source_angular_frequency).sin());
-            hydraulic_flow = hydraulic_conductance * (source - pressure_hydraulic);
+            hydraulic_flow = hydraulic_conductance
+                * valve_opening
+                * (source - pressure_hydraulic);
             transfer_flow = pneumatic_conductance * (pressure_hydraulic - pressure_pneumatic);
             pressure_hydraulic += hydraulic_flow / hydraulic_compliance * dt;
             pressure_pneumatic += transfer_flow / pneumatic_compliance * dt;
@@ -302,6 +324,7 @@ fn hydropneumatic_step_kernel(
 
         let observation_base = (scenario as usize) * OBSERVATION_STRIDE;
         observations[observation_base + OBS_SOURCE_SCALE] = source_scale;
+        observations[observation_base + OBS_VALVE_OPENING] = valve_opening;
         observations[observation_base + OBS_PRESSURE_H] = pressure_hydraulic;
         observations[observation_base + OBS_PRESSURE_P] = pressure_pneumatic;
         observations[observation_base + OBS_FLOW_H] = hydraulic_flow;
@@ -316,7 +339,7 @@ fn hydropneumatic_step_kernel(
             sample[FLOW_P] = transfer_flow;
             sample[POSITION] = position;
             sample[VELOCITY] = velocity;
-            sample[PHASE] = phase;
+            sample[PHASE] = valve_opening;
         }
     }
 }
@@ -393,8 +416,10 @@ fn scene(sample: Sample, static_fluid: &PhysicsScene) -> PhysicsScene {
     scene.labels.push(Label3::new(
         [-1.42, -0.48, -0.32],
         format!(
-            "flow h={:.4} m³/s  p→={:.4} m³/s",
-            sample.flow_hydraulic, sample.flow_pneumatic
+            "valve={:.0}%  flow h={:.4} m³/s  p→={:.4} m³/s",
+            sample.valve_opening * 100.0,
+            sample.flow_hydraulic,
+            sample.flow_pneumatic
         ),
         Color32::from_rgb(245, 190, 110),
     ));
@@ -467,7 +492,7 @@ fn main(nb: &mut NotebookCtx) {
     nb.state_with("hydropneumatic-cubecl", HydroNotebook::new, |ctx, state| {
         let scene = state.frame();
         ctx.heading("CubeCL hydropneumatic experiment");
-        ctx.label("256 source-amplitude scenarios evolve on the GPU; choose which sampled state to display.");
+        ctx.label("256 source-amplitude + valve-opening scenarios evolve on the GPU; choose which sampled state to display.");
         ctx.label(format!("Displayed scenario: {}", state.selected_scenario));
         ctx.slider(&mut state.selected_scenario, 0..=SCENARIOS - 1);
         if let Some(error) = &state.error {
@@ -475,8 +500,10 @@ fn main(nb: &mut NotebookCtx) {
         }
         if let Some(sweep) = state.last_sweep {
             ctx.label(format!(
-                "GPU sweep: {} scenarios | piston x [{:.4}, {:.4}] m | peak pneumatic {:.1} kPa | peak transfer {:.4} m³/s",
+                "GPU sweep: {} scenarios | valve [{:.0}%, {:.0}%] | piston x [{:.4}, {:.4}] m | peak pneumatic {:.1} kPa | peak transfer {:.4} m³/s",
                 sweep.scenarios,
+                sweep.min_valve_opening * 100.0,
+                sweep.max_valve_opening * 100.0,
                 sweep.min_position,
                 sweep.max_position,
                 sweep.max_pressure_pneumatic / 1_000.0,
@@ -497,8 +524,8 @@ mod tests {
         let mut gpu = HydroGpu::new();
         let sample = gpu.advance(20_000).expect("CubeCL WGPU step");
         assert!(sample.pressure_pneumatic > AMBIENT_PRESSURE);
-        assert!(sample.flow_hydraulic > 0.0);
-        assert!(sample.flow_pneumatic > 0.0);
+        assert!(sample.flow_hydraulic.abs() > 0.0);
+        assert!(sample.flow_pneumatic.abs() > 0.0);
         assert!(sample.position > 0.0);
     }
 
@@ -526,6 +553,8 @@ mod tests {
         gpu.advance(20_000).expect("CubeCL WGPU step");
         let summary = gpu.read_sweep().expect("CubeCL WGPU sweep readback");
         assert_eq!(summary.scenarios, SCENARIOS);
+        assert!((summary.min_valve_opening - 0.20).abs() < 1.0e-6);
+        assert!((summary.max_valve_opening - 1.00).abs() < 1.0e-6);
         assert!(summary.max_position > summary.min_position);
         assert!(summary.max_pressure_pneumatic > AMBIENT_PRESSURE);
         assert!(summary.peak_flow_pneumatic > 0.0);
@@ -539,6 +568,7 @@ mod tests {
         let high = gpu
             .read_scenario(SCENARIOS - 1)
             .expect("last scenario readback");
+        assert!(high.valve_opening > low.valve_opening);
         assert!(high.pressure_pneumatic > low.pressure_pneumatic);
         assert!(high.flow_pneumatic > low.flow_pneumatic);
         assert!(high.position > low.position);
