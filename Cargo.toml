@@ -184,3 +184,12 @@ name = "spatial_resolver"
 name = "spatial_pile_resolver"
 required-features = ["triblespace"]
 
+
+# Debug info was 94.7% of a debug binary here: the `trible` test binary
+# measured 1.97 GB, of which only 110 MB was code. Cargo never collects old
+# hash-suffixed generations either, so that multiplied until one target/ tree
+# reached 728 GB and filled the disk. `panicked at file.rs:12:3` comes from
+# `#[track_caller]`, not DWARF, so it survives this; what goes is file:line
+# inside RUST_BACKTRACE frames, and gdb locals.
+[profile.dev]
+debug = 0
