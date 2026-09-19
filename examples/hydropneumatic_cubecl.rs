@@ -18,9 +18,7 @@ use cubecl::wgpu::{WgpuDevice, WgpuRuntime};
 use eframe::egui::Color32;
 use salva3d_f64::{math::Vector, object::Fluid};
 
-use GORBIE::widgets::{
-    Bounds3, Label3, LegendEntry, Line3, Particle3, PhysicsScene, PhysicsView,
-};
+use GORBIE::widgets::{Bounds3, Label3, LegendEntry, Line3, Particle3, PhysicsScene, PhysicsView};
 use GORBIE::{notebook, NotebookCtx};
 
 const STATE_STRIDE: usize = 8;
@@ -33,7 +31,6 @@ const CONTROL_PHASE: usize = 5;
 const FLOW_H: usize = 6;
 const FLOW_P: usize = 7;
 
-const SAMPLE_STRIDE: usize = 9;
 const SAMPLE_PRESSURE_H: usize = 0;
 const SAMPLE_PRESSURE_P: usize = 1;
 const SAMPLE_POSITION: usize = 2;
@@ -43,8 +40,11 @@ const SAMPLE_DUTY_CYCLE: usize = 5;
 const SAMPLE_FLOW_H: usize = 6;
 const SAMPLE_FLOW_P: usize = 7;
 const SAMPLE_PEAK_VALVE_OPENING: usize = 8;
+const SAMPLE_FORCE: usize = 9;
+const SAMPLE_MECHANICAL_ENERGY: usize = 10;
+const SAMPLE_STRIDE: usize = 11;
 
-const OBSERVATION_STRIDE: usize = 10;
+const OBSERVATION_STRIDE: usize = 12;
 const OBS_SOURCE_SCALE: usize = 0;
 const OBS_PEAK_VALVE_OPENING: usize = 1;
 const OBS_DUTY_CYCLE: usize = 2;
@@ -55,6 +55,8 @@ const OBS_FLOW_H: usize = 6;
 const OBS_FLOW_P: usize = 7;
 const OBS_POSITION: usize = 8;
 const OBS_VELOCITY: usize = 9;
+const OBS_FORCE: usize = 10;
+const OBS_MECHANICAL_ENERGY: usize = 11;
 
 // SI-ish parameters for a stable, intentionally modest toy system.
 const AMBIENT_PRESSURE: f32 = 100_000.0;
@@ -89,6 +91,8 @@ struct Sample {
     valve_duty_cycle: f32,
     position: f32,
     velocity: f32,
+    force: f32,
+    mechanical_energy: f32,
     time: f32,
 }
 
@@ -146,9 +150,7 @@ impl HydroGpu {
             valve_openings: client.create_from_slice(f32::as_bytes(&valve_openings)),
             valve_duty_cycles: client.create_from_slice(f32::as_bytes(&valve_duty_cycles)),
             sample: client.empty(SAMPLE_STRIDE * std::mem::size_of::<f32>()),
-            observations: client.empty(
-                SCENARIOS * OBSERVATION_STRIDE * std::mem::size_of::<f32>(),
-            ),
+            observations: client.empty(SCENARIOS * OBSERVATION_STRIDE * std::mem::size_of::<f32>()),
             client,
             scenario_count: SCENARIOS,
             time: 0.0,
@@ -215,6 +217,8 @@ impl HydroGpu {
             valve_duty_cycle: values[SAMPLE_DUTY_CYCLE],
             position: values[SAMPLE_POSITION],
             velocity: values[SAMPLE_VELOCITY],
+            force: values[SAMPLE_FORCE],
+            mechanical_energy: values[SAMPLE_MECHANICAL_ENERGY],
             time: self.time,
         })
     }
@@ -227,7 +231,10 @@ impl HydroGpu {
         self.read_observations(scenario).map(|(_, sample)| sample)
     }
 
-    fn read_observations(&self, selected_scenario: usize) -> Result<(SweepSummary, Sample), String> {
+    fn read_observations(
+        &self,
+        selected_scenario: usize,
+    ) -> Result<(SweepSummary, Sample), String> {
         if selected_scenario >= self.scenario_count {
             return Err(format!(
                 "scenario {selected_scenario} is outside 0..{}",
@@ -266,8 +273,8 @@ impl HydroGpu {
             peak_flow_pneumatic = peak_flow_pneumatic.max(observation[OBS_FLOW_P].abs());
         }
 
-        let selected = &values[selected_scenario * OBSERVATION_STRIDE
-            ..(selected_scenario + 1) * OBSERVATION_STRIDE];
+        let selected = &values
+            [selected_scenario * OBSERVATION_STRIDE..(selected_scenario + 1) * OBSERVATION_STRIDE];
         Ok((
             SweepSummary {
                 scenarios: self.scenario_count,
@@ -290,6 +297,8 @@ impl HydroGpu {
                 valve_duty_cycle: selected[OBS_DUTY_CYCLE],
                 position: selected[OBS_POSITION],
                 velocity: selected[OBS_VELOCITY],
+                force: selected[OBS_FORCE],
+                mechanical_energy: selected[OBS_MECHANICAL_ENERGY],
                 time: self.time,
             },
         ))
@@ -348,9 +357,8 @@ fn hydropneumatic_step_kernel(
                 + source_amplitude
                     * source_scale
                     * (0.5f32 + 0.5f32 * (phase * source_angular_frequency).sin());
-            hydraulic_flow = hydraulic_conductance
-                * applied_valve_opening
-                * (source - pressure_hydraulic);
+            hydraulic_flow =
+                hydraulic_conductance * applied_valve_opening * (source - pressure_hydraulic);
             transfer_flow = pneumatic_conductance * (pressure_hydraulic - pressure_pneumatic);
             pressure_hydraulic += hydraulic_flow / hydraulic_compliance * dt;
             pressure_pneumatic += transfer_flow / pneumatic_compliance * dt;
@@ -380,6 +388,10 @@ fn hydropneumatic_step_kernel(
         state[base + FLOW_H] = hydraulic_flow;
         state[base + FLOW_P] = transfer_flow;
 
+        let force = piston_area * (pressure_pneumatic - ambient_pressure);
+        let mechanical_energy = 0.5f32 * piston_mass * velocity * velocity
+            + 0.5f32 * spring_stiffness * position * position;
+
         let observation_base = (scenario as usize) * OBSERVATION_STRIDE;
         observations[observation_base + OBS_SOURCE_SCALE] = source_scale;
         observations[observation_base + OBS_PEAK_VALVE_OPENING] = peak_valve_opening;
@@ -391,6 +403,8 @@ fn hydropneumatic_step_kernel(
         observations[observation_base + OBS_FLOW_P] = transfer_flow;
         observations[observation_base + OBS_POSITION] = position;
         observations[observation_base + OBS_VELOCITY] = velocity;
+        observations[observation_base + OBS_FORCE] = force;
+        observations[observation_base + OBS_MECHANICAL_ENERGY] = mechanical_energy;
 
         if scenario == 0u32 {
             sample[SAMPLE_PRESSURE_H] = pressure_hydraulic;
@@ -402,6 +416,8 @@ fn hydropneumatic_step_kernel(
             sample[SAMPLE_VALVE_OPENING] = applied_valve_opening;
             sample[SAMPLE_DUTY_CYCLE] = valve_duty_cycle;
             sample[SAMPLE_PEAK_VALVE_OPENING] = peak_valve_opening;
+            sample[SAMPLE_FORCE] = force;
+            sample[SAMPLE_MECHANICAL_ENERGY] = mechanical_energy;
         }
     }
 }
@@ -430,9 +446,8 @@ fn static_fluid_scene() -> PhysicsScene {
 
 fn scene(sample: Sample, static_fluid: &PhysicsScene) -> PhysicsScene {
     let mut scene = static_fluid.clone();
-    let pressure_mix = ((sample.pressure_pneumatic - AMBIENT_PRESSURE)
-        / SOURCE_AMPLITUDE)
-        .clamp(0.0, 1.0);
+    let pressure_mix =
+        ((sample.pressure_pneumatic - AMBIENT_PRESSURE) / SOURCE_AMPLITUDE).clamp(0.0, 1.0);
     let piston_color = Color32::from_rgb(
         (80.0 + pressure_mix * 170.0) as u8,
         (170.0 - pressure_mix * 80.0) as u8,
@@ -460,11 +475,9 @@ fn scene(sample: Sample, static_fluid: &PhysicsScene) -> PhysicsScene {
     ));
 
     let piston_x = (0.82 + sample.position as f64 * 3.0).clamp(0.60, 1.40);
-    scene.particles.push(Particle3::new(
-        [piston_x, 0.0, 0.0],
-        0.12,
-        piston_color,
-    ));
+    scene
+        .particles
+        .push(Particle3::new([piston_x, 0.0, 0.0], 0.12, piston_color));
     scene.labels.push(Label3::new(
         [-1.42, 0.42, -0.32],
         format!("hydraulic {:.1} kPa", sample.pressure_hydraulic / 1_000.0),
@@ -489,11 +502,15 @@ fn scene(sample: Sample, static_fluid: &PhysicsScene) -> PhysicsScene {
     ));
     scene.labels.push(Label3::new(
         [0.58, -0.48, -0.32],
-        format!("x={:.4} m  v={:.3} m/s  t={:.2} s", sample.position, sample.velocity, sample.time),
+        format!(
+            "x={:.4} m  v={:.3} m/s  F={:.2} N  E={:.3} J  t={:.2} s",
+            sample.position, sample.velocity, sample.force, sample.mechanical_energy, sample.time
+        ),
         piston_color,
     ));
     scene.legend.push(LegendEntry::new(
-        "CubeCL sampled state: pressure → force → piston", piston_color,
+        "CubeCL sampled state: pressure → force → piston",
+        piston_color,
     ));
     scene.units = "m".into();
     scene
@@ -513,12 +530,10 @@ impl HydroNotebook {
     fn new() -> Self {
         Self {
             gpu: HydroGpu::new(),
-            camera: PhysicsView::default()
-                .height(390.0)
-                .bounds(Bounds3 {
-                    min: [-1.6, -0.6, -0.6],
-                    max: [1.6, 0.6, 0.6],
-                }),
+            camera: PhysicsView::default().height(390.0).bounds(Bounds3 {
+                min: [-1.6, -0.6, -0.6],
+                max: [1.6, 0.6, 0.6],
+            }),
             static_fluid: static_fluid_scene(),
             last: None,
             last_sweep: None,
@@ -594,6 +609,8 @@ mod tests {
         let sample = gpu.advance(20_000).expect("CubeCL WGPU step");
         assert!(sample.pressure_pneumatic > AMBIENT_PRESSURE);
         assert!(sample.position > 0.0);
+        assert!(sample.force > 0.0);
+        assert!(sample.mechanical_energy > 0.0);
     }
 
     #[test]
@@ -612,6 +629,8 @@ mod tests {
         assert!(sample.flow_pneumatic.abs() < 1.0e-8);
         assert!(sample.position.abs() < 1.0e-6);
         assert!(sample.velocity.abs() < 1.0e-4);
+        assert!(sample.force.abs() < 1.0e-3);
+        assert!(sample.mechanical_energy < 1.0e-6);
     }
 
     #[test]
@@ -642,6 +661,16 @@ mod tests {
         assert!(high.valve_duty_cycle > low.valve_duty_cycle);
         assert!((high.pressure_pneumatic - low.pressure_pneumatic).abs() > 1.0);
         assert!((high.position - low.position).abs() > 1.0e-5);
+    }
+
+    #[test]
+    fn gpu_observation_reports_pressure_to_force_consistently() {
+        let mut gpu = HydroGpu::new();
+        gpu.advance(20_000).expect("CubeCL WGPU step");
+        let sample = gpu.read_scenario(SCENARIOS - 1).expect("scenario readback");
+        let expected_force = PISTON_AREA * (sample.pressure_pneumatic - AMBIENT_PRESSURE);
+        assert!((sample.force - expected_force).abs() < 1.0e-3);
+        assert!(sample.mechanical_energy >= 0.0);
     }
 
     #[test]
