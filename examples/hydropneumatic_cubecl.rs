@@ -24,11 +24,16 @@ use GORBIE::widgets::{
 use GORBIE::{notebook, NotebookCtx};
 
 const STATE_STRIDE: usize = 5;
+const OBSERVATION_STRIDE: usize = 4;
 const PRESSURE_H: usize = 0;
 const PRESSURE_P: usize = 1;
 const POSITION: usize = 2;
 const VELOCITY: usize = 3;
 const PHASE: usize = 4;
+const OBS_SOURCE_SCALE: usize = 0;
+const OBS_PRESSURE_H: usize = 1;
+const OBS_PRESSURE_P: usize = 2;
+const OBS_POSITION: usize = 3;
 
 // SI-ish parameters for a stable, intentionally modest toy system.
 const AMBIENT_PRESSURE: f32 = 100_000.0;
@@ -53,12 +58,21 @@ struct Sample {
     time: f32,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct SweepSummary {
+    scenarios: usize,
+    min_position: f32,
+    max_position: f32,
+    max_pressure_pneumatic: f32,
+}
+
 struct HydroGpu {
     _device: WgpuDevice,
     client: ComputeClient<WgpuRuntime>,
     state: Handle,
     source_scales: Handle,
     sample: Handle,
+    observations: Handle,
     scenario_count: usize,
     time: f32,
 }
@@ -83,6 +97,9 @@ impl HydroGpu {
             state: client.create_from_slice(f32::as_bytes(&initial)),
             source_scales: client.create_from_slice(f32::as_bytes(&source_scales)),
             sample: client.empty(STATE_STRIDE * std::mem::size_of::<f32>()),
+            observations: client.empty(
+                SCENARIOS * OBSERVATION_STRIDE * std::mem::size_of::<f32>(),
+            ),
             client,
             scenario_count: SCENARIOS,
             time: 0.0,
@@ -102,6 +119,10 @@ impl HydroGpu {
                 ArrayArg::from_raw_parts(self.state.clone(), state_len),
                 ArrayArg::from_raw_parts(self.source_scales.clone(), self.scenario_count),
                 ArrayArg::from_raw_parts(self.sample.clone(), STATE_STRIDE),
+                ArrayArg::from_raw_parts(
+                    self.observations.clone(),
+                    self.scenario_count * OBSERVATION_STRIDE,
+                ),
                 self.scenario_count as u32,
                 steps,
                 DT,
@@ -137,6 +158,37 @@ impl HydroGpu {
             time: self.time,
         })
     }
+
+    fn read_sweep(&self) -> Result<SweepSummary, String> {
+        let bytes = self
+            .client
+            .read_one(self.observations.clone())
+            .map_err(|error| format!("GPU sweep readback failed: {error:?}"))?;
+        let values = f32::from_bytes(&bytes);
+        let expected = self.scenario_count * OBSERVATION_STRIDE;
+        if values.len() != expected {
+            return Err(format!(
+                "GPU sweep returned {} floats, expected {expected}",
+                values.len()
+            ));
+        }
+
+        let mut min_position = f32::INFINITY;
+        let mut max_position = f32::NEG_INFINITY;
+        let mut max_pressure_pneumatic = f32::NEG_INFINITY;
+        for observation in values.chunks_exact(OBSERVATION_STRIDE) {
+            min_position = min_position.min(observation[OBS_POSITION]);
+            max_position = max_position.max(observation[OBS_POSITION]);
+            max_pressure_pneumatic = max_pressure_pneumatic.max(observation[OBS_PRESSURE_P]);
+        }
+
+        Ok(SweepSummary {
+            scenarios: self.scenario_count,
+            min_position,
+            max_position,
+            max_pressure_pneumatic,
+        })
+    }
 }
 
 #[cube(launch)]
@@ -144,6 +196,7 @@ fn hydropneumatic_step_kernel(
     state: &mut Array<f32>,
     source_scales: &Array<f32>,
     sample: &mut Array<f32>,
+    observations: &mut Array<f32>,
     scenario_count: u32,
     steps: u32,
     dt: f32,
@@ -194,6 +247,12 @@ fn hydropneumatic_step_kernel(
         state[base + POSITION] = position;
         state[base + VELOCITY] = velocity;
         state[base + PHASE] = phase;
+
+        let observation_base = (scenario as usize) * OBSERVATION_STRIDE;
+        observations[observation_base + OBS_SOURCE_SCALE] = source_scale;
+        observations[observation_base + OBS_PRESSURE_H] = pressure_hydraulic;
+        observations[observation_base + OBS_PRESSURE_P] = pressure_pneumatic;
+        observations[observation_base + OBS_POSITION] = position;
 
         if scenario == 0u32 {
             sample[PRESSURE_H] = pressure_hydraulic;
@@ -291,6 +350,7 @@ struct HydroNotebook {
     camera: PhysicsView,
     static_fluid: PhysicsScene,
     last: Option<Sample>,
+    last_sweep: Option<SweepSummary>,
     error: Option<String>,
 }
 
@@ -306,6 +366,7 @@ impl HydroNotebook {
                 }),
             static_fluid: static_fluid_scene(),
             last: None,
+            last_sweep: None,
             error: None,
         }
     }
@@ -315,6 +376,10 @@ impl HydroNotebook {
             Ok(sample) => {
                 self.error = None;
                 self.last = Some(sample);
+                match self.gpu.read_sweep() {
+                    Ok(summary) => self.last_sweep = Some(summary),
+                    Err(error) => self.error = Some(error),
+                }
             }
             Err(error) => self.error = Some(error),
         }
@@ -332,6 +397,15 @@ fn main(nb: &mut NotebookCtx) {
         ctx.label("256 source-amplitude scenarios evolve on the GPU; only scenario 0 is sampled for this view.");
         if let Some(error) = &state.error {
             ctx.label(format!("GPU error: {error}"));
+        }
+        if let Some(sweep) = state.last_sweep {
+            ctx.label(format!(
+                "GPU sweep: {} scenarios | piston x [{:.4}, {:.4}] m | peak pneumatic {:.1} kPa",
+                sweep.scenarios,
+                sweep.min_position,
+                sweep.max_position,
+                sweep.max_pressure_pneumatic / 1_000.0,
+            ));
         }
         state.camera.show(ctx, &scene);
         ctx.ctx().request_repaint_after(Duration::from_millis(50));
@@ -364,5 +438,15 @@ mod tests {
         assert!((sample.pressure_pneumatic - AMBIENT_PRESSURE).abs() < 1.0);
         assert!(sample.position.abs() < 1.0e-6);
         assert!(sample.velocity.abs() < 1.0e-4);
+    }
+
+    #[test]
+    fn gpu_kernel_emits_a_distinct_observation_for_each_scenario() {
+        let mut gpu = HydroGpu::new();
+        gpu.advance(20_000).expect("CubeCL WGPU step");
+        let summary = gpu.read_sweep().expect("CubeCL WGPU sweep readback");
+        assert_eq!(summary.scenarios, SCENARIOS);
+        assert!(summary.max_position > summary.min_position);
+        assert!(summary.max_pressure_pneumatic > AMBIENT_PRESSURE);
     }
 }
