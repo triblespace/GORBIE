@@ -561,4 +561,16 @@ mod tests {
         assert!((high_resistance.pressure_2 - low_resistance.pressure_2).abs() > 1.0);
         assert!((high_resistance.flow_link - low_resistance.flow_link).abs() > 1.0e-7);
     }
+
+    #[test]
+    fn gpu_network_stays_bounded_across_many_source_cycles() {
+        let mut gpu = FluidGpu::new();
+        gpu.advance(200_000).expect("CubeCL WGPU long run");
+        let summary = gpu.read_sweep().expect("long-run fluid sweep");
+        assert!(summary.min_pressure_2.is_finite());
+        assert!(summary.max_pressure_2.is_finite());
+        assert!(summary.max_pressure_2 < 2_000_000.0);
+        assert!(summary.max_abs_flow < 0.01);
+        assert!(summary.max_storage_residual < 1.0e-5);
+    }
 }
