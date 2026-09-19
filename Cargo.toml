@@ -187,3 +187,7 @@ required-features = ["triblespace"]
 [[example]]
 name = "hydropneumatic_cubecl"
 required-features = ["cubecl", "salva"]
+
+[[example]]
+name = "fluid_network_cubecl"
+required-features = ["cubecl"]
