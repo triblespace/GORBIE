@@ -108,6 +108,32 @@ impl SnapshotWriter {
         scenario_id: Id,
         scenario_name: &str,
     ) -> Result<Self, String> {
+        // This deterministic local authority makes a pile portable between
+        // repeated invocations of the example. Real deployments should use
+        // `open_with_signing_key` with a durable signing key.
+        Self::open_with_signing_key(
+            path,
+            SigningKey::from_bytes(&[0xE1; 32]),
+            run_id,
+            run_name,
+            scenario_id,
+            scenario_name,
+        )
+    }
+
+    /// Open or create a snapshot pile with the caller's durable collection key.
+    ///
+    /// The key is used only for collection admission/publication. It is not
+    /// part of the semantic frame identity, so rotating trust configuration
+    /// does not make existing run/scenario/frame entities disappear.
+    pub fn open_with_signing_key(
+        path: impl AsRef<Path>,
+        signing_key: SigningKey,
+        run_id: Id,
+        run_name: &str,
+        scenario_id: Id,
+        scenario_name: &str,
+    ) -> Result<Self, String> {
         let path = path.as_ref();
         if !path.exists() {
             File::create(path)
@@ -118,10 +144,6 @@ impl SnapshotWriter {
         pile.refresh()
             .map_err(|error| format!("refresh snapshot pile {}: {error}", path.display()))?;
 
-        // This deterministic local authority makes a pile portable between
-        // repeated invocations of the example. Real deployments should load a
-        // durable signing key from their trust configuration.
-        let signing_key = SigningKey::from_bytes(&[0xE1; 32]);
         let authority = signing_key.verifying_key();
         let policy = CollectionPolicy::new(
             AdmissionPolicy::direct(authority),
