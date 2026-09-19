@@ -30,6 +30,7 @@ include = [
 
 [dependencies]
 gorbie-macros = { version = "0.9.0", path = "gorbie-macros" }
+ed25519-dalek = { version = "2.1.1", optional = true }
 eframe = { version = "0.34", features = ["persistence", "wgpu"] }
 egui = { version = "0.34", features = ["color-hex"] }
 egui-wgpu = "0.34"
@@ -113,7 +114,7 @@ accesskit = []
 markdown = ["dep:egui_commonmark"]
 polars = ["dep:polars"]
 plots = ["dep:egui_plot"]
-triblespace = ["dep:triblespace"]
+triblespace = ["dep:triblespace", "dep:ed25519-dalek"]
 cubecl = ["dep:cubecl"]
 typst = ["dep:typst", "dep:typst-syntax", "dep:ttf-parser", "dep:earcutr", "dep:comemo"]
 telemetry = ["triblespace", "triblespace/telemetry"]
@@ -191,3 +192,7 @@ required-features = ["cubecl", "salva"]
 [[example]]
 name = "fluid_network_cubecl"
 required-features = ["cubecl"]
+
+[[example]]
+name = "fluid_network_snapshot"
+required-features = ["cubecl", "triblespace"]

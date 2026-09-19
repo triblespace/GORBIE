@@ -135,6 +135,24 @@ These are deliberately small lumped experiments, not CFD. They keep evolving
 state on the GPU, read back explicit observation rows, and leave the notebook
 as the visualization layer.
 
+### Persistent Erlkonig simulation frames
+
+The generic observation boundary can persist sampled CubeCL output in a native
+TribleSpace pile. It records `run -> scenario -> frame -> quantity/value` facts
+with optional subjects, units, and provenance-friendly frame time/index fields;
+it does not copy or reconstruct the device-resident simulation state.
+
+```sh
+cargo run --release --example fluid_network_snapshot \
+  --features cubecl,triblespace -- ./captures/fluid-network.pile
+```
+
+`simulation_snapshots::SnapshotWriter` is domain-neutral: the same shape can
+carry hydraulic pressure/flow, thermal temperature, or robot displacement.
+The example is a headless proof that advances the fluid network on CubeCL and
+commits twelve explicit observation frames that can be reopened and queried
+declaratively from the pile.
+
 ## Typst Integration
 
 Enable the `typst` feature for math and scientific typesetting:

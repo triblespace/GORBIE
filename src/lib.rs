@@ -34,6 +34,9 @@ mod headless;
 pub mod prelude;
 /// Notebook-wide search bar — opt-in via [`CardCtx::search`].
 pub mod search;
+/// Generic Erlkonig simulation-frame persistence into TribleSpace piles.
+#[cfg(feature = "triblespace")]
+pub mod simulation_snapshots;
 /// Thread-safe state management via [`StateId`](state::StateId) handles.
 pub mod state;
 /// Tracing telemetry capture (requires `telemetry` feature).

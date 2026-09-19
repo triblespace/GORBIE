@@ -19,9 +19,9 @@ use cubecl::wgpu::{WgpuDevice, WgpuRuntime};
 use eframe::egui::Color32;
 
 use GORBIE::widgets::{Bounds3, Label3, LegendEntry, Line3, Particle3, PhysicsScene, PhysicsView};
-use GORBIE::{notebook, NotebookCtx};
+use GORBIE::{NotebookCtx, notebook};
 
-const STATE_STRIDE: usize = 7;
+const STATE_STRIDE: usize = 9;
 const PRESSURE_1: usize = 0;
 const PRESSURE_2: usize = 1;
 const FLOW_IN: usize = 2;
@@ -29,8 +29,10 @@ const FLOW_LINK: usize = 3;
 const FLOW_OUT: usize = 4;
 const PHASE: usize = 5;
 const SIM_TIME: usize = 6;
+const MAX_PRESSURE_2: usize = 7;
+const MAX_ABS_FLOW: usize = 8;
 
-const OBSERVATION_STRIDE: usize = 13;
+const OBSERVATION_STRIDE: usize = 15;
 const OBS_SOURCE_SCALE: usize = 0;
 const OBS_RESISTANCE_SCALE: usize = 1;
 const OBS_SOURCE_PRESSURE: usize = 2;
@@ -44,6 +46,8 @@ const OBS_TIME: usize = 9;
 const OBS_PRESSURE_ENERGY: usize = 10;
 const OBS_KINETIC_ENERGY: usize = 11;
 const OBS_TOTAL_ENERGY: usize = 12;
+const OBS_MAX_PRESSURE_2: usize = 13;
+const OBS_MAX_ABS_FLOW: usize = 14;
 
 const AMBIENT_PRESSURE: f32 = 100_000.0;
 const SOURCE_AMPLITUDE: f32 = 300_000.0;
@@ -75,6 +79,8 @@ struct FluidSample {
     pressure_energy: f32,
     kinetic_energy: f32,
     total_energy: f32,
+    peak_pressure_2: f32,
+    peak_abs_flow: f32,
     time: f32,
 }
 
@@ -90,6 +96,8 @@ struct FluidSummary {
     max_abs_flow: f32,
     max_storage_residual: f32,
     max_total_energy: f32,
+    max_peak_pressure_2: f32,
+    max_peak_abs_flow: f32,
 }
 
 struct FluidGpu {
@@ -112,6 +120,7 @@ impl FluidGpu {
             let base = scenario * STATE_STRIDE;
             initial[base + PRESSURE_1] = AMBIENT_PRESSURE;
             initial[base + PRESSURE_2] = AMBIENT_PRESSURE;
+            initial[base + MAX_PRESSURE_2] = AMBIENT_PRESSURE;
         }
         let source_scales: Vec<f32> = (0..SCENARIOS)
             .map(|scenario| {
@@ -212,6 +221,8 @@ impl FluidGpu {
         let mut max_abs_flow: f32 = 0.0;
         let mut max_storage_residual: f32 = 0.0;
         let mut max_total_energy: f32 = 0.0;
+        let mut max_peak_pressure_2: f32 = f32::NEG_INFINITY;
+        let mut max_peak_abs_flow: f32 = 0.0;
         for observation in values.chunks_exact(OBSERVATION_STRIDE) {
             min_source_scale = min_source_scale.min(observation[OBS_SOURCE_SCALE]);
             max_source_scale = max_source_scale.max(observation[OBS_SOURCE_SCALE]);
@@ -226,6 +237,8 @@ impl FluidGpu {
             max_storage_residual =
                 max_storage_residual.max(observation[OBS_STORAGE_RESIDUAL].abs());
             max_total_energy = max_total_energy.max(observation[OBS_TOTAL_ENERGY]);
+            max_peak_pressure_2 = max_peak_pressure_2.max(observation[OBS_MAX_PRESSURE_2]);
+            max_peak_abs_flow = max_peak_abs_flow.max(observation[OBS_MAX_ABS_FLOW]);
         }
 
         let selected = &values
@@ -242,6 +255,8 @@ impl FluidGpu {
                 max_abs_flow,
                 max_storage_residual,
                 max_total_energy,
+                max_peak_pressure_2,
+                max_peak_abs_flow,
             },
             FluidSample {
                 source_scale: selected[OBS_SOURCE_SCALE],
@@ -256,6 +271,8 @@ impl FluidGpu {
                 pressure_energy: selected[OBS_PRESSURE_ENERGY],
                 kinetic_energy: selected[OBS_KINETIC_ENERGY],
                 total_energy: selected[OBS_TOTAL_ENERGY],
+                peak_pressure_2: selected[OBS_MAX_PRESSURE_2],
+                peak_abs_flow: selected[OBS_MAX_ABS_FLOW],
                 time: selected[OBS_TIME],
             },
         ))
@@ -295,6 +312,8 @@ fn fluid_network_step_kernel(
         let mut flow_out = state[base + FLOW_OUT];
         let mut phase = state[base + PHASE];
         let mut sim_time = state[base + SIM_TIME];
+        let mut peak_pressure_2 = state[base + MAX_PRESSURE_2];
+        let mut peak_abs_flow = state[base + MAX_ABS_FLOW];
         let mut source_pressure = ambient_pressure;
         let mut storage_residual = 0.0f32;
         let mut step = 0u32;
@@ -318,6 +337,25 @@ fn fluid_network_step_kernel(
             let pressure_2_delta = (flow_link - flow_out) / node_compliance * dt;
             pressure_1 += pressure_1_delta;
             pressure_2 += pressure_2_delta;
+            if pressure_2 > peak_pressure_2 {
+                peak_pressure_2 = pressure_2;
+            }
+            let abs_flow_in = if flow_in < 0.0 { -flow_in } else { flow_in };
+            let abs_flow_link = if flow_link < 0.0 {
+                -flow_link
+            } else {
+                flow_link
+            };
+            let abs_flow_out = if flow_out < 0.0 { -flow_out } else { flow_out };
+            if abs_flow_in > peak_abs_flow {
+                peak_abs_flow = abs_flow_in;
+            }
+            if abs_flow_link > peak_abs_flow {
+                peak_abs_flow = abs_flow_link;
+            }
+            if abs_flow_out > peak_abs_flow {
+                peak_abs_flow = abs_flow_out;
+            }
             storage_residual =
                 (flow_in - flow_out) - node_compliance * (pressure_1_delta + pressure_2_delta) / dt;
             sim_time += dt;
@@ -335,6 +373,8 @@ fn fluid_network_step_kernel(
         state[base + FLOW_OUT] = flow_out;
         state[base + PHASE] = phase;
         state[base + SIM_TIME] = sim_time;
+        state[base + MAX_PRESSURE_2] = peak_pressure_2;
+        state[base + MAX_ABS_FLOW] = peak_abs_flow;
 
         let pressure_energy = 0.5f32
             * node_compliance
@@ -360,6 +400,8 @@ fn fluid_network_step_kernel(
         observations[observation_base + OBS_PRESSURE_ENERGY] = pressure_energy;
         observations[observation_base + OBS_KINETIC_ENERGY] = kinetic_energy;
         observations[observation_base + OBS_TOTAL_ENERGY] = total_energy;
+        observations[observation_base + OBS_MAX_PRESSURE_2] = peak_pressure_2;
+        observations[observation_base + OBS_MAX_ABS_FLOW] = peak_abs_flow;
     }
 }
 
@@ -437,12 +479,14 @@ fn scene(sample: FluidSample) -> PhysicsScene {
     scene.labels.push(Label3::new(
         [0.67, -0.50, -0.28],
         format!(
-            "S={:.1}× R={:.1}× E={:.1}J (p={:.1}/f={:.1}) r={:.1e}",
+            "S={:.1}× R={:.1}× E={:.1}J (p={:.1}/f={:.1}) peak={:.1}kPa/{:.5} r={:.1e}",
             sample.source_scale,
             sample.resistance_scale,
             sample.total_energy,
             sample.pressure_energy,
             sample.kinetic_energy,
+            sample.peak_pressure_2 / 1_000.0,
+            sample.peak_abs_flow,
             sample.storage_residual,
         ),
         Color32::from_rgb(245, 190, 110),
@@ -517,7 +561,7 @@ fn main(nb: &mut NotebookCtx) {
         }
         if let Some(sweep) = state.last_sweep {
             ctx.label(format!(
-                "GPU sweep: {} scenarios | source [{:.2}, {:.2}]× | R [{:.2}, {:.2}]× | node-2 pressure [{:.1}, {:.1}] kPa | flow {:.5} m³/s | storage residual {:.2e} | total energy {:.2} J",
+                "GPU sweep: {} scenarios | source [{:.2}, {:.2}]× | R [{:.2}, {:.2}]× | node-2 pressure [{:.1}, {:.1}] kPa | flow {:.5} m³/s (peak {:.5}) | storage residual {:.2e} | total energy {:.2} J",
                 sweep.scenarios,
                 sweep.min_source_scale,
                 sweep.max_source_scale,
@@ -526,6 +570,7 @@ fn main(nb: &mut NotebookCtx) {
                 sweep.min_pressure_2 / 1_000.0,
                 sweep.max_pressure_2 / 1_000.0,
                 sweep.max_abs_flow,
+                sweep.max_peak_abs_flow,
                 sweep.max_storage_residual,
                 sweep.max_total_energy,
             ));
@@ -555,6 +600,8 @@ mod tests {
         assert!(sample.pressure_energy < 1.0e-3);
         assert!(sample.kinetic_energy < 1.0e-3);
         assert!(sample.total_energy < 1.0e-3);
+        assert!((sample.peak_pressure_2 - AMBIENT_PRESSURE).abs() < 1.0);
+        assert!(sample.peak_abs_flow < 1.0e-6);
     }
 
     #[test]
@@ -569,6 +616,8 @@ mod tests {
         assert!(sample.flow_out > 0.0);
         assert!(sample.pressure_energy > 0.0);
         assert!(sample.kinetic_energy > 0.0);
+        assert!(sample.peak_pressure_2 >= sample.pressure_2);
+        assert!(sample.peak_abs_flow >= sample.flow_in.abs());
         assert!(
             (sample.total_energy - sample.pressure_energy - sample.kinetic_energy).abs() < 1.0e-3
         );
@@ -588,6 +637,8 @@ mod tests {
         assert!(summary.max_abs_flow > 0.0);
         assert!(summary.max_storage_residual < 1.0e-5);
         assert!(summary.max_total_energy > 0.0);
+        assert!(summary.max_peak_pressure_2 >= summary.max_pressure_2);
+        assert!(summary.max_peak_abs_flow >= summary.max_abs_flow);
     }
 
     #[test]
@@ -626,5 +677,7 @@ mod tests {
         assert!(summary.max_abs_flow < 0.01);
         assert!(summary.max_storage_residual < 1.0e-5);
         assert!(summary.max_total_energy.is_finite());
+        assert!(summary.max_peak_pressure_2 >= summary.max_pressure_2);
+        assert!(summary.max_peak_abs_flow >= summary.max_abs_flow);
     }
 }

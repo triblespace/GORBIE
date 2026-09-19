@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Generic Erlkonig simulation snapshots.** Added the optional
+  `simulation_snapshots` TribleSpace boundary and a `fluid_network_snapshot`
+  CubeCL example. `SnapshotWriter` persists domain-neutral run, scenario,
+  frame, subject, quantity, value, unit, time, and explicit frame-index facts
+  in one native collection commit per sampled frame. A reopen/query test proves
+  the pile is durable; physical state remains device-resident and only the
+  caller's observation plan crosses the GPU boundary.
 - **Read-only physics views.** `PhysicsScene` and `PhysicsView` display owned
   3D wireframes/particles with orbit, pan, zoom, stable bounds and fit/reset.
   Optional `rapier` and `salva` adapters capture real f64 collider transforms
