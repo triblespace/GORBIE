@@ -23,14 +23,15 @@ use GORBIE::widgets::{
 };
 use GORBIE::{notebook, NotebookCtx};
 
-const STATE_STRIDE: usize = 7;
+const STATE_STRIDE: usize = 8;
 const PRESSURE_H: usize = 0;
 const PRESSURE_P: usize = 1;
 const POSITION: usize = 2;
 const VELOCITY: usize = 3;
 const PHASE: usize = 4;
-const FLOW_H: usize = 5;
-const FLOW_P: usize = 6;
+const CONTROL_PHASE: usize = 5;
+const FLOW_H: usize = 6;
+const FLOW_P: usize = 7;
 
 const SAMPLE_STRIDE: usize = 9;
 const SAMPLE_PRESSURE_H: usize = 0;
@@ -60,6 +61,7 @@ const AMBIENT_PRESSURE: f32 = 100_000.0;
 const SOURCE_AMPLITUDE: f32 = 300_000.0;
 const SOURCE_ANGULAR_FREQUENCY: f32 = 2.0 * std::f32::consts::PI * 1.5;
 const SOURCE_PERIOD: f32 = 1.0 / 1.5;
+const VALVE_CONTROL_PERIOD: f32 = 0.20;
 // Compliance and conductance make the pressure transfer explicit: each
 // pressure state is advanced from a volumetric flow instead of teleporting
 // toward its target.  The ratios retain the stable response times of the
@@ -183,6 +185,7 @@ impl HydroGpu {
                 HYDRAULIC_CONDUCTANCE,
                 PNEUMATIC_CONDUCTANCE,
                 SOURCE_PERIOD,
+                VALVE_CONTROL_PERIOD,
                 PISTON_AREA,
                 PISTON_MASS,
                 SPRING_STIFFNESS,
@@ -312,6 +315,7 @@ fn hydropneumatic_step_kernel(
     hydraulic_conductance: f32,
     pneumatic_conductance: f32,
     source_period: f32,
+    valve_control_period: f32,
     piston_area: f32,
     piston_mass: f32,
     spring_stiffness: f32,
@@ -328,13 +332,14 @@ fn hydropneumatic_step_kernel(
         let mut position = state[base + POSITION];
         let mut velocity = state[base + VELOCITY];
         let mut phase = state[base + PHASE];
+        let mut control_phase = state[base + CONTROL_PHASE];
         let mut hydraulic_flow = 0.0f32;
         let mut transfer_flow = 0.0f32;
         let mut applied_valve_opening = 0.0f32;
         let mut step = 0u32;
 
         while step < steps {
-            applied_valve_opening = if phase < valve_duty_cycle * source_period {
+            applied_valve_opening = if control_phase < valve_duty_cycle * valve_control_period {
                 peak_valve_opening
             } else {
                 0.0f32.into()
@@ -359,6 +364,10 @@ fn hydropneumatic_step_kernel(
             if phase >= source_period {
                 phase -= source_period;
             }
+            control_phase += dt;
+            if control_phase >= valve_control_period {
+                control_phase -= valve_control_period;
+            }
             step += 1u32;
         }
 
@@ -367,6 +376,7 @@ fn hydropneumatic_step_kernel(
         state[base + POSITION] = position;
         state[base + VELOCITY] = velocity;
         state[base + PHASE] = phase;
+        state[base + CONTROL_PHASE] = control_phase;
         state[base + FLOW_H] = hydraulic_flow;
         state[base + FLOW_P] = transfer_flow;
 
@@ -546,7 +556,10 @@ fn main(nb: &mut NotebookCtx) {
     nb.state_with("hydropneumatic-cubecl", HydroNotebook::new, |ctx, state| {
         let scene = state.frame();
         ctx.heading("CubeCL hydropneumatic experiment");
-        ctx.label("256 source-amplitude + scheduled valve scenarios evolve on the GPU; choose which sampled state to display.");
+        ctx.label(format!(
+            "256 source-amplitude + scheduled valve scenarios evolve on the GPU; {:.2} s valve-control period; choose which sampled state to display.",
+            VALVE_CONTROL_PERIOD
+        ));
         ctx.label(format!("Displayed scenario: {}", state.selected_scenario));
         ctx.slider(&mut state.selected_scenario, 0..=SCENARIOS - 1);
         if let Some(error) = &state.error {
@@ -634,7 +647,7 @@ mod tests {
     #[test]
     fn gpu_kernel_exposes_a_scheduled_valve_window() {
         let mut gpu = HydroGpu::new();
-        gpu.advance(6_000).expect("CubeCL WGPU step");
+        gpu.advance(1_700).expect("CubeCL WGPU step");
         let scheduled = gpu
             .read_scenario(SCENARIOS / 2)
             .expect("scheduled valve observation");
