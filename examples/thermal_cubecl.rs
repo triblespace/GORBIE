@@ -1,9 +1,10 @@
 //! A small GPU-first thermal reservoir experiment.
 //!
 //! CubeCL advances one thermal reservoir per scenario.  Each scenario has a
-//! different constant compute-heat source, while a shared extraction load
-//! represents useful heat demand.  The kernel keeps temperature and energy
-//! accounting on the device; GORBIE reads only the explicit observation rows.
+//! different peak compute-heat source and duty cycle, while a shared
+//! extraction load represents useful heat demand.  The kernel keeps
+//! temperature and energy accounting on the device; GORBIE reads only the
+//! explicit observation rows.
 //!
 //! ```text
 //! cargo run --release --example thermal_cubecl --features cubecl
@@ -20,24 +21,28 @@ use eframe::egui::Color32;
 use GORBIE::widgets::{Bounds3, Label3, LegendEntry, Line3, Particle3, PhysicsScene, PhysicsView};
 use GORBIE::{notebook, NotebookCtx};
 
-const STATE_STRIDE: usize = 4;
+const STATE_STRIDE: usize = 5;
 const TEMPERATURE: usize = 0;
 const INJECTED_ENERGY: usize = 1;
 const EXTRACTED_ENERGY: usize = 2;
 const SIM_TIME: usize = 3;
+const SCHEDULE_PHASE: usize = 4;
 
-const OBSERVATION_STRIDE: usize = 6;
-const OBS_COMPUTE_POWER: usize = 0;
-const OBS_TEMPERATURE: usize = 1;
-const OBS_INJECTED_ENERGY: usize = 2;
-const OBS_EXTRACTED_ENERGY: usize = 3;
-const OBS_NET_ENERGY: usize = 4;
-const OBS_TIME: usize = 5;
+const OBSERVATION_STRIDE: usize = 8;
+const OBS_PEAK_COMPUTE_POWER: usize = 0;
+const OBS_DUTY_CYCLE: usize = 1;
+const OBS_COMPUTE_POWER: usize = 2;
+const OBS_TEMPERATURE: usize = 3;
+const OBS_INJECTED_ENERGY: usize = 4;
+const OBS_EXTRACTED_ENERGY: usize = 5;
+const OBS_NET_ENERGY: usize = 6;
+const OBS_TIME: usize = 7;
 
 const INITIAL_TEMPERATURE: f32 = 293.15;
 const HEAT_CAPACITY: f32 = 4.0e6;
 const EXTRACTION_POWER: f32 = 20_000.0;
 const COMPUTE_POWER_MAX: f32 = 50_000.0;
+const SCHEDULE_PERIOD: f32 = 120.0;
 const DT: f32 = 0.5;
 const SCENARIOS: usize = 256;
 const STEPS_PER_FRAME: u32 = 60;
@@ -45,6 +50,8 @@ const STEPS_PER_FRAME: u32 = 60;
 #[derive(Clone, Copy, Debug)]
 struct ThermalSample {
     compute_power: f32,
+    peak_compute_power: f32,
+    duty_cycle: f32,
     temperature: f32,
     injected_energy: f32,
     extracted_energy: f32,
@@ -58,6 +65,7 @@ struct ThermalSummary {
     min_temperature: f32,
     max_temperature: f32,
     max_compute_power: f32,
+    max_duty_cycle: f32,
     max_energy_residual: f32,
 }
 
@@ -66,6 +74,7 @@ struct ThermalGpu {
     client: ComputeClient<WgpuRuntime>,
     state: Handle,
     compute_powers: Handle,
+    duty_cycles: Handle,
     observations: Handle,
     scenario_count: usize,
     extraction_power: f32,
@@ -83,11 +92,15 @@ impl ThermalGpu {
         let compute_powers: Vec<f32> = (0..SCENARIOS)
             .map(|scenario| COMPUTE_POWER_MAX * scenario as f32 / (SCENARIOS - 1) as f32)
             .collect();
+        let duty_cycles: Vec<f32> = (0..SCENARIOS)
+            .map(|scenario| scenario as f32 / (SCENARIOS - 1) as f32)
+            .collect();
 
         Self {
             _device: device,
             state: client.create_from_slice(f32::as_bytes(&initial)),
             compute_powers: client.create_from_slice(f32::as_bytes(&compute_powers)),
+            duty_cycles: client.create_from_slice(f32::as_bytes(&duty_cycles)),
             observations: client.empty(
                 SCENARIOS * OBSERVATION_STRIDE * std::mem::size_of::<f32>(),
             ),
@@ -109,6 +122,7 @@ impl ThermalGpu {
                 CubeDim::new_1d(1),
                 ArrayArg::from_raw_parts(self.state.clone(), state_len),
                 ArrayArg::from_raw_parts(self.compute_powers.clone(), self.scenario_count),
+                ArrayArg::from_raw_parts(self.duty_cycles.clone(), self.scenario_count),
                 ArrayArg::from_raw_parts(
                     self.observations.clone(),
                     self.scenario_count * OBSERVATION_STRIDE,
@@ -119,6 +133,7 @@ impl ThermalGpu {
                 INITIAL_TEMPERATURE,
                 HEAT_CAPACITY,
                 self.extraction_power,
+                SCHEDULE_PERIOD,
             );
         }
         self.read_scenario(0)
@@ -158,6 +173,7 @@ impl ThermalGpu {
         let mut min_temperature = f32::INFINITY;
         let mut max_temperature = f32::NEG_INFINITY;
         let mut max_compute_power = f32::NEG_INFINITY;
+        let mut max_duty_cycle = f32::NEG_INFINITY;
         // Keep the residual visible: f32 energy accumulation introduces a
         // small, measurable roundoff error over long sweeps rather than an
         // excuse to silently drop the conservation check.
@@ -167,7 +183,8 @@ impl ThermalGpu {
                 (observation[OBS_TEMPERATURE] - INITIAL_TEMPERATURE) * HEAT_CAPACITY;
             min_temperature = min_temperature.min(observation[OBS_TEMPERATURE]);
             max_temperature = max_temperature.max(observation[OBS_TEMPERATURE]);
-            max_compute_power = max_compute_power.max(observation[OBS_COMPUTE_POWER]);
+            max_compute_power = max_compute_power.max(observation[OBS_PEAK_COMPUTE_POWER]);
+            max_duty_cycle = max_duty_cycle.max(observation[OBS_DUTY_CYCLE]);
             max_energy_residual = max_energy_residual
                 .max((observation[OBS_NET_ENERGY] - expected_net).abs());
         }
@@ -180,10 +197,13 @@ impl ThermalGpu {
                 min_temperature,
                 max_temperature,
                 max_compute_power,
+                max_duty_cycle,
                 max_energy_residual,
             },
             ThermalSample {
                 compute_power: selected[OBS_COMPUTE_POWER],
+                peak_compute_power: selected[OBS_PEAK_COMPUTE_POWER],
+                duty_cycle: selected[OBS_DUTY_CYCLE],
                 temperature: selected[OBS_TEMPERATURE],
                 injected_energy: selected[OBS_INJECTED_ENERGY],
                 extracted_energy: selected[OBS_EXTRACTED_ENERGY],
@@ -198,6 +218,7 @@ impl ThermalGpu {
 fn thermal_step_kernel(
     state: &mut Array<f32>,
     compute_powers: &Array<f32>,
+    duty_cycles: &Array<f32>,
     observations: &mut Array<f32>,
     scenario_count: u32,
     steps: u32,
@@ -205,23 +226,36 @@ fn thermal_step_kernel(
     initial_temperature: f32,
     heat_capacity: f32,
     extraction_power: f32,
+    schedule_period: f32,
 ) {
     let scenario = ABSOLUTE_POS as u32;
     if scenario < scenario_count {
         let base = scenario as usize * STATE_STRIDE;
-        let compute_power = compute_powers[scenario as usize];
+        let peak_compute_power = compute_powers[scenario as usize];
+        let duty_cycle = duty_cycles[scenario as usize];
         let mut temperature = state[base + TEMPERATURE];
         let mut injected_energy = state[base + INJECTED_ENERGY];
         let mut extracted_energy = state[base + EXTRACTED_ENERGY];
         let mut sim_time = state[base + SIM_TIME];
+        let mut schedule_phase = state[base + SCHEDULE_PHASE];
+        let mut applied_compute_power = 0.0f32;
         let mut step = 0u32;
 
         while step < steps {
-            injected_energy += compute_power * dt;
+            applied_compute_power = if schedule_phase < duty_cycle * schedule_period {
+                peak_compute_power
+            } else {
+                0.0_f32.into()
+            };
+            injected_energy += applied_compute_power * dt;
             extracted_energy += extraction_power * dt;
             temperature =
                 initial_temperature + (injected_energy - extracted_energy) / heat_capacity;
             sim_time += dt;
+            schedule_phase += dt;
+            if schedule_phase >= schedule_period {
+                schedule_phase -= schedule_period;
+            }
             step += 1u32;
         }
 
@@ -229,9 +263,12 @@ fn thermal_step_kernel(
         state[base + INJECTED_ENERGY] = injected_energy;
         state[base + EXTRACTED_ENERGY] = extracted_energy;
         state[base + SIM_TIME] = sim_time;
+        state[base + SCHEDULE_PHASE] = schedule_phase;
 
         let observation_base = scenario as usize * OBSERVATION_STRIDE;
-        observations[observation_base + OBS_COMPUTE_POWER] = compute_power;
+        observations[observation_base + OBS_PEAK_COMPUTE_POWER] = peak_compute_power;
+        observations[observation_base + OBS_DUTY_CYCLE] = duty_cycle;
+        observations[observation_base + OBS_COMPUTE_POWER] = applied_compute_power;
         observations[observation_base + OBS_TEMPERATURE] = temperature;
         observations[observation_base + OBS_INJECTED_ENERGY] = injected_energy;
         observations[observation_base + OBS_EXTRACTED_ENERGY] = extracted_energy;
@@ -279,7 +316,12 @@ fn scene(sample: ThermalSample) -> PhysicsScene {
     ));
     scene.labels.push(Label3::new(
         [0.72, 0.42, -0.22],
-        format!("compute {:.1} kW", sample.compute_power / 1_000.0),
+        format!(
+            "compute {:.1}/{:.1} kW  duty {:.0}%",
+            sample.compute_power / 1_000.0,
+            sample.peak_compute_power / 1_000.0,
+            sample.duty_cycle * 100.0
+        ),
         Color32::from_rgb(205, 165, 245),
     ));
     scene.labels.push(Label3::new(
@@ -354,7 +396,11 @@ fn main(nb: &mut NotebookCtx) {
     nb.state_with("thermal-cubecl", ThermalNotebook::new, |ctx, state| {
         let scene = state.frame();
         ctx.heading("CubeCL thermal reservoir");
-        ctx.label("256 compute-heat scenarios evolve on the GPU; choose which sampled state to display.");
+        ctx.label(format!(
+            "{} scheduled compute-heat scenarios evolve on the GPU; {:.0} s period; choose which sampled state to display.",
+            SCENARIOS,
+            SCHEDULE_PERIOD
+        ));
         ctx.label(format!("Displayed scenario: {}", state.selected_scenario));
         ctx.slider(&mut state.selected_scenario, 0..=SCENARIOS - 1);
         if let Some(error) = &state.error {
@@ -362,11 +408,12 @@ fn main(nb: &mut NotebookCtx) {
         }
         if let Some(sweep) = state.last_sweep {
             ctx.label(format!(
-                "GPU sweep: {} scenarios | T [{:.2}, {:.2}] K | compute max {:.1} kW | energy residual {:.3} J",
+                "GPU sweep: {} scenarios | T [{:.2}, {:.2}] K | peak max {:.1} kW | duty max {:.0}% | energy residual {:.3} J",
                 sweep.scenarios,
                 sweep.min_temperature,
                 sweep.max_temperature,
                 sweep.max_compute_power / 1_000.0,
+                sweep.max_duty_cycle * 100.0,
                 sweep.max_energy_residual,
             ));
         }
@@ -420,10 +467,24 @@ mod tests {
         assert_eq!(summary.scenarios, SCENARIOS);
         assert!(summary.max_temperature > summary.min_temperature);
         assert!((summary.max_compute_power - COMPUTE_POWER_MAX).abs() < 1.0e-3);
+        assert!((summary.max_duty_cycle - 1.0).abs() < 1.0e-6);
         assert!(
             summary.max_energy_residual < 128.0,
             "maximum GPU energy residual was {} J",
             summary.max_energy_residual
         );
+    }
+
+    #[test]
+    fn gpu_kernel_exposes_a_scheduled_compute_window() {
+        let mut gpu = ThermalGpu::new();
+        gpu.advance(130).expect("CubeCL WGPU step");
+        let scheduled = gpu
+            .read_scenario(SCENARIOS / 2)
+            .expect("scheduled thermal observation");
+        assert!(scheduled.peak_compute_power > 0.0);
+        assert!(scheduled.duty_cycle > 0.0 && scheduled.duty_cycle < 1.0);
+        assert!(scheduled.compute_power.abs() < 1.0e-3);
+        assert!(scheduled.injected_energy > 0.0);
     }
 }
