@@ -437,14 +437,13 @@ fn scene(sample: FluidSample) -> PhysicsScene {
     scene.labels.push(Label3::new(
         [0.67, -0.50, -0.28],
         format!(
-            "S={:.2}× R={:.2}× Ep={:.1} Ef={:.1} Et={:.1} J r={:.1e} t={:.2}s",
+            "S={:.1}× R={:.1}× E={:.1}J (p={:.1}/f={:.1}) r={:.1e}",
             sample.source_scale,
             sample.resistance_scale,
+            sample.total_energy,
             sample.pressure_energy,
             sample.kinetic_energy,
-            sample.total_energy,
             sample.storage_residual,
-            sample.time
         ),
         Color32::from_rgb(245, 190, 110),
     ));
