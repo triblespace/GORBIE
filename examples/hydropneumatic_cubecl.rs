@@ -23,25 +23,35 @@ use GORBIE::widgets::{
 };
 use GORBIE::{notebook, NotebookCtx};
 
-const STATE_STRIDE: usize = 5;
-const OBSERVATION_STRIDE: usize = 5;
+const STATE_STRIDE: usize = 7;
+const OBSERVATION_STRIDE: usize = 7;
 const PRESSURE_H: usize = 0;
 const PRESSURE_P: usize = 1;
 const POSITION: usize = 2;
 const VELOCITY: usize = 3;
 const PHASE: usize = 4;
+const FLOW_H: usize = 5;
+const FLOW_P: usize = 6;
 const OBS_SOURCE_SCALE: usize = 0;
 const OBS_PRESSURE_H: usize = 1;
 const OBS_PRESSURE_P: usize = 2;
-const OBS_POSITION: usize = 3;
-const OBS_VELOCITY: usize = 4;
+const OBS_FLOW_H: usize = 3;
+const OBS_FLOW_P: usize = 4;
+const OBS_POSITION: usize = 5;
+const OBS_VELOCITY: usize = 6;
 
 // SI-ish parameters for a stable, intentionally modest toy system.
 const AMBIENT_PRESSURE: f32 = 100_000.0;
 const SOURCE_AMPLITUDE: f32 = 300_000.0;
 const SOURCE_ANGULAR_FREQUENCY: f32 = 2.0 * std::f32::consts::PI * 1.5;
-const HYDRAULIC_TIME_CONSTANT: f32 = 0.030;
-const PNEUMATIC_TIME_CONSTANT: f32 = 0.080;
+// Compliance and conductance make the pressure transfer explicit: each
+// pressure state is advanced from a volumetric flow instead of teleporting
+// toward its target.  The ratios retain the stable response times of the
+// original toy model while exposing a useful flow observable.
+const HYDRAULIC_COMPLIANCE: f32 = 8.0e-9;
+const PNEUMATIC_COMPLIANCE: f32 = 3.2e-8;
+const HYDRAULIC_CONDUCTANCE: f32 = HYDRAULIC_COMPLIANCE / 0.030;
+const PNEUMATIC_CONDUCTANCE: f32 = PNEUMATIC_COMPLIANCE / 0.080;
 const PISTON_AREA: f32 = 4.0e-4;
 const PISTON_MASS: f32 = 0.40;
 const SPRING_STIFFNESS: f32 = 900.0;
@@ -54,6 +64,8 @@ const STEPS_PER_FRAME: u32 = 1_000;
 struct Sample {
     pressure_hydraulic: f32,
     pressure_pneumatic: f32,
+    flow_hydraulic: f32,
+    flow_pneumatic: f32,
     position: f32,
     velocity: f32,
     time: f32,
@@ -65,6 +77,7 @@ struct SweepSummary {
     min_position: f32,
     max_position: f32,
     max_pressure_pneumatic: f32,
+    peak_flow_pneumatic: f32,
 }
 
 struct HydroGpu {
@@ -130,8 +143,10 @@ impl HydroGpu {
                 AMBIENT_PRESSURE,
                 SOURCE_AMPLITUDE,
                 SOURCE_ANGULAR_FREQUENCY,
-                HYDRAULIC_TIME_CONSTANT,
-                PNEUMATIC_TIME_CONSTANT,
+                HYDRAULIC_COMPLIANCE,
+                PNEUMATIC_COMPLIANCE,
+                HYDRAULIC_CONDUCTANCE,
+                PNEUMATIC_CONDUCTANCE,
                 PISTON_AREA,
                 PISTON_MASS,
                 SPRING_STIFFNESS,
@@ -154,6 +169,8 @@ impl HydroGpu {
         Ok(Sample {
             pressure_hydraulic: values[PRESSURE_H],
             pressure_pneumatic: values[PRESSURE_P],
+            flow_hydraulic: values[FLOW_H],
+            flow_pneumatic: values[FLOW_P],
             position: values[POSITION],
             velocity: values[VELOCITY],
             time: self.time,
@@ -191,10 +208,12 @@ impl HydroGpu {
         let mut min_position = f32::INFINITY;
         let mut max_position = f32::NEG_INFINITY;
         let mut max_pressure_pneumatic = f32::NEG_INFINITY;
+        let mut peak_flow_pneumatic: f32 = 0.0;
         for observation in values.chunks_exact(OBSERVATION_STRIDE) {
             min_position = min_position.min(observation[OBS_POSITION]);
             max_position = max_position.max(observation[OBS_POSITION]);
             max_pressure_pneumatic = max_pressure_pneumatic.max(observation[OBS_PRESSURE_P]);
+            peak_flow_pneumatic = peak_flow_pneumatic.max(observation[OBS_FLOW_P].abs());
         }
 
         let selected = &values[selected_scenario * OBSERVATION_STRIDE
@@ -205,10 +224,13 @@ impl HydroGpu {
                 min_position,
                 max_position,
                 max_pressure_pneumatic,
+                peak_flow_pneumatic,
             },
             Sample {
                 pressure_hydraulic: selected[OBS_PRESSURE_H],
                 pressure_pneumatic: selected[OBS_PRESSURE_P],
+                flow_hydraulic: selected[OBS_FLOW_H],
+                flow_pneumatic: selected[OBS_FLOW_P],
                 position: selected[OBS_POSITION],
                 velocity: selected[OBS_VELOCITY],
                 time: self.time,
@@ -229,8 +251,10 @@ fn hydropneumatic_step_kernel(
     ambient_pressure: f32,
     source_amplitude: f32,
     source_angular_frequency: f32,
-    hydraulic_time_constant: f32,
-    pneumatic_time_constant: f32,
+    hydraulic_compliance: f32,
+    pneumatic_compliance: f32,
+    hydraulic_conductance: f32,
+    pneumatic_conductance: f32,
     piston_area: f32,
     piston_mass: f32,
     spring_stiffness: f32,
@@ -245,6 +269,8 @@ fn hydropneumatic_step_kernel(
         let mut position = state[base + POSITION];
         let mut velocity = state[base + VELOCITY];
         let mut phase = state[base + PHASE];
+        let mut hydraulic_flow = 0.0f32;
+        let mut transfer_flow = 0.0f32;
         let mut step = 0u32;
 
         while step < steps {
@@ -252,12 +278,10 @@ fn hydropneumatic_step_kernel(
                 + source_amplitude
                     * source_scale
                     * (0.5f32 + 0.5f32 * (phase * source_angular_frequency).sin());
-            let hydraulic_delta =
-                (source - pressure_hydraulic) / hydraulic_time_constant;
-            let transfer = (pressure_hydraulic - pressure_pneumatic)
-                / pneumatic_time_constant;
-            pressure_hydraulic += hydraulic_delta * dt;
-            pressure_pneumatic += transfer * dt;
+            hydraulic_flow = hydraulic_conductance * (source - pressure_hydraulic);
+            transfer_flow = pneumatic_conductance * (pressure_hydraulic - pressure_pneumatic);
+            pressure_hydraulic += hydraulic_flow / hydraulic_compliance * dt;
+            pressure_pneumatic += transfer_flow / pneumatic_compliance * dt;
 
             let force = piston_area * (pressure_pneumatic - ambient_pressure);
             let acceleration =
@@ -273,17 +297,23 @@ fn hydropneumatic_step_kernel(
         state[base + POSITION] = position;
         state[base + VELOCITY] = velocity;
         state[base + PHASE] = phase;
+        state[base + FLOW_H] = hydraulic_flow;
+        state[base + FLOW_P] = transfer_flow;
 
         let observation_base = (scenario as usize) * OBSERVATION_STRIDE;
         observations[observation_base + OBS_SOURCE_SCALE] = source_scale;
         observations[observation_base + OBS_PRESSURE_H] = pressure_hydraulic;
         observations[observation_base + OBS_PRESSURE_P] = pressure_pneumatic;
+        observations[observation_base + OBS_FLOW_H] = hydraulic_flow;
+        observations[observation_base + OBS_FLOW_P] = transfer_flow;
         observations[observation_base + OBS_POSITION] = position;
         observations[observation_base + OBS_VELOCITY] = velocity;
 
         if scenario == 0u32 {
             sample[PRESSURE_H] = pressure_hydraulic;
             sample[PRESSURE_P] = pressure_pneumatic;
+            sample[FLOW_H] = hydraulic_flow;
+            sample[FLOW_P] = transfer_flow;
             sample[POSITION] = position;
             sample[VELOCITY] = velocity;
             sample[PHASE] = phase;
@@ -359,6 +389,14 @@ fn scene(sample: Sample, static_fluid: &PhysicsScene) -> PhysicsScene {
         [0.55, 0.42, -0.32],
         format!("pneumatic {:.1} kPa", sample.pressure_pneumatic / 1_000.0),
         Color32::from_rgb(205, 165, 245),
+    ));
+    scene.labels.push(Label3::new(
+        [-1.42, -0.48, -0.32],
+        format!(
+            "flow h={:.4} m³/s  p→={:.4} m³/s",
+            sample.flow_hydraulic, sample.flow_pneumatic
+        ),
+        Color32::from_rgb(245, 190, 110),
     ));
     scene.labels.push(Label3::new(
         [0.58, -0.48, -0.32],
@@ -437,11 +475,12 @@ fn main(nb: &mut NotebookCtx) {
         }
         if let Some(sweep) = state.last_sweep {
             ctx.label(format!(
-                "GPU sweep: {} scenarios | piston x [{:.4}, {:.4}] m | peak pneumatic {:.1} kPa",
+                "GPU sweep: {} scenarios | piston x [{:.4}, {:.4}] m | peak pneumatic {:.1} kPa | peak transfer {:.4} m³/s",
                 sweep.scenarios,
                 sweep.min_position,
                 sweep.max_position,
                 sweep.max_pressure_pneumatic / 1_000.0,
+                sweep.peak_flow_pneumatic,
             ));
         }
         state.camera.show(ctx, &scene);
@@ -458,6 +497,8 @@ mod tests {
         let mut gpu = HydroGpu::new();
         let sample = gpu.advance(20_000).expect("CubeCL WGPU step");
         assert!(sample.pressure_pneumatic > AMBIENT_PRESSURE);
+        assert!(sample.flow_hydraulic > 0.0);
+        assert!(sample.flow_pneumatic > 0.0);
         assert!(sample.position > 0.0);
     }
 
@@ -473,6 +514,8 @@ mod tests {
         let sample = gpu.advance(10_000).expect("CubeCL WGPU step");
         assert!((sample.pressure_hydraulic - AMBIENT_PRESSURE).abs() < 1.0);
         assert!((sample.pressure_pneumatic - AMBIENT_PRESSURE).abs() < 1.0);
+        assert!(sample.flow_hydraulic.abs() < 1.0e-8);
+        assert!(sample.flow_pneumatic.abs() < 1.0e-8);
         assert!(sample.position.abs() < 1.0e-6);
         assert!(sample.velocity.abs() < 1.0e-4);
     }
@@ -485,6 +528,7 @@ mod tests {
         assert_eq!(summary.scenarios, SCENARIOS);
         assert!(summary.max_position > summary.min_position);
         assert!(summary.max_pressure_pneumatic > AMBIENT_PRESSURE);
+        assert!(summary.peak_flow_pneumatic > 0.0);
     }
 
     #[test]
@@ -496,6 +540,7 @@ mod tests {
             .read_scenario(SCENARIOS - 1)
             .expect("last scenario readback");
         assert!(high.pressure_pneumatic > low.pressure_pneumatic);
+        assert!(high.flow_pneumatic > low.flow_pneumatic);
         assert!(high.position > low.position);
     }
 }
