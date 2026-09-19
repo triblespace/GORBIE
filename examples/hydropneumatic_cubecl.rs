@@ -24,7 +24,7 @@ use GORBIE::widgets::{
 use GORBIE::{notebook, NotebookCtx};
 
 const STATE_STRIDE: usize = 5;
-const OBSERVATION_STRIDE: usize = 4;
+const OBSERVATION_STRIDE: usize = 5;
 const PRESSURE_H: usize = 0;
 const PRESSURE_P: usize = 1;
 const POSITION: usize = 2;
@@ -34,6 +34,7 @@ const OBS_SOURCE_SCALE: usize = 0;
 const OBS_PRESSURE_H: usize = 1;
 const OBS_PRESSURE_P: usize = 2;
 const OBS_POSITION: usize = 3;
+const OBS_VELOCITY: usize = 4;
 
 // SI-ish parameters for a stable, intentionally modest toy system.
 const AMBIENT_PRESSURE: f32 = 100_000.0;
@@ -160,6 +161,20 @@ impl HydroGpu {
     }
 
     fn read_sweep(&self) -> Result<SweepSummary, String> {
+        self.read_observations(0).map(|(summary, _)| summary)
+    }
+
+    fn read_scenario(&self, scenario: usize) -> Result<Sample, String> {
+        self.read_observations(scenario).map(|(_, sample)| sample)
+    }
+
+    fn read_observations(&self, selected_scenario: usize) -> Result<(SweepSummary, Sample), String> {
+        if selected_scenario >= self.scenario_count {
+            return Err(format!(
+                "scenario {selected_scenario} is outside 0..{}",
+                self.scenario_count
+            ));
+        }
         let bytes = self
             .client
             .read_one(self.observations.clone())
@@ -182,12 +197,23 @@ impl HydroGpu {
             max_pressure_pneumatic = max_pressure_pneumatic.max(observation[OBS_PRESSURE_P]);
         }
 
-        Ok(SweepSummary {
-            scenarios: self.scenario_count,
-            min_position,
-            max_position,
-            max_pressure_pneumatic,
-        })
+        let selected = &values[selected_scenario * OBSERVATION_STRIDE
+            ..(selected_scenario + 1) * OBSERVATION_STRIDE];
+        Ok((
+            SweepSummary {
+                scenarios: self.scenario_count,
+                min_position,
+                max_position,
+                max_pressure_pneumatic,
+            },
+            Sample {
+                pressure_hydraulic: selected[OBS_PRESSURE_H],
+                pressure_pneumatic: selected[OBS_PRESSURE_P],
+                position: selected[OBS_POSITION],
+                velocity: selected[OBS_VELOCITY],
+                time: self.time,
+            },
+        ))
     }
 }
 
@@ -253,6 +279,7 @@ fn hydropneumatic_step_kernel(
         observations[observation_base + OBS_PRESSURE_H] = pressure_hydraulic;
         observations[observation_base + OBS_PRESSURE_P] = pressure_pneumatic;
         observations[observation_base + OBS_POSITION] = position;
+        observations[observation_base + OBS_VELOCITY] = velocity;
 
         if scenario == 0u32 {
             sample[PRESSURE_H] = pressure_hydraulic;
@@ -351,6 +378,7 @@ struct HydroNotebook {
     static_fluid: PhysicsScene,
     last: Option<Sample>,
     last_sweep: Option<SweepSummary>,
+    selected_scenario: usize,
     error: Option<String>,
 }
 
@@ -367,6 +395,7 @@ impl HydroNotebook {
             static_fluid: static_fluid_scene(),
             last: None,
             last_sweep: None,
+            selected_scenario: 0,
             error: None,
         }
     }
@@ -379,6 +408,12 @@ impl HydroNotebook {
                 match self.gpu.read_sweep() {
                     Ok(summary) => self.last_sweep = Some(summary),
                     Err(error) => self.error = Some(error),
+                }
+                if self.selected_scenario != 0 {
+                    match self.gpu.read_scenario(self.selected_scenario) {
+                        Ok(sample) => self.last = Some(sample),
+                        Err(error) => self.error = Some(error),
+                    }
                 }
             }
             Err(error) => self.error = Some(error),
@@ -394,7 +429,9 @@ fn main(nb: &mut NotebookCtx) {
     nb.state_with("hydropneumatic-cubecl", HydroNotebook::new, |ctx, state| {
         let scene = state.frame();
         ctx.heading("CubeCL hydropneumatic experiment");
-        ctx.label("256 source-amplitude scenarios evolve on the GPU; only scenario 0 is sampled for this view.");
+        ctx.label("256 source-amplitude scenarios evolve on the GPU; choose which sampled state to display.");
+        ctx.label(format!("Displayed scenario: {}", state.selected_scenario));
+        ctx.slider(&mut state.selected_scenario, 0..=SCENARIOS - 1);
         if let Some(error) = &state.error {
             ctx.label(format!("GPU error: {error}"));
         }
@@ -448,5 +485,17 @@ mod tests {
         assert_eq!(summary.scenarios, SCENARIOS);
         assert!(summary.max_position > summary.min_position);
         assert!(summary.max_pressure_pneumatic > AMBIENT_PRESSURE);
+    }
+
+    #[test]
+    fn gpu_observation_selection_changes_the_displayed_scenario() {
+        let mut gpu = HydroGpu::new();
+        gpu.advance(20_000).expect("CubeCL WGPU step");
+        let low = gpu.read_scenario(0).expect("scenario 0 readback");
+        let high = gpu
+            .read_scenario(SCENARIOS - 1)
+            .expect("last scenario readback");
+        assert!(high.pressure_pneumatic > low.pressure_pneumatic);
+        assert!(high.position > low.position);
     }
 }
