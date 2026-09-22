@@ -604,11 +604,23 @@ fn auto_height(ranks: &[usize], stats: LayoutStats, width: f32) -> f32 {
         stats.bounds[2] - stats.bounds[0],
         stats.bounds[3] - stats.bounds[1],
     );
-    if stats.steps == 0 || !(world.x > 1.0) || !world.y.is_finite() || world.y <= 0.0 {
+    if stats.steps == 0 || !world.y.is_finite() || world.y <= 0.0 {
         return by_rank;
     }
+    // A single column has NO x-span at all -- the rank spring pins it exactly,
+    // measured at 0.00 for every count -- so the aspect is undefined and this
+    // used to fall back to the pre-step estimate. That is the commonest member
+    // lattice there is, a collection whose commits nothing has joined yet, and
+    // the estimate offers one PITCH per node against a settled spacing of
+    // roughly five of them: every such lattice was drawn at about a fifth of
+    // its size, marks and labels with it. With no width to scale against, the
+    // world's own height IS the answer, and the ceiling still bounds it.
     let usable = (width - 2.0 * LABEL_MARGIN).max(1.0);
-    (usable * (world.y / world.x) + 2.0 * LABEL_MARGIN).clamp(floor, ceiling)
+    let height = match world.x > 1.0 {
+        true => usable * (world.y / world.x),
+        false => world.y,
+    };
+    (height + 2.0 * LABEL_MARGIN).clamp(floor, ceiling)
 }
 
 /// The chain, recomputed only when the selection or the topology changes.
@@ -1243,6 +1255,57 @@ mod tests {
                 ..LatticeNode::default()
             })
         );
+    }
+
+    #[test]
+    fn a_single_column_is_sized_by_what_it_settled_to() {
+        // Measured, not assumed: the rank spring pins a one-rank layout to an
+        // x-span of exactly 0.00, so the aspect branch never applied and every
+        // single-column lattice took the pre-step estimate instead -- one PITCH
+        // a node against a settled spacing near five, which is a fifth-size
+        // picture with no labels on it. A collection whose commits nothing has
+        // joined yet is exactly this shape, so it was the common case.
+        let settle = |count: usize| {
+            let positions = settled(count, &[], 400);
+            let ys: Vec<f32> = positions.iter().map(|point| point[1]).collect();
+            let xs: Vec<f32> = positions.iter().map(|point| point[0]).collect();
+            let low = |v: &[f32]| v.iter().cloned().fold(f32::MAX, f32::min);
+            let high = |v: &[f32]| v.iter().cloned().fold(f32::MIN, f32::max);
+            (
+                high(&ys) - low(&ys),
+                LayoutStats {
+                    steps: 400,
+                    bounds: [low(&xs), low(&ys), high(&xs), high(&ys)],
+                    ..LayoutStats::default()
+                },
+            )
+        };
+
+        let (span, stats) = settle(2);
+        assert_eq!(
+            stats.bounds[2] - stats.bounds[0],
+            0.0,
+            "the premise: a single column has no width to take an aspect from"
+        );
+        let height = auto_height(&[0, 0], stats, 768.0);
+        assert!(
+            height >= span,
+            "a column asked for {height} to draw {span} of world, which squashes it"
+        );
+
+        // Still bounded: a long column asks for a viewport, not a mile of page.
+        let (_, many) = settle(10);
+        let tall = auto_height(&vec![0; 10], many, 768.0);
+        assert_eq!(tall, MAX_ROWS * PITCH + TOP + BOTTOM);
+
+        // And a lattice with real width still follows its aspect rather than
+        // its height, which is the case this function was written for.
+        let wide = LayoutStats {
+            steps: 10,
+            bounds: [0.0, 0.0, 2400.0, 240.0],
+            ..LayoutStats::default()
+        };
+        assert!(auto_height(&[0, 1], wide, 768.0) < tall);
     }
 
     #[test]
