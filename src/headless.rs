@@ -56,6 +56,41 @@ pub(super) fn capture(
     runner.capture_cards(&mut core, emit)
 }
 
+/// A capture that states its own scope. Silence from a headless run used to mean
+/// either "every card rendered" or "every card hit the deadline and I emitted
+/// whatever I had"; those need to be distinguishable from outside, because the
+/// second one writes plausible-looking stubs. Named remedies rather than a bare
+/// count, because the count alone sends people to raise the timeout when the
+/// cheaper fix is usually the readiness call.
+fn unsettled_report(timed_out: &[usize], total: usize, settle_timeout: Duration) -> Option<String> {
+    if timed_out.is_empty() {
+        return None;
+    }
+    let shown: Vec<String> = timed_out.iter().take(8).map(|i| i.to_string()).collect();
+    let ellipsis = if timed_out.len() > shown.len() {
+        format!(", and {} more", timed_out.len() - shown.len())
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "GORBIE headless: {} of {} card(s) hit the {} ms settle timeout and were rendered \
+         from whatever frame existed at the deadline, so they may be incomplete. Cards: \
+         {}{}. Either call `nb.settled()` when the notebook's content is ready, or raise \
+         the settle timeout.",
+        timed_out.len(),
+        total,
+        settle_timeout.as_millis(),
+        shown.join(", "),
+        ellipsis,
+    ))
+}
+
+fn report_unsettled(timed_out: &[usize], total: usize, settle_timeout: Duration) {
+    if let Some(report) = unsettled_report(timed_out, total, settle_timeout) {
+        eprintln!("{report}");
+    }
+}
+
 struct HeadlessWgpuRunner {
     card_width: f32,
     ctx: egui::Context,
@@ -165,9 +200,11 @@ impl HeadlessWgpuRunner {
         emit: &mut dyn FnMut(CapturedPng) -> CaptureResult<()>,
     ) -> HeadlessResult<()> {
         let mut index = 0;
+        let mut timed_out: Vec<usize> = Vec::new();
         loop {
-            let (mut output, measured_height) =
+            let (mut output, measured_height, settled) =
                 self.run_frame_until_settled(core, index, NOTEBOOK_MIN_HEIGHT)?;
+            let mut card_settled = settled;
             let Some(measured_height) = measured_height else {
                 break;
             };
@@ -178,8 +215,9 @@ impl HeadlessWgpuRunner {
             let (mut output, final_height) = if height_close(NOTEBOOK_MIN_HEIGHT, desired_height) {
                 (output, desired_height)
             } else {
-                let (mut output, measured_height) =
+                let (mut output, measured_height, settled) =
                     self.run_frame_until_settled(core, index, desired_height)?;
+                card_settled = card_settled && settled;
                 let Some(measured_height) = measured_height else {
                     break;
                 };
@@ -188,28 +226,41 @@ impl HeadlessWgpuRunner {
             };
 
             output.textures_delta = textures_delta;
+            if !card_settled {
+                timed_out.push(index);
+            }
             let tiles = self.render_output(output, egui::vec2(self.card_width, final_height))?;
             emit_images(index, tiles, emit)?;
             index += 1;
         }
+        report_unsettled(&timed_out, index, self.settle_timeout);
         Ok(())
     }
 
+    /// Drive frames until the notebook says it is ready, or the settle timeout
+    /// expires. The returned `settled` flag says WHICH of those happened, and it
+    /// is the whole point: a timed-out card is rendered from whatever frame
+    /// existed at the deadline, which may be a half-built one. Before this flag
+    /// the two exits were indistinguishable, so a 2 s default silently emitted
+    /// 2 px stubs and a 45 s one silently did not, with nothing to tell them
+    /// apart. Measured 2026-09-21: the same notebook gave 3375 cards with 0
+    /// stubs at 45 s settle, against a wall of stubs at the 2 s default.
     fn run_frame_until_settled(
         &mut self,
         core: &mut NotebookCore,
         index: usize,
         height: f32,
-    ) -> HeadlessResult<(egui::FullOutput, Option<f32>)> {
+    ) -> HeadlessResult<(egui::FullOutput, Option<f32>, bool)> {
         let start = Instant::now();
         let mut textures_delta = egui::TexturesDelta::default();
         let (mut output, mut measured_height) = self.run_frame(core, index, height)?;
         loop {
             textures_delta.append(std::mem::take(&mut output.textures_delta));
 
-            if core.has_settled() || start.elapsed() >= self.settle_timeout {
+            let settled = core.has_settled();
+            if settled || start.elapsed() >= self.settle_timeout {
                 output.textures_delta = textures_delta;
-                return Ok((output, measured_height));
+                return Ok((output, measured_height, settled));
             }
 
             let repaint_delay = min_repaint_delay(&output);
@@ -622,6 +673,39 @@ mod tests {
             write_png_rgba(&mut direct, 1, 1, &expected).unwrap();
             assert_eq!(capture.bytes, direct);
         }
+    }
+
+    /// Silence has to mean "every card rendered", never "every card hit the
+    /// deadline and I wrote whatever I had". Before the settled flag those were
+    /// the same observable, which is how a 2 s default shipped 2 px stubs that
+    /// looked like pictures.
+    #[test]
+    fn a_clean_capture_says_nothing_and_a_timed_out_one_names_its_cards() {
+        assert!(unsettled_report(&[], 3375, Duration::from_millis(2000)).is_none());
+
+        let report = unsettled_report(&[4, 9], 3375, Duration::from_millis(2000))
+            .expect("a timed-out capture must report itself");
+        assert!(report.contains("2 of 3375"), "{report}");
+        assert!(report.contains("2000 ms"), "{report}");
+        assert!(report.contains("4, 9"), "{report}");
+        // Both remedies, because the count alone sends people to the timeout
+        // when the readiness call is usually the cheaper fix.
+        assert!(report.contains("nb.settled()"), "{report}");
+        assert!(report.contains("raise"), "{report}");
+    }
+
+    /// A run where everything timed out must stay one line, and must still say
+    /// how many it is hiding -- an instrument that truncates silently is the
+    /// thing this whole change exists to stop.
+    #[test]
+    fn a_long_timeout_list_truncates_but_states_how_many_it_dropped() {
+        let all: Vec<usize> = (0..3375).collect();
+        let report = unsettled_report(&all, 3375, Duration::from_millis(45_000)).unwrap();
+        assert!(report.contains("3375 of 3375"), "{report}");
+        assert!(report.contains("45000 ms"), "{report}");
+        assert!(report.contains("0, 1, 2, 3, 4, 5, 6, 7"), "{report}");
+        assert!(report.contains("and 3367 more"), "{report}");
+        assert_eq!(report.lines().count(), 1, "{report}");
     }
 
     #[test]
