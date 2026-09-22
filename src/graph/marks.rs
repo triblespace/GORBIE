@@ -149,7 +149,14 @@ pub fn draw_node(
             let points = arc_points(at, radius, start, sweep);
             match outline {
                 Stroke2::Dashed => painter.extend(Shape::dashed_line(&points, stroke, 3.0, 3.0)),
-                _ => {
+                // This glyph cannot fill, so `Open` would otherwise be the same
+                // picture as `Filled` and the distinction would silently fall
+                // back onto colour. It recedes by THINNING, the same way links
+                // do, rather than by lightening.
+                Stroke2::Open => {
+                    painter.add(Shape::line(points, stroke));
+                }
+                Stroke2::Filled => {
                     painter.add(Shape::line(points, Stroke::new(2.0_f32, colour)));
                 }
             }

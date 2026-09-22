@@ -262,6 +262,40 @@ pub fn status_critical() -> Color32 {
     ral(3014)
 }
 
+/// Admission: vouched for (RAL 5012 "Light blue") — 3.97:1 light, 4.04:1 dark.
+///
+/// The other half of the one axis a red deficiency keeps. Against
+/// [`unadmitted_mark`] this pair measures **OKLab ΔE 35.4 normal, 22.7 protan,
+/// 27.6 deutan** — worst case 22.7, against a target of 8 and against the 9.6
+/// the [`status_good`]/[`status_critical`] pair manages. It is the widest
+/// separation in the 202-entry table that also clears 3:1 on *both* page poles
+/// in the mark role, which is why the admission axis does not reuse the status
+/// colours even though "unadmitted" sounds like a status.
+///
+/// RAL 5012 is also `link`. A link carries a mandatory underline and sits in a
+/// run of text; a mark is a mark, so the two never occupy the same role.
+pub fn admitted_mark() -> Color32 {
+    ral(5012)
+}
+
+/// Admission: waiting on a grant (RAL 2005 "Luminous orange") — 3.60:1 light,
+/// 4.46:1 dark.
+///
+/// Measured against [`admitted_mark`] above. Two things this is deliberately
+/// *not*: it is not [`status_serious`] (RAL 2003), which reads better as a
+/// severity but measures 2.35:1 on the bone page — below the 3:1 a mark needs,
+/// and legible there only with the icon-and-label pairing a mark cannot carry;
+/// and it is not a severity at all, because a member nobody has granted a
+/// capability for is not *wrong*, it is *waiting*.
+///
+/// It is the same value as [`button_light_on`], the accent, and that overlap is
+/// real: under deuteranopia RAL 2005 and RAL 2003 sit ΔE 8.9 apart, so nothing
+/// here may be distinguished from the accent by colour. It does not need to be
+/// — the fact rides on the mark's stroke, and this only reinforces it.
+pub fn unadmitted_mark() -> Color32 {
+    ral(2005)
+}
+
 impl From<&Style> for GorbieSliderStyle {
     fn from(style: &Style) -> Self {
         slider_style(style.visuals.dark_mode)

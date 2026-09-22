@@ -36,6 +36,38 @@ pub enum LatticePresence {
     Absent,
 }
 
+/// Whether an admitted record put the element where it is.
+///
+/// A store admits a record when some capability proof names its signer. Until
+/// one does, the record is *parked*: it is here, it is valid, and nothing it
+/// says has been folded in. That is an absence with an owner — somebody must
+/// issue a grant — and it is invisible in every other channel, because a
+/// parked `COMMIT` names its payload exactly as an admitted one does.
+///
+/// The split that matters is therefore [`Unadmitted`](Self::Unadmitted)
+/// against the rest, and that is the one the geometry carries. Admitted and
+/// [`Unknown`](Self::Unknown) differ only in hue, deliberately: neither is a
+/// condition anybody acts on, and the kit's rule forbids resting an actionable
+/// fact on colour, not every fact.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum LatticeAdmission {
+    /// An admitted record put this element here.
+    Admitted,
+    /// A record puts it here and no proof admits that record's signer yet.
+    /// Drawn as an open mark: the bytes are here and nothing vouches for them.
+    Unadmitted,
+    /// Neither fact is in evidence.
+    ///
+    /// The default, so a caller that has not looked draws exactly what it drew
+    /// before this channel existed. It is also the honest answer for an element
+    /// whose collection could not be settled at all — a lineage that has not
+    /// replicated is waiting on *bytes*, which is a different absence with a
+    /// different owner, and drawing it as a missing grant would send a reader
+    /// to ask the wrong person.
+    #[default]
+    Unknown,
+}
+
 /// One element of the lattice.
 #[derive(Clone, Debug)]
 pub struct LatticeNode {
@@ -64,6 +96,10 @@ pub struct LatticeNode {
     /// identical to fully-produced outputs. A reader cannot point at a number
     /// and ask which ones.
     pub produced: bool,
+    /// Has an admitted record put this element here?
+    ///
+    /// Defaults to [`LatticeAdmission::Unknown`], which draws as it always did.
+    pub admission: LatticeAdmission,
     /// Is the label the element's real name, or a stand-in for one?
     ///
     /// `false` when the name exists but its bytes are not resident, so the
@@ -82,6 +118,7 @@ impl Default for LatticeNode {
             presence: LatticePresence::Present,
             coverage: None,
             produced: true,
+            admission: LatticeAdmission::Unknown,
             label_known: true,
         }
     }
@@ -153,15 +190,27 @@ pub struct LatticeResponse {
 ///
 /// * **Shape** — square is authored, circle is computed, and a circle with a
 ///   gap at the bottom is an element nothing here produced.
-/// * **Stroke** — solid is resident, dashed is a hole. Dashed edges are
-///   equations the model expects and no record endorses.
+/// * **Stroke** — solid is resident and vouched for, an open outline is
+///   resident with no proof admitting the record that put it here, dashed is a
+///   hole. The three are ordered by how much of the element we actually have.
+///   Dashed edges are equations the model expects and no record endorses.
 /// * **Arc** — the track around a mark is materialized work over expected
 ///   work. An empty track is no evidence, not agreement.
 /// * **Position** — rank is horizontal, and vertical alignment across lanes is
 ///   correspondence.
 /// * **Motion** — energy is granted only where something changed.
 ///
+/// Hue is a fourth channel and never the only one. It restates admission —
+/// [`themes::admitted_mark`] against [`themes::unadmitted_mark`], the widest
+/// colourblind-safe separation in the palette — and in doing so it separates
+/// admitted from unknown, which nothing else does. That is allowed precisely
+/// because it is the one distinction here nobody acts on; the distinction that
+/// *is* actionable, a member waiting on a grant, rides on the stroke.
+///
 /// The accent is spent on one thing only: the ring around the selected node.
+/// It is the same value as [`themes::unadmitted_mark`], which is why an
+/// unadmitted mark is never told apart from a selected one by colour: one is a
+/// mark, the other a ring at the track radius.
 ///
 /// # Selection
 ///
@@ -372,14 +421,22 @@ impl<'a> LatticeGraph<'a> {
             if !visible.contains(at) {
                 continue;
             }
-            let colour = if lit[index] { ink } else { dim };
+            // Off the selected chain the node is dim and stays dim: a
+            // selection that some hues ignored would not be a selection.
+            let colour = if lit[index] {
+                mark_colour(node.admission, ink)
+            } else {
+                dim
+            };
 
             // The level of detail decimates the norm, never the exception. A
-            // hole and an unproduced member are the two things anybody opened
-            // this view for, so they keep their full mark at every zoom, on a
-            // small knockout of the page ground so they stay legible where the
-            // field is densest.
-            let exception = matches!(node.presence, LatticePresence::Absent) || !node.produced;
+            // hole, an unproduced member and a member waiting on a grant are
+            // the three things anybody opened this view for, so they keep their
+            // full mark at every zoom, on a small knockout of the page ground
+            // so they stay legible where the field is densest.
+            let exception = matches!(node.presence, LatticePresence::Absent)
+                || !node.produced
+                || matches!(node.admission, LatticeAdmission::Unadmitted);
             let detail = if exception { Lod::Full } else { lod };
             if matches!(detail, Lod::Dots | Lod::Aggregate) {
                 painter.circle_filled(at, 1.5, colour);
@@ -575,10 +632,31 @@ fn lit_chain(
     lit
 }
 
+/// The hue that restates a mark's admission.
+///
+/// Separate from [`draw_mark`] because it is the one channel the render tests
+/// cannot see: they count shapes, and a shape has no opinion about the colour
+/// it was handed.
+fn mark_colour(admission: LatticeAdmission, ink: Color32) -> Color32 {
+    match admission {
+        LatticeAdmission::Admitted => themes::admitted_mark(),
+        LatticeAdmission::Unadmitted => themes::unadmitted_mark(),
+        // The ordinary ink, so a caller that has not looked at admission draws
+        // exactly the picture it drew before this channel existed.
+        LatticeAdmission::Unknown => ink,
+    }
+}
+
 fn draw_mark(painter: &Painter, at: Pos2, scale: f32, node: &LatticeNode, colour: Color32) {
-    let outline = match node.presence {
-        LatticePresence::Present => Stroke2::Filled,
-        LatticePresence::Absent => Stroke2::Dashed,
+    // Three strokes for three amounts of the element: filled is here and
+    // vouched for, open is here with nothing vouching, dashed is not here.
+    // Absence outranks admission because a hole has no record to admit --
+    // saying "waiting on a grant" about bytes we do not have would name a
+    // remedy that cannot be applied.
+    let outline = match (node.presence, node.admission) {
+        (LatticePresence::Absent, _) => Stroke2::Dashed,
+        (LatticePresence::Present, LatticeAdmission::Unadmitted) => Stroke2::Open,
+        (LatticePresence::Present, _) => Stroke2::Filled,
     };
     let glyph = match (node.mark, node.produced) {
         // Authored elements are produced by definition — someone asserted
@@ -997,5 +1075,186 @@ mod tests {
         };
         let (circles, rects, paths, _) = mark_shapes(&node);
         assert_eq!((circles, rects, paths), (0, 1, 0));
+    }
+
+    /// Filled marks and outlined ones, counted apart.
+    ///
+    /// [`mark_shapes`] counts shape KINDS, and a filled disc and an outlined
+    /// one are both `Shape::Circle` — so it cannot see the one distinction the
+    /// admission channel is carried by. Same baseline subtraction, for the same
+    /// reason: the panel paints a rect of its own.
+    fn mark_fill(node: &LatticeNode) -> (usize, usize) {
+        let count = |node: Option<&LatticeNode>| {
+            let ctx = eframe::egui::Context::default();
+            let node = node.cloned();
+            let output = ctx.run(Default::default(), |ctx| {
+                eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                    let painter = ui.painter().clone();
+                    if let Some(node) = &node {
+                        draw_mark(
+                            &painter,
+                            eframe::egui::pos2(60.0, 60.0),
+                            1.0,
+                            node,
+                            Color32::WHITE,
+                        );
+                    }
+                });
+            });
+            let mut filled = 0usize;
+            let mut outlined = 0usize;
+            for clipped in &output.shapes {
+                let (fill, width) = match &clipped.shape {
+                    eframe::egui::Shape::Circle(circle) => (circle.fill, circle.stroke.width),
+                    eframe::egui::Shape::Rect(rect) => (rect.fill, rect.stroke.width),
+                    _ => continue,
+                };
+                if fill != Color32::TRANSPARENT {
+                    filled += 1;
+                }
+                if width > 0.0 {
+                    outlined += 1;
+                }
+            }
+            [filled, outlined]
+        };
+        let base = count(None);
+        let drawn = count(Some(node));
+        (drawn[0] - base[0], drawn[1] - base[1])
+    }
+
+    #[test]
+    fn a_member_waiting_on_a_grant_is_not_pixel_identical_to_an_admitted_one() {
+        // The whole reason this channel exists: a parked COMMIT names its
+        // payload exactly as an admitted one does, so before this the two drew
+        // the same mark and the only thing saying otherwise was a count beside
+        // the picture. Asserted on the geometry rather than the hue, because
+        // the palette is capped below the text-contrast threshold and cannot
+        // carry the fact by itself.
+        let admitted = LatticeNode {
+            label: "m".into(),
+            mark: LatticeMark::Computed,
+            admission: LatticeAdmission::Admitted,
+            ..LatticeNode::default()
+        };
+        let unadmitted = LatticeNode {
+            admission: LatticeAdmission::Unadmitted,
+            ..admitted.clone()
+        };
+
+        assert_eq!(
+            mark_fill(&admitted),
+            (1, 0),
+            "a vouched-for member is a solid disc"
+        );
+        assert_eq!(
+            mark_fill(&unadmitted),
+            (0, 1),
+            "one waiting on a grant is an outline: here, and nothing vouches"
+        );
+    }
+
+    #[test]
+    fn admission_never_overrides_a_hole() {
+        // A hole has no record to admit, so "waiting on a grant" would name a
+        // remedy nobody can apply. Absence outranks admission, and both
+        // admission answers must leave the dashes alone.
+        let hole = LatticeNode {
+            mark: LatticeMark::Authored,
+            presence: LatticePresence::Absent,
+            admission: LatticeAdmission::Unadmitted,
+            ..LatticeNode::default()
+        };
+        let (_, rects, _, segments) = mark_shapes(&hole);
+        assert_eq!(rects, 0, "an absent member must not draw a solid square");
+        assert!(segments >= 4, "it stays a dashed square, got {segments}");
+
+        let admitted = LatticeNode {
+            admission: LatticeAdmission::Admitted,
+            ..hole.clone()
+        };
+        assert_eq!(mark_shapes(&hole), mark_shapes(&admitted));
+    }
+
+    #[test]
+    fn the_open_below_glyph_still_separates_its_two_strokes() {
+        // This glyph cannot fill, so `Open` and `Filled` would otherwise draw
+        // one picture and the distinction would fall back onto colour alone.
+        // No caller reaches the combination today -- an attested member is
+        // produced by the record attesting it -- which is exactly why the kit
+        // must not depend on that staying true.
+        let produced_by_nobody = LatticeNode {
+            mark: LatticeMark::Computed,
+            produced: false,
+            ..LatticeNode::default()
+        };
+        let waiting = LatticeNode {
+            admission: LatticeAdmission::Unadmitted,
+            ..produced_by_nobody.clone()
+        };
+        let weight = |node: &LatticeNode| {
+            let ctx = eframe::egui::Context::default();
+            let node = node.clone();
+            let output = ctx.run(Default::default(), |ctx| {
+                eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                    draw_mark(
+                        &ui.painter().clone(),
+                        eframe::egui::pos2(60.0, 60.0),
+                        1.0,
+                        &node,
+                        Color32::WHITE,
+                    );
+                });
+            });
+            output
+                .shapes
+                .iter()
+                .find_map(|clipped| match &clipped.shape {
+                    eframe::egui::Shape::Path(path) => Some(path.stroke.width),
+                    _ => None,
+                })
+                .expect("the open-below glyph draws one arc")
+        };
+        assert!(
+            weight(&waiting) < weight(&produced_by_nobody),
+            "it recedes by thinning, like a link: {} against {}",
+            weight(&waiting),
+            weight(&produced_by_nobody)
+        );
+    }
+
+    #[test]
+    fn an_unlooked_at_node_draws_exactly_what_it_drew_before() {
+        // The default has to be the old picture, in both channels, or adding
+        // this axis silently repaints every caller that has not adopted it.
+        let node = LatticeNode::default();
+        assert_eq!(node.admission, LatticeAdmission::Unknown);
+        let ink = Color32::from_rgb(9, 9, 9);
+        assert_eq!(mark_colour(node.admission, ink), ink);
+        assert_eq!(
+            mark_fill(&node),
+            mark_fill(&LatticeNode {
+                admission: LatticeAdmission::Unknown,
+                ..LatticeNode::default()
+            })
+        );
+    }
+
+    #[test]
+    fn the_two_admission_hues_are_the_pair_the_palette_measured() {
+        // Not an aesthetic choice: RAL 2005 against RAL 5012 is the widest
+        // colourblind-safe separation in the table that also clears 3:1 on both
+        // page poles in the mark role. Pinning it here means a later palette
+        // edit has to come past this test rather than silently narrowing the
+        // one axis a red deficiency keeps.
+        let ink = Color32::from_rgb(9, 9, 9);
+        assert_eq!(
+            mark_colour(LatticeAdmission::Admitted, ink),
+            themes::ral(5012)
+        );
+        assert_eq!(
+            mark_colour(LatticeAdmission::Unadmitted, ink),
+            themes::ral(2005)
+        );
     }
 }
