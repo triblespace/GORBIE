@@ -423,7 +423,12 @@ impl<'a> LatticeGraph<'a> {
             }
             // Off the selected chain the node is dim and stays dim: a
             // selection that some hues ignored would not be a selection.
-            let colour = if lit[index] {
+            let colour = if lit[index] { ink } else { dim };
+            // The admission hue is for the MARK alone. The palette caps any
+            // single value against either ground at 4.00:1, under the 4.5:1
+            // text threshold -- so a label wearing it would be a label nobody
+            // can read, and the track carries a different fact entirely.
+            let mark = if lit[index] {
                 mark_colour(node.admission, ink)
             } else {
                 dim
@@ -439,7 +444,7 @@ impl<'a> LatticeGraph<'a> {
                 || matches!(node.admission, LatticeAdmission::Unadmitted);
             let detail = if exception { Lod::Full } else { lod };
             if matches!(detail, Lod::Dots | Lod::Aggregate) {
-                painter.circle_filled(at, 1.5, colour);
+                painter.circle_filled(at, 1.5, mark);
                 folded += 1;
                 continue;
             }
@@ -457,7 +462,7 @@ impl<'a> LatticeGraph<'a> {
                     colour,
                 );
             }
-            draw_mark(&painter, at, scale, node, colour);
+            draw_mark(&painter, at, scale, node, mark);
             if self.selected == Some(index) {
                 painter.circle_stroke(
                     at,
@@ -1237,6 +1242,55 @@ mod tests {
                 admission: LatticeAdmission::Unknown,
                 ..LatticeNode::default()
             })
+        );
+    }
+
+    #[test]
+    fn a_label_never_wears_the_admission_hue() {
+        // It did for one revision, and it is worth a test rather than a fix:
+        // this palette caps any single value against either ground at 4.00:1,
+        // under the 4.5:1 text threshold, so a label in the admission hue is a
+        // label nobody can read. Marks are not text and may wear it; the names
+        // under them may not.
+        let nodes = vec![LatticeNode {
+            label: "abcdef012345".into(),
+            mark: LatticeMark::Computed,
+            admission: LatticeAdmission::Admitted,
+            ..LatticeNode::default()
+        }];
+        // egui's own default style, not the industrial one: the theme binds a
+        // font family this test process never loads, and the assertion is
+        // about which colour the label is handed, not which face draws it.
+        let ctx = eframe::egui::Context::default();
+        // Two passes: the layout settles from the first, and the label budget
+        // is only spent once there is somewhere to put it.
+        let mut text_colours = Vec::new();
+        for _ in 0..2 {
+            text_colours.clear();
+            let output = ctx.run(Default::default(), |ctx| {
+                eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.add(LatticeGraph::new(&nodes, &[]).height(400.0));
+                });
+            });
+            for clipped in &output.shapes {
+                if let eframe::egui::Shape::Text(text) = &clipped.shape {
+                    text_colours.extend(
+                        text.galley
+                            .job
+                            .sections
+                            .iter()
+                            .map(|section| section.format.color),
+                    );
+                }
+            }
+        }
+        assert!(
+            !text_colours.is_empty(),
+            "the label budget should have drawn the one node's name"
+        );
+        assert!(
+            !text_colours.contains(&themes::admitted_mark()),
+            "a label was drawn in the admission hue: {text_colours:?}"
         );
     }
 
