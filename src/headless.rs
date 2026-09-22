@@ -62,6 +62,17 @@ pub(super) fn capture(
 /// second one writes plausible-looking stubs. Named remedies rather than a bare
 /// count, because the count alone sends people to raise the timeout when the
 /// cheaper fix is usually the readiness call.
+/// How a card's frame loop ended. `Complete` means the notebook said so;
+/// `QuietAtDeadline` means it had stopped moving and the clock collected it;
+/// `MovingAtDeadline` means it was still changing and the picture may be
+/// half-built. Only the last one is worth telling anyone about.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Settle {
+    Complete,
+    QuietAtDeadline,
+    MovingAtDeadline,
+}
+
 fn unsettled_report(timed_out: &[usize], total: usize, settle_timeout: Duration) -> Option<String> {
     if timed_out.is_empty() {
         return None;
@@ -73,10 +84,10 @@ fn unsettled_report(timed_out: &[usize], total: usize, settle_timeout: Duration)
         String::new()
     };
     Some(format!(
-        "GORBIE headless: {} of {} card(s) hit the {} ms settle timeout and were rendered \
-         from whatever frame existed at the deadline, so they may be incomplete. Cards: \
-         {}{}. Either call `nb.settled()` when the notebook's content is ready, or raise \
-         the settle timeout.",
+        "GORBIE headless: {} of {} card(s) were STILL CHANGING when the {} ms settle \
+         timeout expired, so their images may be half-built. Cards: {}{}. Either call \
+         `nb.settled()` when the notebook's content is ready, or raise the settle \
+         timeout. Cards that had simply stopped moving are not counted here.",
         timed_out.len(),
         total,
         settle_timeout.as_millis(),
@@ -202,9 +213,9 @@ impl HeadlessWgpuRunner {
         let mut index = 0;
         let mut timed_out: Vec<usize> = Vec::new();
         loop {
-            let (mut output, measured_height, settled) =
+            let (mut output, measured_height, outcome) =
                 self.run_frame_until_settled(core, index, NOTEBOOK_MIN_HEIGHT)?;
-            let mut card_settled = settled;
+            let mut moving = outcome == Settle::MovingAtDeadline;
             let Some(measured_height) = measured_height else {
                 break;
             };
@@ -215,9 +226,9 @@ impl HeadlessWgpuRunner {
             let (mut output, final_height) = if height_close(NOTEBOOK_MIN_HEIGHT, desired_height) {
                 (output, desired_height)
             } else {
-                let (mut output, measured_height, settled) =
+                let (mut output, measured_height, outcome) =
                     self.run_frame_until_settled(core, index, desired_height)?;
-                card_settled = card_settled && settled;
+                moving = moving || outcome == Settle::MovingAtDeadline;
                 let Some(measured_height) = measured_height else {
                     break;
                 };
@@ -226,7 +237,7 @@ impl HeadlessWgpuRunner {
             };
 
             output.textures_delta = textures_delta;
-            if !card_settled {
+            if moving {
                 timed_out.push(index);
             }
             let tiles = self.render_output(output, egui::vec2(self.card_width, final_height))?;
@@ -238,29 +249,54 @@ impl HeadlessWgpuRunner {
     }
 
     /// Drive frames until the notebook says it is ready, or the settle timeout
-    /// expires. The returned `settled` flag says WHICH of those happened, and it
-    /// is the whole point: a timed-out card is rendered from whatever frame
-    /// existed at the deadline, which may be a half-built one. Before this flag
-    /// the two exits were indistinguishable, so a 2 s default silently emitted
-    /// 2 px stubs and a 45 s one silently did not, with nothing to tell them
-    /// apart. Measured 2026-09-21: the same notebook gave 3375 cards with 0
-    /// stubs at 45 s settle, against a wall of stubs at the 2 s default.
+    /// expires, and report WHICH happened.
+    ///
+    /// A card that reaches the deadline is rendered from whatever frame existed
+    /// at that instant. Before this outcome the two exits were indistinguishable,
+    /// so a 2 s default silently emitted half-built cards and a 45 s one silently
+    /// did not, with nothing to tell them apart.
+    ///
+    /// The deadline is split in two, because most notebooks never call
+    /// [`NotebookCtx::settled`] at all and a warning that fires on every capture
+    /// is noise rather than signal. If egui requested no repaint and the measured
+    /// height held steady, the frame had stopped moving and the deadline merely
+    /// collected it; that is `QuietAtDeadline` and says nothing. Only a frame
+    /// still in motion when the clock ran out is worth a word.
+    ///
+    /// Quiescence deliberately does NOT end the loop. A card waiting on an async
+    /// read looks quiescent in the gap before its data lands and requests a
+    /// repaint, so treating quiet as done would manufacture exactly the stub this
+    /// is here to catch. Timing is unchanged; only the report is sharper.
     fn run_frame_until_settled(
         &mut self,
         core: &mut NotebookCore,
         index: usize,
         height: f32,
-    ) -> HeadlessResult<(egui::FullOutput, Option<f32>, bool)> {
+    ) -> HeadlessResult<(egui::FullOutput, Option<f32>, Settle)> {
         let start = Instant::now();
         let mut textures_delta = egui::TexturesDelta::default();
         let (mut output, mut measured_height) = self.run_frame(core, index, height)?;
+        let mut previous_height = measured_height;
         loop {
             textures_delta.append(std::mem::take(&mut output.textures_delta));
 
             let settled = core.has_settled();
+            let quiet = min_repaint_delay(&output) == Duration::MAX
+                && match (measured_height, previous_height) {
+                    (Some(now), Some(before)) => height_close(now, before),
+                    (None, None) => true,
+                    _ => false,
+                };
             if settled || start.elapsed() >= self.settle_timeout {
                 output.textures_delta = textures_delta;
-                return Ok((output, measured_height, settled));
+                let outcome = if settled {
+                    Settle::Complete
+                } else if quiet {
+                    Settle::QuietAtDeadline
+                } else {
+                    Settle::MovingAtDeadline
+                };
+                return Ok((output, measured_height, outcome));
             }
 
             let repaint_delay = min_repaint_delay(&output);
@@ -269,6 +305,7 @@ impl HeadlessWgpuRunner {
             }
             let (next_output, next_height) = self.run_frame(core, index, height)?;
             output = next_output;
+            previous_height = measured_height;
             measured_height = next_height;
         }
     }
@@ -686,6 +723,7 @@ mod tests {
         let report = unsettled_report(&[4, 9], 3375, Duration::from_millis(2000))
             .expect("a timed-out capture must report itself");
         assert!(report.contains("2 of 3375"), "{report}");
+        assert!(report.contains("STILL CHANGING"), "{report}");
         assert!(report.contains("2000 ms"), "{report}");
         assert!(report.contains("4, 9"), "{report}");
         // Both remedies, because the count alone sends people to the timeout
