@@ -18,6 +18,21 @@
 //! threshold. Colour here cannot carry a fact on its own even when it looks
 //! like it does, which is why links carry mandatory underlines elsewhere and
 //! why state is carried by geometry here.
+//!
+//! The corollary, because it is the form the mistake actually takes: **text
+//! wears text colour, never a highlight.** A mark is not text and owes only
+//! 3:1, which a pinned value clears on both grounds, so a mark may carry a
+//! fixed hue. A label owes 4.5:1, which no pinned value can give — that is
+//! what the ceiling above means — so a label takes the ordinary ink, which
+//! escapes the ceiling by inverting with the theme and gets the full 16.03:1
+//! both ways. When a name and its mark share one colour variable, the name is
+//! the one that ends up unreadable, and it is unreadable for every reader and
+//! not only a colourblind one.
+//!
+//! The exception is a pinned value on a pinned SURFACE: graphite text on a
+//! signal-yellow post-it is 8.63:1 in both themes, because neither side of the
+//! pair moves. What the ceiling forbids is one fixed colour against two
+//! different grounds.
 
 use eframe::egui::{pos2, vec2, Color32, Painter, Pos2, Rect, Shape, Stroke, StrokeKind};
 
