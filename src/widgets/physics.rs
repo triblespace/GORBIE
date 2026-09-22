@@ -89,6 +89,26 @@ pub struct LegendEntry {
     pub color: Color32,
 }
 
+/// A warning line: the severity on a marker, the words in ordinary ink.
+///
+/// `warn_fg_color` is RAL 2003, which measures **2.35:1 on the bone page** --
+/// under the 4.5:1 text needs, and no fixed value can do better here. The
+/// palette's two grounds are 16.03:1 apart, and a value's contrast against one
+/// times its contrast against the other is always that same ratio, so anything
+/// pinned across both themes is capped at `sqrt(16.03) = 4.00:1`. Only the
+/// ordinary ink escapes it, by inverting with the theme.
+///
+/// A marker is not text and owes only 3:1, which RAL 2003 clears on graphite
+/// and very nearly on bone. So the severity keeps its colour, on the one thing
+/// allowed to carry it, and the sentence stays readable in both themes.
+fn warning(ui: &mut Ui, text: impl Into<String>) {
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.label(egui::RichText::new("\u{25cf}").color(ui.visuals().warn_fg_color));
+        ui.label(text.into());
+    });
+}
+
 impl LegendEntry {
     pub fn new(label: impl Into<String>, color: Color32) -> Self {
         Self {
@@ -462,20 +482,29 @@ impl PhysicsView {
         ui.small("Drag: orbit · Shift/right drag: pan · wheel: zoom · double click: fit · wireframes are x-ray overlays");
         ui.horizontal_wrapped(|ui| {
             for entry in &scene.legend {
-                ui.label(
-                    egui::RichText::new(format!("● {}", entry.label))
-                        .small()
-                        .color(entry.color),
-                );
+                // The swatch wears the series colour; the name wears ink. The
+                // caller supplies `entry.color` and may supply anything, so a
+                // label in it is a label with no contrast guarantee at all.
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    ui.label(egui::RichText::new("\u{25cf}").small().color(entry.color));
+                    ui.label(egui::RichText::new(&entry.label).small());
+                });
             }
         });
         let invalid = scene.invalid_count();
         if invalid != 0 {
-            ui.colored_label(ui.visuals().warn_fg_color, format!("{invalid} invalid primitives omitted (non-finite coordinates, radius or width)."));
+            warning(
+                ui,
+                format!(
+                    "{invalid} invalid primitives omitted (non-finite coordinates, radius or \
+                     width)."
+                ),
+            );
         }
         if self.fixed_bounds.is_some_and(|b| !b.is_valid()) {
-            ui.colored_label(
-                ui.visuals().warn_fg_color,
+            warning(
+                ui,
                 "Invalid fixed camera bounds; using finite scene bounds.",
             );
         }
